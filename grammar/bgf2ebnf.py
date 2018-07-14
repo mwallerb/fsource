@@ -7,7 +7,7 @@ put = sys.stdout.write
 
 def reformat_nonterminal(name):
     if name.upper() == name:
-        return name;
+        return name.lower()
     name = name[0].lower() + name[1:]
     name = re.sub(r'-*([A-Z])', r'_\1', name)
     name = name.replace('-', '_')
@@ -28,11 +28,11 @@ def parse_recipe(recipe, parent_type):
             raise ValueError("Don't do choice inside sequence!")
         put('\n')
         for n, item in enumerate(recipe.findChildren(recursive=False)):
-            put('    ')
+            put('\t')
             put('  ' if n == 0 else '| ')
             parse_recipe(item, type_)
             put('\n')
-        put('   ')
+        put('\t')
     elif type_ == 'plus':
         put('{ ')
         parse_recipe(recipe.findChild(recursive=False), type_)
@@ -60,7 +60,8 @@ def parse_grammar(soup):
         recipe = rule.expression.findChild()
         put(reformat_nonterminal(name) + ' = ')
         parse_recipe(recipe, None)
-        put(' ;\n\n')
+        if recipe.name != 'choice': put(' ')
+        put(';\n\n')
 
 if __name__ == '__main__':
     soup = BeautifulSoup(open('./fortran90.bgf', 'rb'), 'xml')

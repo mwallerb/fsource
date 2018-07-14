@@ -1,68 +1,68 @@
 executable_program = [ start_comment_block ] { program_unit }+ ;
 
 program_unit = 
-      main_program
-    | function_subprogram
-    | subroutine_subprogram
-    | module
-    | block_data_subprogram
-    ;
+	  main_program
+	| function_subprogram
+	| subroutine_subprogram
+	| module
+	| block_data_subprogram
+	;
 
 main_program = [ program_stmt ] main_range ;
 
-program_stmt = lbl_def 'program' program_name EOS ;
+program_stmt = lbl_def 'program' program_name eos ;
 
 lbl_def = [ label ] ;
 
 program_name = ident ;
 
 main_range = 
-      { body_construct }+ end_program_stmt
-    | internal_sub_prog_part end_program_stmt
-    | end_program_stmt
-    ;
+	  { body_construct }+ end_program_stmt
+	| internal_sub_prog_part end_program_stmt
+	| end_program_stmt
+	;
 
 body_construct = 
-      specification_part_construct
-    | executable_construct
-    ;
+	  specification_part_construct
+	| executable_construct
+	;
 
 specification_part_construct = 
-      implicit_stmt
-    | parameter_stmt
-    | format_stmt
-    | entry_stmt
-    | declaration_construct
-    | use_stmt
-    ;
+	  implicit_stmt
+	| parameter_stmt
+	| format_stmt
+	| entry_stmt
+	| declaration_construct
+	| use_stmt
+	;
 
 implicit_stmt = 
-      lbl_def 'implicit' 'none' EOS
-    | lbl_def 'implicit' implicit_spec { ',' implicit_spec } EOS
-    ;
+	  lbl_def 'implicit' 'none' eos
+	| lbl_def 'implicit' implicit_spec { ',' implicit_spec } eos
+	;
 
 implicit_spec = type_spec '(' letter_spec { ',' letter_spec } ')' ;
 
 type_spec = 
-      'integer' kind_selector
-    | 'real' kind_selector
-    | 'double' 'precision'
-    | 'complex' kind_selector
-    | 'character' char_selector
-    | 'logical' kind_selector
-    | 'type' '(' type_name ')'
-    | 'integer'
-    | 'real'
-    | 'complex'
-    | 'logical'
-    | 'character'
-    | 'character' length_selector
-    ;
+	  'integer' kind_selector
+	| 'real' kind_selector
+	| 'double' 'precision'
+	| 'complex' kind_selector
+	| 'character' char_selector
+	| 'logical' kind_selector
+	| 'type' '(' type_name ')'
+	| 'integer'
+	| 'real'
+	| 'complex'
+	| 'logical'
+	| 'character'
+	| 'character' length_selector
+	;
 
 kind_selector = 
-      '(' [ 'kind' '=' ] expr ')'
-    | '*' icon
-    ;
+	  '(' [ 'kind' '=' ] expr ')'
+	| '*' icon
+	;
 
 expr = [ expr defined_binary_op ] level5_expr ;
 
@@ -71,9 +71,9 @@ defined_binary_op = dop ;
 level5_expr = [ level5_expr equiv_op ] equiv_operand ;
 
 equiv_op = 
-      '.eqv.'
-    | '.neqv.'
-    ;
+	  '.eqv.'
+	| '.neqv.'
+	;
 
 equiv_operand = [ equiv_operand or_op ] or_operand ;
 
@@ -94,21 +94,21 @@ level3_expr = [ level3_expr concat_op ] level2_expr ;
 concat_op = '//' ;
 
 level2_expr = 
-      [ level2_expr add_op ] add_operand
-    | sign add_operand
-    ;
+	  [ level2_expr add_op ] add_operand
+	| sign add_operand
+	;
 
 add_op = 
-      '+'
-    | '-'
-    ;
+	  '+'
+	| '-'
+	;
 
 add_operand = [ add_operand mult_op ] mult_operand ;
 
 mult_op = 
-      '*'
-    | '/'
-    ;
+	  '*'
+	| '/'
+	;
 
 mult_operand = level1_expr [ power_op mult_operand ] ;
 
@@ -117,46 +117,46 @@ level1_expr = [ defined_unary_op ] primary ;
 defined_unary_op = dop ;
 
 primary = 
-      array_constructor
-    | unsigned_arithmetic_constant
-    | name
-    | data_ref
-    | function_reference
-    | '(' expr ')'
-    | scon
-    | logical_constant
-    ;
+	  array_constructor
+	| unsigned_arithmetic_constant
+	| name
+	| data_ref
+	| function_reference
+	| '(' expr ')'
+	| scon
+	| logical_constant
+	;
 
 array_constructor = '(/' ac_value_list '/)' ;
 
 ac_value_list = ac_value { ',' ac_value } ;
 
 ac_value = 
-      expr
-    | ac_implied_do
-    ;
+	  expr
+	| ac_implied_do
+	;
 
 ac_implied_do = 
-      '(' expr ',' implied_do_variable '=' expr ',' expr ')'
-    | '(' expr ',' implied_do_variable '=' expr ',' expr ',' expr ')'
-    | '(' ac_implied_do ',' implied_do_variable '=' expr ',' expr ')'
-    | '(' ac_implied_do ',' implied_do_variable '=' expr ',' expr ',' expr ')'
-    ;
+	  '(' expr ',' implied_do_variable '=' expr ',' expr ')'
+	| '(' expr ',' implied_do_variable '=' expr ',' expr ',' expr ')'
+	| '(' ac_implied_do ',' implied_do_variable '=' expr ',' expr ')'
+	| '(' ac_implied_do ',' implied_do_variable '=' expr ',' expr ',' expr ')'
+	;
 
 implied_do_variable = ident ;
 
 unsigned_arithmetic_constant = 
-      icon '_' kind_param
-    | rcon '_' kind_param
-    | icon
-    | rcon
-    | complex_const
-    ;
+	  icon '_' kind_param
+	| rcon '_' kind_param
+	| icon
+	| rcon
+	| complex_const
+	;
 
 kind_param = 
-      icon
-    | named_constant_use
-    ;
+	  icon
+	| named_constant_use
+	;
 
 named_constant_use = ident ;
 
@@ -165,89 +165,89 @@ complex_const = '(' expr ',' expr ')' ;
 name = ident ;
 
 data_ref = 
-      name '%' name
-    | data_ref '%' name
-    | name '(' section_subscript_list ')'
-    | data_ref '(' section_subscript_list ')'
-    ;
+	  name '%' name
+	| data_ref '%' name
+	| name '(' section_subscript_list ')'
+	| data_ref '(' section_subscript_list ')'
+	;
 
 section_subscript_list = section_subscript { ',' section_subscript } ;
 
 section_subscript = 
-      expr
-    | subscript_triplet
-    ;
+	  expr
+	| subscript_triplet
+	;
 
 subscript_triplet = [ expr ] ':' [ expr ] [ ':' expr ] ;
 
 function_reference = name '(' [ function_arg_list ] ')' ;
 
 function_arg_list = 
-      function_arg
-    | function_arg_list ',' function_arg
-    | section_subscript_list ',' function_arg
-    ;
+	  function_arg
+	| function_arg_list ',' function_arg
+	| section_subscript_list ',' function_arg
+	;
 
 function_arg = name '=' expr ;
 
 logical_constant = 
-      '.true.' '_' kind_param
-    | '.false.' '_' kind_param
-    | '.true.'
-    | '.false.'
-    ;
+	  '.true.' '_' kind_param
+	| '.false.' '_' kind_param
+	| '.true.'
+	| '.false.'
+	;
 
 power_op = '**' ;
 
 sign = 
-      '+'
-    | '-'
-    ;
+	  '+'
+	| '-'
+	;
 
 rel_op = 
-      '=='
-    | '/='
-    | '<'
-    | '<='
-    | '>'
-    | '>='
-    | '.eq.'
-    | '.ne.'
-    | '.lt.'
-    | '.le.'
-    | '.gt.'
-    | '.ge.'
-    ;
+	  '=='
+	| '/='
+	| '<'
+	| '<='
+	| '>'
+	| '>='
+	| '.eq.'
+	| '.ne.'
+	| '.lt.'
+	| '.le.'
+	| '.gt.'
+	| '.ge.'
+	;
 
 char_selector = 
-      '(' 'len' '=' type_param_value ',' 'kind' '=' expr ')'
-    | '(' 'len' '=' type_param_value ',' expr ')'
-    | '(' 'len' '=' type_param_value ')'
-    | '(' [ 'kind' '=' ] expr ')'
-    ;
+	  '(' 'len' '=' type_param_value ',' 'kind' '=' expr ')'
+	| '(' 'len' '=' type_param_value ',' expr ')'
+	| '(' 'len' '=' type_param_value ')'
+	| '(' [ 'kind' '=' ] expr ')'
+	;
 
 type_param_value = 
-      specification_expr
-    | '*'
-    ;
+	  specification_expr
+	| '*'
+	;
 
 specification_expr = expr ;
 
 type_name = ident ;
 
 length_selector = 
-      '(' type_param_value ')'
-    | '*' char_length
-    ;
+	  '(' type_param_value ')'
+	| '*' char_length
+	;
 
 char_length = 
-      '(' type_param_value ')'
-    | scalar_int_literal_constant
-    ;
+	  '(' type_param_value ')'
+	| scalar_int_literal_constant
+	;
 
 letter_spec = letter [ '-' letter ] ;
 
-parameter_stmt = lbl_def 'parameter' '(' named_constant_def_list ')' EOS ;
+parameter_stmt = lbl_def 'parameter' '(' named_constant_def_list ')' eos ;
 
 named_constant_def_list = named_constant_def { ',' named_constant_def } ;
 
@@ -255,127 +255,127 @@ named_constant_def = named_constant '=' expr ;
 
 named_constant = ident ;
 
-format_stmt = lbl_def 'format' '(' [ format_item_list ] ')' EOS ;
+format_stmt = lbl_def 'format' '(' [ format_item_list ] ')' eos ;
 
 format_item_list = format_item { ',' format_item } ;
 
 format_item = 
-      [ icon ] data_edit_descr
-    | control_edit_descr
-    | char_string_edit_descr
-    | [ icon ] '(' format_item_list ')'
-    | format_item ':' format_item
-    ;
+	  [ icon ] data_edit_descr
+	| control_edit_descr
+	| char_string_edit_descr
+	| [ icon ] '(' format_item_list ')'
+	| format_item ':' format_item
+	;
 
 data_edit_descr = 
-      'I' icon [ '.' icon ]
-    | 'O' icon [ '.' icon ]
-    | 'B' icon [ '.' icon ]
-    | 'Z' icon [ '.' icon ]
-    | 'F' icon '.' icon
-    | 'E' icon '.' icon [ 'E' icon ]
-    | 'EN' icon '.' icon [ 'E' icon ]
-    | 'ES' icon '.' icon [ 'E' icon ]
-    | 'G' icon '.' icon [ 'E' icon ]
-    | 'L' icon
-    | 'A' [ icon ]
-    | 'D' icon '.' icon
-    ;
+	  'I' icon [ '.' icon ]
+	| 'O' icon [ '.' icon ]
+	| 'B' icon [ '.' icon ]
+	| 'Z' icon [ '.' icon ]
+	| 'F' icon '.' icon
+	| 'E' icon '.' icon [ 'E' icon ]
+	| 'EN' icon '.' icon [ 'E' icon ]
+	| 'ES' icon '.' icon [ 'E' icon ]
+	| 'G' icon '.' icon [ 'E' icon ]
+	| 'L' icon
+	| 'A' [ icon ]
+	| 'D' icon '.' icon
+	;
 
 control_edit_descr = 
-      position_edit_descr
-    | [ icon ] '/'
-    | ':'
-    | sign_edit_descr
-    | [ 
-      '-'
-    | '+'
-    ] icon 'P' [ [ icon ] data_edit_descr ]
-    | blank_interp_edit_descr
-    ;
+	  position_edit_descr
+	| [ icon ] '/'
+	| ':'
+	| sign_edit_descr
+	| [ 
+	  '-'
+	| '+'
+	 ] icon 'P' [ [ icon ] data_edit_descr ]
+	| blank_interp_edit_descr
+	;
 
 position_edit_descr = 
-      'T' icon
-    | 'TL' icon
-    | 'TR' icon
-    | icon 'X'
-    ;
+	  'T' icon
+	| 'TL' icon
+	| 'TR' icon
+	| icon 'X'
+	;
 
 sign_edit_descr = 
-      'S'
-    | 'SP'
-    | 'SS'
-    ;
+	  'S'
+	| 'SP'
+	| 'SS'
+	;
 
 blank_interp_edit_descr = 
-      'BN'
-    | 'BZ'
-    ;
+	  'BN'
+	| 'BZ'
+	;
 
 char_string_edit_descr = 
-      scon
-    | icon 'H' { character }+
-    ;
+	  scon
+	| icon 'H' { character }+
+	;
 
 entry_stmt = 
-      lbl_def 'entry' entry_name subroutine_par_list EOS
-    | lbl_def 'entry' entry_name subroutine_par_list 'result' '(' name ')' EOS
-    ;
+	  lbl_def 'entry' entry_name subroutine_par_list eos
+	| lbl_def 'entry' entry_name subroutine_par_list 'result' '(' name ')' eos
+	;
 
 entry_name = ident ;
 
 subroutine_par_list = '(' [ subroutine_par { ',' subroutine_par } ] ')' ;
 
 subroutine_par = 
-      dummy_arg_name
-    | '*'
-    ;
+	  dummy_arg_name
+	| '*'
+	;
 
 dummy_arg_name = ident ;
 
 declaration_construct = 
-      type_declaration_stmt
-    | specification_stmt
-    | derived_type_def
-    | interface_block
-    ;
+	  type_declaration_stmt
+	| specification_stmt
+	| derived_type_def
+	| interface_block
+	;
 
 type_declaration_stmt = 
-      lbl_def type_spec { ',' attr_spec } ':' ':' entity_decl { ',' entity_decl } EOS
-    | lbl_def type_spec entity_decl { ',' entity_decl } EOS
-    ;
+	  lbl_def type_spec { ',' attr_spec } ':' ':' entity_decl { ',' entity_decl } eos
+	| lbl_def type_spec entity_decl { ',' entity_decl } eos
+	;
 
 attr_spec = 
-      'parameter'
-    | access_spec
-    | 'allocatable'
-    | 'dimension' '(' array_spec ')'
-    | 'external'
-    | 'intent' '(' intent_spec ')'
-    | 'intrinsic'
-    | 'optional'
-    | 'pointer'
-    | 'save'
-    | 'target'
-    ;
+	  'parameter'
+	| access_spec
+	| 'allocatable'
+	| 'dimension' '(' array_spec ')'
+	| 'external'
+	| 'intent' '(' intent_spec ')'
+	| 'intrinsic'
+	| 'optional'
+	| 'pointer'
+	| 'save'
+	| 'target'
+	;
 
 access_spec = 
-      'public'
-    | 'private'
-    ;
+	  'public'
+	| 'private'
+	;
 
 array_spec = 
-      assumed_shape_spec_list
-    | deferred_shape_spec_list
-    | explicit_shape_spec_list
-    | assumed_size_spec
-    ;
+	  assumed_shape_spec_list
+	| deferred_shape_spec_list
+	| explicit_shape_spec_list
+	| assumed_size_spec
+	;
 
 assumed_shape_spec_list = 
-      lower_bound ':'
-    | deferred_shape_spec_list ',' lower_bound ':'
-    | assumed_shape_spec_list ',' assumed_shape_spec
-    ;
+	  lower_bound ':'
+	| deferred_shape_spec_list ',' lower_bound ':'
+	| assumed_shape_spec_list ',' assumed_shape_spec
+	;
 
 lower_bound = specification_expr ;
 
@@ -392,83 +392,83 @@ explicit_shape_spec = [ lower_bound ':' ] upper_bound ;
 upper_bound = specification_expr ;
 
 assumed_size_spec = 
-      [ lower_bound ':' ] '*'
-    | explicit_shape_spec_list ',' '*'
-    | explicit_shape_spec_list ',' lower_bound ':' '*'
-    ;
+	  [ lower_bound ':' ] '*'
+	| explicit_shape_spec_list ',' '*'
+	| explicit_shape_spec_list ',' lower_bound ':' '*'
+	;
 
 intent_spec = 
-      'in'
-    | 'out'
-    | 'in' 'out'
-    ;
+	  'in'
+	| 'out'
+	| 'in' 'out'
+	;
 
 entity_decl = 
-      object_name '=' expr
-    | object_name '(' array_spec ')' '=' expr
-    | object_name '*' char_length '=' expr
-    | object_name '*' char_length '(' array_spec ')' '=' expr
-    | object_name
-    | object_name '*' char_length
-    | object_name '(' array_spec ')'
-    | object_name '(' array_spec ')' '*' char_length
-    ;
+	  object_name '=' expr
+	| object_name '(' array_spec ')' '=' expr
+	| object_name '*' char_length '=' expr
+	| object_name '*' char_length '(' array_spec ')' '=' expr
+	| object_name
+	| object_name '*' char_length
+	| object_name '(' array_spec ')'
+	| object_name '(' array_spec ')' '*' char_length
+	;
 
 object_name = ident ;
 
 specification_stmt = 
-      access_stmt
-    | allocatable_stmt
-    | common_stmt
-    | data_stmt
-    | dimension_stmt
-    | equivalence_stmt
-    | external_stmt
-    | intrinsic_stmt
-    | save_stmt
-    | intent_stmt
-    | namelist_stmt
-    | optional_stmt
-    | pointer_stmt
-    | target_stmt
-    ;
+	  access_stmt
+	| allocatable_stmt
+	| common_stmt
+	| data_stmt
+	| dimension_stmt
+	| equivalence_stmt
+	| external_stmt
+	| intrinsic_stmt
+	| save_stmt
+	| intent_stmt
+	| namelist_stmt
+	| optional_stmt
+	| pointer_stmt
+	| target_stmt
+	;
 
 access_stmt = 
-      lbl_def access_spec ':' ':' access_id_list EOS
-    | lbl_def access_spec [ access_id_list ] EOS
-    ;
+	  lbl_def access_spec ':' ':' access_id_list eos
+	| lbl_def access_spec [ access_id_list ] eos
+	;
 
 access_id_list = access_id { ',' access_id } ;
 
 access_id = 
-      generic_name
-    | generic_spec
-    ;
+	  generic_name
+	| generic_spec
+	;
 
 generic_name = ident ;
 
 generic_spec = 
-      'operator' '(' defined_operator ')'
-    | 'assignment' '(' '=' ')'
-    ;
+	  'operator' '(' defined_operator ')'
+	| 'assignment' '(' '=' ')'
+	;
 
 defined_operator = 
-      dop
-    | power_op
-    | mult_op
-    | add_op
-    | concat_op
-    | rel_op
-    | not_op
-    | and_op
-    | or_op
-    | equiv_op
-    ;
+	  dop
+	| power_op
+	| mult_op
+	| add_op
+	| concat_op
+	| rel_op
+	| not_op
+	| and_op
+	| or_op
+	| equiv_op
+	;
 
 allocatable_stmt = 
-      lbl_def 'allocatable' ':' ':' array_allocation_list EOS
-    | lbl_def 'allocatable' array_allocation_list EOS
-    ;
+	  lbl_def 'allocatable' ':' ':' array_allocation_list eos
+	| lbl_def 'allocatable' array_allocation_list eos
+	;
 
 array_allocation_list = array_allocation { ',' array_allocation } ;
 
@@ -476,7 +476,7 @@ array_allocation = array_name [ '(' deferred_shape_spec_list ')' ] ;
 
 array_name = ident ;
 
-common_stmt = lbl_def 'common' [ comblock ] common_block_object_list { [ ',' ] comblock common_block_object_list } EOS ;
+common_stmt = lbl_def 'common' [ comblock ] common_block_object_list { [ ',' ] comblock common_block_object_list } eos ;
 
 comblock = '/' [ common_block_name ] '/' ;
 
@@ -485,15 +485,15 @@ common_block_name = ident ;
 common_block_object_list = common_block_object { ',' common_block_object } ;
 
 common_block_object = 
-      variable_name
-    | array_declarator
-    ;
+	  variable_name
+	| array_declarator
+	;
 
 variable_name = ident ;
 
 array_declarator = variable_name '(' array_spec ')' ;
 
-data_stmt = lbl_def 'data' datalist EOS ;
+data_stmt = lbl_def 'data' datalist eos ;
 
 datalist = data_stmt_set { ',' data_stmt_set } ;
 
@@ -502,16 +502,16 @@ data_stmt_set = data_stmt_object_list '/' data_stmt_value_list '/' ;
 data_stmt_object_list = data_stmt_object { ',' data_stmt_object } ;
 
 data_stmt_object = 
-      variable
-    | data_implied_do
-    ;
+	  variable
+	| data_implied_do
+	;
 
 variable = 
-      variable_name
-    | variable_name '(' subscript { ',' subscript } ')'
-    | variable_name substring_range
-    | variable_name '(' subscript { ',' subscript } ')' substring_range
-    ;
+	  variable_name
+	| variable_name '(' subscript { ',' subscript } ')'
+	| variable_name substring_range
+	| variable_name '(' subscript { ',' subscript } ')' substring_range
+	;
 
 subscript = expr ;
 
@@ -522,102 +522,102 @@ data_implied_do = '(' data_i_do_object_list ',' implied_do_variable '=' expr ','
 data_i_do_object_list = data_i_do_object { ',' data_i_do_object } ;
 
 data_i_do_object = 
-      array_element
-    | data_implied_do
-    | structure_component
-    ;
+	  array_element
+	| data_implied_do
+	| structure_component
+	;
 
 array_element = 
-      structure_component '(' section_subscript_list ')'
-    | variable_name '(' section_subscript_list ')'
-    ;
+	  structure_component '(' section_subscript_list ')'
+	| variable_name '(' section_subscript_list ')'
+	;
 
 structure_component = 
-      variable_name field_selector
-    | structure_component field_selector
-    ;
+	  variable_name field_selector
+	| structure_component field_selector
+	;
 
 field_selector = 
-      '(' section_subscript_list ')' '%' name
-    | '%' name
-    ;
+	  '(' section_subscript_list ')' '%' name
+	| '%' name
+	;
 
 data_stmt_value_list = data_stmt_value { ',' data_stmt_value } ;
 
 data_stmt_value = 
-      constant
-    | named_constant_use '*' constant
-    ;
+	  constant
+	| named_constant_use '*' constant
+	;
 
 constant = 
-      named_constant_use
-    | unsigned_arithmetic_constant
-    | '+' unsigned_arithmetic_constant
-    | '-' unsigned_arithmetic_constant
-    | scon
-    | logical_constant
-    | icon '_' scon
-    | named_constant_use '_' scon
-    | structure_constructor
-    | boz_literal_constant
-    ;
+	  named_constant_use
+	| unsigned_arithmetic_constant
+	| '+' unsigned_arithmetic_constant
+	| '-' unsigned_arithmetic_constant
+	| scon
+	| logical_constant
+	| icon '_' scon
+	| named_constant_use '_' scon
+	| structure_constructor
+	| boz_literal_constant
+	;
 
 structure_constructor = type_name '(' expr { ',' expr } ')' ;
 
 boz_literal_constant = 
-      binary_constant
-    | octal_constant
-    | hex_constant
-    ;
+	  binary_constant
+	| octal_constant
+	| hex_constant
+	;
 
 dimension_stmt = 
-      lbl_def 'dimension' ':' ':' array_declarator_list EOS
-    | lbl_def 'dimension' array_declarator_list EOS
-    ;
+	  lbl_def 'dimension' ':' ':' array_declarator_list eos
+	| lbl_def 'dimension' array_declarator_list eos
+	;
 
 array_declarator_list = array_declarator { ',' array_declarator } ;
 
-equivalence_stmt = lbl_def 'equivalence' equivalence_set_list EOS ;
+equivalence_stmt = lbl_def 'equivalence' equivalence_set_list eos ;
 
 equivalence_set_list = equivalence_set { ',' equivalence_set } ;
 
 equivalence_set = '(' equivalence_object ',' equivalence_object { ',' equivalence_object } ')' ;
 
 equivalence_object = 
-      array_name
-    | variable
-    ;
+	  array_name
+	| variable
+	;
 
-external_stmt = lbl_def 'external' external_name { ',' external_name } EOS ;
+external_stmt = lbl_def 'external' external_name { ',' external_name } eos ;
 
 external_name = ident ;
 
-intrinsic_stmt = lbl_def 'intrinsic' intrinsic_procedure_name { ',' intrinsic_procedure_name } EOS ;
+intrinsic_stmt = lbl_def 'intrinsic' intrinsic_procedure_name { ',' intrinsic_procedure_name } eos ;
 
 intrinsic_procedure_name = ident ;
 
 save_stmt = 
-      lbl_def 'save' ':' ':' saved_entity_list EOS
-    | lbl_def 'save' [ saved_entity_list ] EOS
-    ;
+	  lbl_def 'save' ':' ':' saved_entity_list eos
+	| lbl_def 'save' [ saved_entity_list ] eos
+	;
 
 saved_entity_list = saved_entity { ',' saved_entity } ;
 
 saved_entity = 
-      variable_name
-    | '/' common_block_name '/'
-    ;
+	  variable_name
+	| '/' common_block_name '/'
+	;
 
 intent_stmt = 
-      lbl_def 'intent' '(' intent_spec ')' ':' ':' intent_par_list EOS
-    | lbl_def 'intent' '(' intent_spec ')' intent_par_list EOS
-    ;
+	  lbl_def 'intent' '(' intent_spec ')' ':' ':' intent_par_list eos
+	| lbl_def 'intent' '(' intent_spec ')' intent_par_list eos
+	;
 
 intent_par_list = intent_par { ',' intent_par } ;
 
 intent_par = dummy_arg_name ;
 
-namelist_stmt = lbl_def 'namelist' namelist_group { [ ',' ] namelist_group } EOS ;
+namelist_stmt = lbl_def 'namelist' namelist_group { [ ',' ] namelist_group } eos ;
 
 namelist_group = '/' namelist_group_name '/' namelist_group_object { ',' namelist_group_object } ;
 
@@ -626,72 +626,72 @@ namelist_group_name = ident ;
 namelist_group_object = variable_name ;
 
 optional_stmt = 
-      lbl_def 'optional' ':' ':' optional_par_list EOS
-    | lbl_def 'optional' optional_par_list EOS
-    ;
+	  lbl_def 'optional' ':' ':' optional_par_list eos
+	| lbl_def 'optional' optional_par_list eos
+	;
 
 optional_par_list = optional_par { ',' optional_par } ;
 
 optional_par = dummy_arg_name ;
 
 pointer_stmt = 
-      lbl_def 'pointer' ':' ':' pointer_stmt_object_list EOS
-    | lbl_def 'pointer' pointer_stmt_object_list EOS
-    ;
+	  lbl_def 'pointer' ':' ':' pointer_stmt_object_list eos
+	| lbl_def 'pointer' pointer_stmt_object_list eos
+	;
 
 pointer_stmt_object_list = pointer_stmt_object { ',' pointer_stmt_object } ;
 
 pointer_stmt_object = 
-      object_name
-    | object_name '(' deferred_shape_spec_list ')'
-    ;
+	  object_name
+	| object_name '(' deferred_shape_spec_list ')'
+	;
 
 target_stmt = 
-      lbl_def 'target' ':' ':' target_object_list EOS
-    | lbl_def 'target' target_object_list EOS
-    ;
+	  lbl_def 'target' ':' ':' target_object_list eos
+	| lbl_def 'target' target_object_list eos
+	;
 
 target_object_list = target_object { ',' target_object } ;
 
 target_object = 
-      object_name
-    | object_name '(' array_spec ')'
-    ;
+	  object_name
+	| object_name '(' array_spec ')'
+	;
 
 derived_type_def = derived_type_stmt { derived_type_body }+ end_type_stmt ;
 
 derived_type_stmt = 
-      lbl_def 'type' type_name EOS
-    | lbl_def 'type' ':' ':' type_name EOS
-    | lbl_def 'type' ',' access_spec ':' ':' type_name EOS
-    ;
+	  lbl_def 'type' type_name eos
+	| lbl_def 'type' ':' ':' type_name eos
+	| lbl_def 'type' ',' access_spec ':' ':' type_name eos
+	;
 
 derived_type_body = 
-      private_sequence_stmt
-    | component_def_stmt
-    ;
+	  private_sequence_stmt
+	| component_def_stmt
+	;
 
 private_sequence_stmt = 
-      lbl_def 'private' EOS
-    | lbl_def 'sequence' EOS
-    ;
+	  lbl_def 'private' eos
+	| lbl_def 'sequence' eos
+	;
 
 component_def_stmt = 
-      lbl_def type_spec [ ',' component_attr_spec_list ] ':' ':' component_decl_list EOS
-    | lbl_def type_spec component_decl_list EOS
-    ;
+	  lbl_def type_spec [ ',' component_attr_spec_list ] ':' ':' component_decl_list eos
+	| lbl_def type_spec component_decl_list eos
+	;
 
 component_attr_spec_list = component_attr_spec { ',' component_attr_spec } ;
 
 component_attr_spec = 
-      'pointer'
-    | 'dimension' '(' component_array_spec ')'
-    ;
+	  'pointer'
+	| 'dimension' '(' component_array_spec ')'
+	;
 
 component_array_spec = 
-      explicit_shape_spec_list
-    | deferred_shape_spec_list
-    ;
+	  explicit_shape_spec_list
+	| deferred_shape_spec_list
+	;
 
 component_decl_list = component_decl { ',' component_decl } ;
 
@@ -699,80 +699,80 @@ component_decl = component_name [ '(' component_array_spec ')' ] [ '*' char_leng
 
 component_name = ident ;
 
-end_type_stmt = lbl_def 'end' 'type' [ type_name ] EOS ;
+end_type_stmt = lbl_def 'end' 'type' [ type_name ] eos ;
 
 interface_block = interface_stmt { interface_block_part }+ end_interface_stmt ;
 
 interface_stmt = 
-      lbl_def 'interface' generic_name EOS
-    | lbl_def 'interface' generic_spec EOS
-    | lbl_def 'interface' EOS
-    ;
+	  lbl_def 'interface' generic_name eos
+	| lbl_def 'interface' generic_spec eos
+	| lbl_def 'interface' eos
+	;
 
 interface_block_part = 
-      interface_body
-    | module_procedure_stmt
-    ;
+	  interface_body
+	| module_procedure_stmt
+	;
 
 interface_body = 
-      lbl_def function_prefix function_name function_interface_range
-    | lbl_def 'subroutine' subroutine_name subroutine_interface_range
-    ;
+	  lbl_def function_prefix function_name function_interface_range
+	| lbl_def 'subroutine' subroutine_name subroutine_interface_range
+	;
 
 function_prefix = 
-      'recursive' 'function'
-    | 'recursive' type_spec 'function'
-    | type_spec 'recursive' 'function'
-    | [ type_spec ] 'function'
-    ;
+	  'recursive' 'function'
+	| 'recursive' type_spec 'function'
+	| type_spec 'recursive' 'function'
+	| [ type_spec ] 'function'
+	;
 
 function_name = ident ;
 
 function_interface_range = 
-      function_par_list EOS subprogram_interface_body end_function_stmt
-    | function_par_list EOS end_function_stmt
-    ;
+	  function_par_list eos subprogram_interface_body end_function_stmt
+	| function_par_list eos end_function_stmt
+	;
 
 function_par_list = '(' [ function_par { ',' function_par } ] ')' ;
 
 function_par = dummy_arg_name ;
 
 subprogram_interface_body = 
-      specification_part_construct
-    | subprogram_interface_body specification_part_construct
-    ;
+	  specification_part_construct
+	| subprogram_interface_body specification_part_construct
+	;
 
 end_function_stmt = 
-      lbl_def 'end' EOS
-    | lbl_def 'end' 'function' [ end_name ] EOS
-    ;
+	  lbl_def 'end' eos
+	| lbl_def 'end' 'function' [ end_name ] eos
+	;
 
 end_name = ident ;
 
 subroutine_name = ident ;
 
 subroutine_interface_range = 
-      subroutine_par_list EOS subprogram_interface_body end_subroutine_stmt
-    | subroutine_par_list EOS end_subroutine_stmt
-    ;
+	  subroutine_par_list eos subprogram_interface_body end_subroutine_stmt
+	| subroutine_par_list eos end_subroutine_stmt
+	;
 
 end_subroutine_stmt = 
-      lbl_def 'end' 'subroutine' [ end_name ] EOS
-    | lbl_def 'end' EOS
-    ;
+	  lbl_def 'end' 'subroutine' [ end_name ] eos
+	| lbl_def 'end' eos
+	;
 
-module_procedure_stmt = lbl_def 'module' 'procedure' procedure_name_list EOS ;
+module_procedure_stmt = lbl_def 'module' 'procedure' procedure_name_list eos ;
 
 procedure_name_list = procedure_name { ',' procedure_name } ;
 
 procedure_name = ident ;
 
-end_interface_stmt = lbl_def 'end' 'interface' EOS ;
+end_interface_stmt = lbl_def 'end' 'interface' eos ;
 
 use_stmt = 
-      lbl_def 'use' name [ ',' rename_list ] EOS
-    | lbl_def 'use' name ',' 'only' ':' [ only_list ] EOS
-    ;
+	  lbl_def 'use' name [ ',' rename_list ] eos
+	| lbl_def 'use' name ',' 'only' ':' [ only_list ] eos
+	;
 
 rename_list = rename { ',' rename } ;
 
@@ -783,148 +783,148 @@ use_name = ident ;
 only_list = only { ',' only } ;
 
 only = 
-      generic_spec
-    | [ ident '=>' ] use_name
-    ;
+	  generic_spec
+	| [ ident '=>' ] use_name
+	;
 
 executable_construct = 
-      action_stmt
-    | do_construct
-    | if_construct
-    | case_construct
-    | where_construct
-    | end_do_stmt
-    ;
+	  action_stmt
+	| do_construct
+	| if_construct
+	| case_construct
+	| where_construct
+	| end_do_stmt
+	;
 
 action_stmt = 
-      allocate_stmt
-    | cycle_stmt
-    | deallocate_stmt
-    | exit_stmt
-    | nullify_stmt
-    | pointer_assignment_stmt
-    | where_stmt
-    | arithmetic_if_stmt
-    | assignment_stmt
-    | assign_stmt
-    | backspace_stmt
-    | call_stmt
-    | close_stmt
-    | continue_stmt
-    | endfile_stmt
-    | goto_stmt
-    | computed_goto_stmt
-    | assigned_goto_stmt
-    | if_stmt
-    | inquire_stmt
-    | open_stmt
-    | pause_stmt
-    | print_stmt
-    | read_stmt
-    | return_stmt
-    | rewind_stmt
-    | stop_stmt
-    | write_stmt
-    ;
+	  allocate_stmt
+	| cycle_stmt
+	| deallocate_stmt
+	| exit_stmt
+	| nullify_stmt
+	| pointer_assignment_stmt
+	| where_stmt
+	| arithmetic_if_stmt
+	| assignment_stmt
+	| assign_stmt
+	| backspace_stmt
+	| call_stmt
+	| close_stmt
+	| continue_stmt
+	| endfile_stmt
+	| goto_stmt
+	| computed_goto_stmt
+	| assigned_goto_stmt
+	| if_stmt
+	| inquire_stmt
+	| open_stmt
+	| pause_stmt
+	| print_stmt
+	| read_stmt
+	| return_stmt
+	| rewind_stmt
+	| stop_stmt
+	| write_stmt
+	;
 
 allocate_stmt = 
-      lbl_def 'allocate' '(' allocation_list ',' 'stat' '=' variable ')' EOS
-    | lbl_def 'allocate' '(' allocation_list ')' EOS
-    ;
+	  lbl_def 'allocate' '(' allocation_list ',' 'stat' '=' variable ')' eos
+	| lbl_def 'allocate' '(' allocation_list ')' eos
+	;
 
 allocation_list = allocation { ',' allocation } ;
 
 allocation = allocate_object [ allocated_shape ] ;
 
 allocate_object = 
-      variable_name
-    | allocate_object field_selector
-    ;
+	  variable_name
+	| allocate_object field_selector
+	;
 
 allocated_shape = '(' section_subscript_list ')' ;
 
-cycle_stmt = lbl_def 'cycle' [ end_name ] EOS ;
+cycle_stmt = lbl_def 'cycle' [ end_name ] eos ;
 
 deallocate_stmt = 
-      lbl_def 'deallocate' '(' allocate_object_list ',' 'stat' '=' variable ')' EOS
-    | lbl_def 'deallocate' '(' allocate_object_list ')' EOS
-    ;
+	  lbl_def 'deallocate' '(' allocate_object_list ',' 'stat' '=' variable ')' eos
+	| lbl_def 'deallocate' '(' allocate_object_list ')' eos
+	;
 
 allocate_object_list = allocate_object { ',' allocate_object } ;
 
-exit_stmt = lbl_def 'exit' [ end_name ] EOS ;
+exit_stmt = lbl_def 'exit' [ end_name ] eos ;
 
-nullify_stmt = lbl_def 'nullify' '(' pointer_object_list ')' EOS ;
+nullify_stmt = lbl_def 'nullify' '(' pointer_object_list ')' eos ;
 
 pointer_object_list = pointer_object { ',' pointer_object } ;
 
 pointer_object = 
-      name
-    | pointer_field
-    ;
+	  name
+	| pointer_field
+	;
 
 pointer_field = 
-      name '(' s_f_expr_list ')' '%' name
-    | name '(' s_f_dummy_arg_name_list ')' '%' name
-    | name '%' name
-    | pointer_field field_selector
-    ;
+	  name '(' s_f_expr_list ')' '%' name
+	| name '(' s_f_dummy_arg_name_list ')' '%' name
+	| name '%' name
+	| pointer_field field_selector
+	;
 
 s_f_expr_list = 
-      s_f_expr ':' expr ':' expr
-    | s_f_expr ':' ':' expr
-    | ':' expr ':' expr
-    | ':' ':' expr
-    | ':'
-    | ':' expr
-    | s_f_expr
-    | s_f_expr ':'
-    | s_f_expr ':' expr
-    | s_f_expr_list ',' section_subscript
-    | s_f_dummy_arg_name_list ',' ':'
-    | s_f_dummy_arg_name_list ',' ':' expr
-    | s_f_dummy_arg_name_list ',' s_f_expr ':'
-    | s_f_dummy_arg_name_list ',' s_f_expr ':' expr
-    ;
+	  s_f_expr ':' expr ':' expr
+	| s_f_expr ':' ':' expr
+	| ':' expr ':' expr
+	| ':' ':' expr
+	| ':'
+	| ':' expr
+	| s_f_expr
+	| s_f_expr ':'
+	| s_f_expr ':' expr
+	| s_f_expr_list ',' section_subscript
+	| s_f_dummy_arg_name_list ',' ':'
+	| s_f_dummy_arg_name_list ',' ':' expr
+	| s_f_dummy_arg_name_list ',' s_f_expr ':'
+	| s_f_dummy_arg_name_list ',' s_f_expr ':' expr
+	;
 
 s_f_expr = 
-      s_f_term
-    | sign add_operand
-    | s_f_expr add_op add_operand
-    ;
+	  s_f_term
+	| sign add_operand
+	| s_f_expr add_op add_operand
+	;
 
 s_f_term = 
-      s_f_factor
-    | s_f_term mult_op mult_operand
-    ;
+	  s_f_factor
+	| s_f_term mult_op mult_operand
+	;
 
 s_f_factor = 
-      s_f_primary
-    | s_f_primary power_op mult_operand
-    ;
+	  s_f_primary
+	| s_f_primary power_op mult_operand
+	;
 
 s_f_primary = 
-      array_constructor
-    | icon
-    | name
-    | data_ref
-    | function_reference
-    | '(' expr ')'
-    ;
+	  array_constructor
+	| icon
+	| name
+	| data_ref
+	| function_reference
+	| '(' expr ')'
+	;
 
 s_f_dummy_arg_name_list = s_f_dummy_arg_name { ',' s_f_dummy_arg_name } ;
 
 s_f_dummy_arg_name = ident ;
 
 pointer_assignment_stmt = 
-      lbl_def name '=>' target EOS
-    | lbl_def name '%' name '=>' target EOS
-    | lbl_def name '%' data_ref '=>' target EOS
-    | lbl_def name '(' s_f_expr_list ')' '%' name '=>' target EOS
-    | lbl_def name '(' s_f_expr_list ')' '%' data_ref '=>' target EOS
-    | lbl_def name '(' s_f_dummy_arg_name_list ')' '%' name '=>' target EOS
-    | lbl_def name '(' s_f_dummy_arg_name_list ')' '%' data_ref '=>' target EOS
-    ;
+	  lbl_def name '=>' target eos
+	| lbl_def name '%' name '=>' target eos
+	| lbl_def name '%' data_ref '=>' target eos
+	| lbl_def name '(' s_f_expr_list ')' '%' name '=>' target eos
+	| lbl_def name '(' s_f_expr_list ')' '%' data_ref '=>' target eos
+	| lbl_def name '(' s_f_dummy_arg_name_list ')' '%' name '=>' target eos
+	| lbl_def name '(' s_f_dummy_arg_name_list ')' '%' data_ref '=>' target eos
+	;
 
 target = expr ;
 
@@ -933,458 +933,458 @@ where_stmt = lbl_def 'where' '(' mask_expr ')' assignment_stmt ;
 mask_expr = expr ;
 
 assignment_stmt = 
-      lbl_def name '%' name '=' expr EOS
-    | lbl_def name '%' data_ref '=' expr EOS
-    | lbl_def name '(' s_f_expr_list ')' '%' name '=' expr EOS
-    | lbl_def name '(' s_f_expr_list ')' '%' data_ref '=' expr EOS
-    | lbl_def name '(' s_f_dummy_arg_name_list ')' '%' name '=' expr EOS
-    | lbl_def name '(' s_f_dummy_arg_name_list ')' '%' data_ref '=' expr EOS
-    | lbl_def name '=' expr EOS
-    | lbl_def name '(' s_f_expr_list ')' '=' expr EOS
-    | lbl_def name '(' s_f_expr_list ')' substring_range '=' expr EOS
-    ;
+	  lbl_def name '%' name '=' expr eos
+	| lbl_def name '%' data_ref '=' expr eos
+	| lbl_def name '(' s_f_expr_list ')' '%' name '=' expr eos
+	| lbl_def name '(' s_f_expr_list ')' '%' data_ref '=' expr eos
+	| lbl_def name '(' s_f_dummy_arg_name_list ')' '%' name '=' expr eos
+	| lbl_def name '(' s_f_dummy_arg_name_list ')' '%' data_ref '=' expr eos
+	| lbl_def name '=' expr eos
+	| lbl_def name '(' s_f_expr_list ')' '=' expr eos
+	| lbl_def name '(' s_f_expr_list ')' substring_range '=' expr eos
+	;
 
-arithmetic_if_stmt = lbl_def 'if' '(' scalar_numeric_expr ')' lbl_ref ',' lbl_ref ',' lbl_ref EOS ;
+arithmetic_if_stmt = lbl_def 'if' '(' scalar_numeric_expr ')' lbl_ref ',' lbl_ref ',' lbl_ref eos ;
 
 scalar_numeric_expr = expr ;
 
 lbl_ref = icon ;
 
-assign_stmt = lbl_def 'assign' lbl_ref 'to' variable_name EOS ;
+assign_stmt = lbl_def 'assign' lbl_ref 'to' variable_name eos ;
 
 backspace_stmt = 
-      lbl_def 'backspace' unit_identifier EOS
-    | lbl_def 'backspace' '(' position_spec { ',' position_spec } ')' EOS
-    ;
+	  lbl_def 'backspace' unit_identifier eos
+	| lbl_def 'backspace' '(' position_spec { ',' position_spec } ')' eos
+	;
 
 unit_identifier = 
-      u_f_expr
-    | '*'
-    ;
+	  u_f_expr
+	| '*'
+	;
 
 u_f_expr = 
-      u_f_term
-    | sign u_f_term
-    | u_f_expr add_op u_f_term
-    ;
+	  u_f_term
+	| sign u_f_term
+	| u_f_expr add_op u_f_term
+	;
 
 u_f_term = 
-      u_f_factor
-    | u_f_term mult_op u_f_factor
-    | u_f_term concat_op u_f_primary
-    ;
+	  u_f_factor
+	| u_f_term mult_op u_f_factor
+	| u_f_term concat_op u_f_primary
+	;
 
 u_f_factor = 
-      u_f_primary
-    | u_f_primary power_op u_f_factor
-    ;
+	  u_f_primary
+	| u_f_primary power_op u_f_factor
+	;
 
 u_f_primary = 
-      icon
-    | scon
-    | name
-    | function_reference
-    | data_ref
-    | '(' u_f_expr ')'
-    ;
+	  icon
+	| scon
+	| name
+	| function_reference
+	| data_ref
+	| '(' u_f_expr ')'
+	;
 
 position_spec = 
-      [ 'unit=' ] unit_identifier
-    | 'iostat=' scalar_variable
-    | 'err=' lbl_ref
-    ;
+	  [ 'unit=' ] unit_identifier
+	| 'iostat=' scalar_variable
+	| 'err=' lbl_ref
+	;
 
 scalar_variable = 
-      variable_name
-    | array_element
-    ;
+	  variable_name
+	| array_element
+	;
 
 call_stmt = 
-      lbl_def 'call' subroutine_name_use EOS
-    | lbl_def 'call' subroutine_name_use '(' [ actual_arg { ',' actual_arg } ] ')' EOS
-    ;
+	  lbl_def 'call' subroutine_name_use eos
+	| lbl_def 'call' subroutine_name_use '(' [ actual_arg { ',' actual_arg } ] ')' eos
+	;
 
 subroutine_name_use = ident ;
 
 actual_arg = 
-      [ name '=' ] expr
-    | [ name '=' ] '*' lbl_ref
-    ;
+	  [ name '=' ] expr
+	| [ name '=' ] '*' lbl_ref
+	;
 
-close_stmt = lbl_def 'close' '(' close_spec_list ')' EOS ;
+close_stmt = lbl_def 'close' '(' close_spec_list ')' eos ;
 
 close_spec_list = close_spec { ',' close_spec } ;
 
 close_spec = 
-      unit_identifier
-    | 'unit' '=' unit_identifier
-    | 'iostat' '=' scalar_variable
-    | 'err' '=' lbl_ref
-    | 'status' '=' c_expr
-    ;
+	  unit_identifier
+	| 'unit' '=' unit_identifier
+	| 'iostat' '=' scalar_variable
+	| 'err' '=' lbl_ref
+	| 'status' '=' c_expr
+	;
 
 c_expr = [ c_expr concat_op ] c_primary ;
 
 c_primary = 
-      c_operand
-    | '(' c_expr ')'
-    ;
+	  c_operand
+	| '(' c_expr ')'
+	;
 
 c_operand = 
-      scon
-    | name
-    | data_ref
-    | function_reference
-    ;
+	  scon
+	| name
+	| data_ref
+	| function_reference
+	;
 
-continue_stmt = lbl_def 'continue' EOS ;
+continue_stmt = lbl_def 'continue' eos ;
 
 endfile_stmt = 
-      lbl_def 'end' 'file' unit_identifier EOS
-    | lbl_def 'end' 'file' '(' position_spec { ',' position_spec } ')' EOS
-    ;
+	  lbl_def 'end' 'file' unit_identifier eos
+	| lbl_def 'end' 'file' '(' position_spec { ',' position_spec } ')' eos
+	;
 
-goto_stmt = lbl_def go_to_kw lbl_ref EOS ;
+goto_stmt = lbl_def go_to_kw lbl_ref eos ;
 
 go_to_kw = 'go' 'to' ;
 
-computed_goto_stmt = lbl_def go_to_kw '(' lbl_ref { ',' lbl_ref } ')' [ ',' ] scalar_int_expr EOS ;
+computed_goto_stmt = lbl_def go_to_kw '(' lbl_ref { ',' lbl_ref } ')' [ ',' ] scalar_int_expr eos ;
 
 scalar_int_expr = expr ;
 
 assigned_goto_stmt = 
-      lbl_def go_to_kw variable_name EOS
-    | lbl_def go_to_kw variable_name [ ',' ] '(' lbl_ref { ',' lbl_ref } ')' EOS
-    ;
+	  lbl_def go_to_kw variable_name eos
+	| lbl_def go_to_kw variable_name [ ',' ] '(' lbl_ref { ',' lbl_ref } ')' eos
+	;
 
 if_stmt = lbl_def 'if' '(' scalar_logical_expr ')' action_stmt ;
 
 scalar_logical_expr = expr ;
 
 inquire_stmt = 
-      lbl_def 'inquire' '(' inquire_spec_list ')' EOS
-    | lbl_def 'inquire' '(' 'iolength' '=' scalar_variable ')' output_item_list EOS
-    ;
+	  lbl_def 'inquire' '(' inquire_spec_list ')' eos
+	| lbl_def 'inquire' '(' 'iolength' '=' scalar_variable ')' output_item_list eos
+	;
 
 inquire_spec_list = 
-      unit_identifier ',' inquire_spec { ',' inquire_spec }
-    | inquire_spec { ',' inquire_spec }
-    ;
+	  unit_identifier ',' inquire_spec { ',' inquire_spec }
+	| inquire_spec { ',' inquire_spec }
+	;
 
 inquire_spec = 
-      'unit' '=' unit_identifier
-    | 'file' '=' c_expr
-    | 'iostat' '=' scalar_variable
-    | 'err' '=' lbl_ref
-    | 'exist' '=' scalar_variable
-    | 'opened' '=' scalar_variable
-    | 'number' '=' scalar_variable
-    | 'named' '=' scalar_variable
-    | 'name' '=' scalar_variable
-    | 'access' '=' scalar_variable
-    | 'sequential' '=' scalar_variable
-    | 'direct' '=' scalar_variable
-    | 'form' '=' scalar_variable
-    | 'formatted' '=' scalar_variable
-    | 'unformatted' '=' scalar_variable
-    | 'recl' '=' expr
-    | 'nextrec' '=' scalar_variable
-    | 'blank' '=' scalar_variable
-    | 'position' '=' scalar_variable
-    | 'action' '=' scalar_variable
-    | 'read' '=' scalar_variable
-    | 'write' '=' scalar_variable
-    | 'readwrite' '=' scalar_variable
-    | 'delim' '=' scalar_variable
-    | 'pad' '=' scalar_variable
-    ;
+	  'unit' '=' unit_identifier
+	| 'file' '=' c_expr
+	| 'iostat' '=' scalar_variable
+	| 'err' '=' lbl_ref
+	| 'exist' '=' scalar_variable
+	| 'opened' '=' scalar_variable
+	| 'number' '=' scalar_variable
+	| 'named' '=' scalar_variable
+	| 'name' '=' scalar_variable
+	| 'access' '=' scalar_variable
+	| 'sequential' '=' scalar_variable
+	| 'direct' '=' scalar_variable
+	| 'form' '=' scalar_variable
+	| 'formatted' '=' scalar_variable
+	| 'unformatted' '=' scalar_variable
+	| 'recl' '=' expr
+	| 'nextrec' '=' scalar_variable
+	| 'blank' '=' scalar_variable
+	| 'position' '=' scalar_variable
+	| 'action' '=' scalar_variable
+	| 'read' '=' scalar_variable
+	| 'write' '=' scalar_variable
+	| 'readwrite' '=' scalar_variable
+	| 'delim' '=' scalar_variable
+	| 'pad' '=' scalar_variable
+	;
 
 output_item_list = output_item { ',' output_item } ;
 
 output_item = 
-      expr
-    | output_implied_do
-    ;
+	  expr
+	| output_implied_do
+	;
 
 output_implied_do = 
-      '(' output_item_list ',' implied_do_variable '=' expr ',' expr ')'
-    | '(' output_item_list ',' implied_do_variable '=' expr ',' expr ',' expr ')'
-    ;
+	  '(' output_item_list ',' implied_do_variable '=' expr ',' expr ')'
+	| '(' output_item_list ',' implied_do_variable '=' expr ',' expr ',' expr ')'
+	;
 
-open_stmt = lbl_def 'open' '(' connect_spec_list ')' EOS ;
+open_stmt = lbl_def 'open' '(' connect_spec_list ')' eos ;
 
 connect_spec_list = connect_spec { ',' connect_spec } ;
 
 connect_spec = 
-      unit_identifier
-    | 'unit' '=' unit_identifier
-    | 'iostat' '=' scalar_variable
-    | 'err' '=' lbl_ref
-    | 'file' '=' c_expr
-    | 'status' '=' c_expr
-    | 'access' '=' c_expr
-    | 'form' '=' c_expr
-    | 'recl' '=' expr
-    | 'blank' '=' c_expr
-    | 'position' '=' c_expr
-    | 'action' '=' c_expr
-    | 'delim' '=' c_expr
-    | 'pad' '=' c_expr
-    ;
+	  unit_identifier
+	| 'unit' '=' unit_identifier
+	| 'iostat' '=' scalar_variable
+	| 'err' '=' lbl_ref
+	| 'file' '=' c_expr
+	| 'status' '=' c_expr
+	| 'access' '=' c_expr
+	| 'form' '=' c_expr
+	| 'recl' '=' expr
+	| 'blank' '=' c_expr
+	| 'position' '=' c_expr
+	| 'action' '=' c_expr
+	| 'delim' '=' c_expr
+	| 'pad' '=' c_expr
+	;
 
 pause_stmt = lbl_def 'pause' [ 
-      icon
-    | scon
-    ] EOS ;
+	  icon
+	| scon
+	 ] eos ;
 
-print_stmt = lbl_def 'print' format_identifier [ ',' output_item_list ] EOS ;
+print_stmt = lbl_def 'print' format_identifier [ ',' output_item_list ] eos ;
 
 format_identifier = 
-      lbl_ref
-    | c_expr
-    | '*'
-    ;
+	  lbl_ref
+	| c_expr
+	| '*'
+	;
 
 read_stmt = 
-      lbl_def 'read' rd_ctl_spec [ input_item_list ] EOS
-    | lbl_def 'read' rd_fmt_id EOS
-    | lbl_def 'read' rd_fmt_id ',' input_item_list EOS
-    ;
+	  lbl_def 'read' rd_ctl_spec [ input_item_list ] eos
+	| lbl_def 'read' rd_fmt_id eos
+	| lbl_def 'read' rd_fmt_id ',' input_item_list eos
+	;
 
 rd_ctl_spec = 
-      rd_unit_id
-    | '(' rd_io_ctl_spec_list ')'
-    ;
+	  rd_unit_id
+	| '(' rd_io_ctl_spec_list ')'
+	;
 
 rd_unit_id = 
-      '(' u_f_expr ')'
-    | '(' '*' ')'
-    ;
+	  '(' u_f_expr ')'
+	| '(' '*' ')'
+	;
 
 rd_io_ctl_spec_list = 
-      unit_identifier ',' io_control_spec
-    | unit_identifier ',' format_identifier
-    | io_control_spec
-    | rd_io_ctl_spec_list ',' io_control_spec
-    ;
+	  unit_identifier ',' io_control_spec
+	| unit_identifier ',' format_identifier
+	| io_control_spec
+	| rd_io_ctl_spec_list ',' io_control_spec
+	;
 
 io_control_spec = 
-      'unit' '=' unit_identifier
-    | 'fmt' '=' format_identifier
-    | 'nml' '=' namelist_group_name
-    | 'rec' '=' expr
-    | 'iostat' '=' scalar_variable
-    | 'err' '=' lbl_ref
-    | 'end' '=' lbl_ref
-    | 'advance' '=' c_expr
-    | 'size' '=' variable
-    | 'eor' '=' lbl_ref
-    ;
+	  'unit' '=' unit_identifier
+	| 'fmt' '=' format_identifier
+	| 'nml' '=' namelist_group_name
+	| 'rec' '=' expr
+	| 'iostat' '=' scalar_variable
+	| 'err' '=' lbl_ref
+	| 'end' '=' lbl_ref
+	| 'advance' '=' c_expr
+	| 'size' '=' variable
+	| 'eor' '=' lbl_ref
+	;
 
 input_item_list = input_item { ',' input_item } ;
 
 input_item = 
-      name
-    | data_ref
-    | input_implied_do
-    ;
+	  name
+	| data_ref
+	| input_implied_do
+	;
 
 input_implied_do = 
-      '(' input_item_list ',' implied_do_variable '=' expr ',' expr ')'
-    | '(' input_item_list ',' implied_do_variable '=' expr ',' expr ',' expr ')'
-    ;
+	  '(' input_item_list ',' implied_do_variable '=' expr ',' expr ')'
+	| '(' input_item_list ',' implied_do_variable '=' expr ',' expr ',' expr ')'
+	;
 
 rd_fmt_id = 
-      lbl_ref
-    | '*'
-    | c_operand
-    | c_operand concat_op c_primary
-    | rd_fmt_id_expr concat_op c_primary
-    ;
+	  lbl_ref
+	| '*'
+	| c_operand
+	| c_operand concat_op c_primary
+	| rd_fmt_id_expr concat_op c_primary
+	;
 
 rd_fmt_id_expr = '(' u_f_expr ')' ;
 
-return_stmt = lbl_def 'return' [ expr ] EOS ;
+return_stmt = lbl_def 'return' [ expr ] eos ;
 
 rewind_stmt = 
-      lbl_def 'rewind' unit_identifier EOS
-    | lbl_def 'rewind' '(' position_spec { ',' position_spec } ')' EOS
-    ;
+	  lbl_def 'rewind' unit_identifier eos
+	| lbl_def 'rewind' '(' position_spec { ',' position_spec } ')' eos
+	;
 
 stop_stmt = lbl_def 'stop' [ 
-      icon
-    | scon
-    ] EOS ;
+	  icon
+	| scon
+	 ] eos ;
 
-write_stmt = lbl_def 'write' '(' io_control_spec_list ')' [ output_item_list ] EOS ;
+write_stmt = lbl_def 'write' '(' io_control_spec_list ')' [ output_item_list ] eos ;
 
 io_control_spec_list = 
-      unit_identifier ',' [ format_identifier ]
-    | unit_identifier ',' io_control_spec
-    | io_control_spec
-    | io_control_spec_list ',' io_control_spec
-    ;
+	  unit_identifier ',' [ format_identifier ]
+	| unit_identifier ',' io_control_spec
+	| io_control_spec
+	| io_control_spec_list ',' io_control_spec
+	;
 
 do_construct = 
-      block_do_construct
-    | label_do_stmt
-    ;
+	  block_do_construct
+	| label_do_stmt
+	;
 
 block_do_construct = 
-      lbl_def 'do' lbl_ref EOS
-    | lbl_def 'do' loop_control EOS
-    | lbl_def 'do' EOS
-    | lbl_def name ':' 'do' lbl_ref loop_control EOS
-    | lbl_def name ':' 'do' lbl_ref EOS
-    | lbl_def name ':' 'do' loop_control EOS
-    | lbl_def name ':' 'do' EOS
-    ;
+	  lbl_def 'do' lbl_ref eos
+	| lbl_def 'do' loop_control eos
+	| lbl_def 'do' eos
+	| lbl_def name ':' 'do' lbl_ref loop_control eos
+	| lbl_def name ':' 'do' lbl_ref eos
+	| lbl_def name ':' 'do' loop_control eos
+	| lbl_def name ':' 'do' eos
+	;
 
 loop_control = 
-      'while' '(' expr ')'
-    | variable_name '=' int_real_dp_expression ',' int_real_dp_expression [ ',' int_real_dp_expression ]
-    ;
+	  'while' '(' expr ')'
+	| variable_name '=' int_real_dp_expression ',' int_real_dp_expression [ ',' int_real_dp_expression ]
+	;
 
 int_real_dp_expression = expr ;
 
-label_do_stmt = lbl_def 'do' lbl_ref [ ',' ] loop_control EOS ;
+label_do_stmt = lbl_def 'do' lbl_ref [ ',' ] loop_control eos ;
 
 if_construct = if_then_stmt { execution_part_construct } { else_if_stmt { execution_part_construct } } [ else_stmt { execution_part_construct } ] end_if_stmt ;
 
-if_then_stmt = lbl_def [ if_construct_name ':' ] 'if' '(' scalar_logical_expr ')' 'then' EOS ;
+if_then_stmt = lbl_def [ if_construct_name ':' ] 'if' '(' scalar_logical_expr ')' 'then' eos ;
 
 if_construct_name = ident ;
 
 execution_part_construct = 
-      executable_construct
-    | format_stmt
-    | data_stmt
-    | entry_stmt
-    ;
+	  executable_construct
+	| format_stmt
+	| data_stmt
+	| entry_stmt
+	;
 
-else_if_stmt = lbl_def 'else' 'if' '(' scalar_logical_expr ')' 'then' [ if_construct_name ] EOS ;
+else_if_stmt = lbl_def 'else' 'if' '(' scalar_logical_expr ')' 'then' [ if_construct_name ] eos ;
 
-else_stmt = lbl_def 'else' [ if_construct_name ] EOS ;
+else_stmt = lbl_def 'else' [ if_construct_name ] eos ;
 
-end_if_stmt = lbl_def 'end' 'if' [ if_construct_name ] EOS ;
+end_if_stmt = lbl_def 'end' 'if' [ if_construct_name ] eos ;
 
 case_construct = 
-      lbl_def name ':' 'select' 'case' '(' expr ')' EOS select_case_range
-    | lbl_def 'select' 'case' '(' expr ')' EOS select_case_range
-    ;
+	  lbl_def name ':' 'select' 'case' '(' expr ')' eos select_case_range
+	| lbl_def 'select' 'case' '(' expr ')' eos select_case_range
+	;
 
 select_case_range = 
-      select_case_body end_select_stmt
-    | end_select_stmt
-    ;
+	  select_case_body end_select_stmt
+	| end_select_stmt
+	;
 
 select_case_body = { case_body_construct }+ ;
 
 case_body_construct = 
-      case_stmt
-    | execution_part_construct
-    ;
+	  case_stmt
+	| execution_part_construct
+	;
 
-case_stmt = lbl_def 'case' case_selector [ name ] EOS ;
+case_stmt = lbl_def 'case' case_selector [ name ] eos ;
 
 case_selector = 
-      '(' case_value_range { ',' case_value_range } ')'
-    | 'default'
-    ;
+	  '(' case_value_range { ',' case_value_range } ')'
+	| 'default'
+	;
 
 case_value_range = 
-      expr
-    | expr ':'
-    | ':' expr
-    | expr ':' expr
-    ;
+	  expr
+	| expr ':'
+	| ':' expr
+	| expr ':' expr
+	;
 
-end_select_stmt = lbl_def 'end' 'select' [ end_name ] EOS ;
+end_select_stmt = lbl_def 'end' 'select' [ end_name ] eos ;
 
 where_construct = where_construct_stmt { assignment_stmt } [ elsewhere_stmt { assignment_stmt } ] end_where_stmt ;
 
-where_construct_stmt = lbl_def 'where' '(' mask_expr ')' EOS ;
+where_construct_stmt = lbl_def 'where' '(' mask_expr ')' eos ;
 
-elsewhere_stmt = lbl_def 'elsewhere' EOS ;
+elsewhere_stmt = lbl_def 'elsewhere' eos ;
 
-end_where_stmt = lbl_def 'end' 'where' EOS ;
+end_where_stmt = lbl_def 'end' 'where' eos ;
 
-end_do_stmt = lbl_def 'end' 'do' [ name ] EOS ;
+end_do_stmt = lbl_def 'end' 'do' [ name ] eos ;
 
 end_program_stmt = 
-      lbl_def 'end' EOS
-    | lbl_def 'end' 'program' [ end_name ] EOS
-    ;
+	  lbl_def 'end' eos
+	| lbl_def 'end' 'program' [ end_name ] eos
+	;
 
 internal_sub_prog_part = 
-      body contains_stmt internal_subprogram
-    | contains_stmt internal_subprogram
-    | internal_sub_prog_part internal_subprogram
-    ;
+	  body contains_stmt internal_subprogram
+	| contains_stmt internal_subprogram
+	| internal_sub_prog_part internal_subprogram
+	;
 
 body = { body_construct }+ ;
 
-contains_stmt = lbl_def 'contains' EOS ;
+contains_stmt = lbl_def 'contains' eos ;
 
 internal_subprogram = 
-      function_subprogram
-    | subroutine_subprogram
-    ;
+	  function_subprogram
+	| subroutine_subprogram
+	;
 
 function_subprogram = lbl_def function_prefix function_name function_range ;
 
 function_range = 
-      function_par_list EOS [ body ] end_function_stmt
-    | function_par_list 'result' '(' name ')' EOS internal_sub_prog_part end_function_stmt
-    | function_par_list 'result' '(' name ')' EOS body end_function_stmt
-    | function_par_list 'result' '(' name ')' EOS end_function_stmt
-    | function_par_list EOS internal_sub_prog_part end_function_stmt
-    ;
+	  function_par_list eos [ body ] end_function_stmt
+	| function_par_list 'result' '(' name ')' eos internal_sub_prog_part end_function_stmt
+	| function_par_list 'result' '(' name ')' eos body end_function_stmt
+	| function_par_list 'result' '(' name ')' eos end_function_stmt
+	| function_par_list eos internal_sub_prog_part end_function_stmt
+	;
 
 subroutine_subprogram = lbl_def [ 'recursive' ] 'subroutine' subroutine_name subroutine_range ;
 
 subroutine_range = 
-      [ subroutine_par_list ] EOS [ body ] end_subroutine_stmt
-    | subroutine_par_list EOS internal_sub_prog_part end_subroutine_stmt
-    ;
+	  [ subroutine_par_list ] eos [ body ] end_subroutine_stmt
+	| subroutine_par_list eos internal_sub_prog_part end_subroutine_stmt
+	;
 
 module = 
-      module_stmt module_body end_module_stmt
-    | module_stmt end_module_stmt
-    ;
+	  module_stmt module_body end_module_stmt
+	| module_stmt end_module_stmt
+	;
 
-module_stmt = lbl_def 'module' module_name EOS ;
+module_stmt = lbl_def 'module' module_name eos ;
 
 module_name = ident ;
 
 module_body = 
-      specification_part_construct
-    | module_subprogram_part_construct
-    | module_body specification_part_construct
-    | module_body module_subprogram_part_construct
-    ;
+	  specification_part_construct
+	| module_subprogram_part_construct
+	| module_body specification_part_construct
+	| module_body module_subprogram_part_construct
+	;
 
 module_subprogram_part_construct = 
-      contains_stmt
-    | module_subprogram
-    ;
+	  contains_stmt
+	| module_subprogram
+	;
 
 module_subprogram = 
-      function_subprogram
-    | subroutine_subprogram
-    ;
+	  function_subprogram
+	| subroutine_subprogram
+	;
 
 end_module_stmt = 
-      lbl_def 'end' EOS
-    | lbl_def 'end' 'module' [ end_name ] EOS
-    ;
+	  lbl_def 'end' eos
+	| lbl_def 'end' 'module' [ end_name ] eos
+	;
 
 block_data_subprogram = 
-      block_data_stmt block_data_body end_block_data_stmt
-    | block_data_stmt end_block_data_stmt
-    ;
+	  block_data_stmt block_data_body end_block_data_stmt
+	| block_data_stmt end_block_data_stmt
+	;
 
-block_data_stmt = lbl_def 'block' 'data' [ block_data_name ] EOS ;
+block_data_stmt = lbl_def 'block' 'data' [ block_data_name ] eos ;
 
 block_data_name = ident ;
 
@@ -1393,7 +1393,7 @@ block_data_body = { block_data_body_construct }+ ;
 block_data_body_construct = specification_part_construct ;
 
 end_block_data_stmt = 
-      lbl_def 'end' 'block' 'data' [ end_name ] EOS
-    | lbl_def 'end' EOS
-    ;
+	  lbl_def 'end' 'block' 'data' [ end_name ] eos
+	| lbl_def 'end' eos
+	;
 
