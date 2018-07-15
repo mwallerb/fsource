@@ -287,10 +287,7 @@ control_edit_descr =
 	| [ icon ] '/'
 	| ':'
 	| sign_edit_descr
-	| [ 
-	  '-'
-	| '+'
-	 ] icon 'P' [ [ icon ] data_edit_descr ]
+	| [ '-' | '+' ] icon 'P' [ [ icon ] data_edit_descr ]
 	| blank_interp_edit_descr
 	;
 
@@ -1132,10 +1129,7 @@ connect_spec =
 	| 'pad' '=' c_expr
 	;
 
-pause_stmt = lbl_def 'pause' [ 
-	  icon
-	| scon
-	 ] eos ;
+pause_stmt = lbl_def 'pause' [ icon | scon ] eos ;
 
 print_stmt = lbl_def 'print' format_identifier [ ',' output_item_list ] eos ;
 
@@ -1211,10 +1205,7 @@ rewind_stmt =
 	| lbl_def 'rewind' '(' position_spec { ',' position_spec } ')' eos
 	;
 
-stop_stmt = lbl_def 'stop' [ 
-	  icon
-	| scon
-	 ] eos ;
+stop_stmt = lbl_def 'stop' [ icon | scon ] eos ;
 
 write_stmt = lbl_def 'write' '(' io_control_spec_list ')' [ output_item_list ] eos ;
 

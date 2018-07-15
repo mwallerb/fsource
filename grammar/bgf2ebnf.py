@@ -24,15 +24,20 @@ def parse_recipe(recipe, parent_type):
             if n != 0: put(' ')
             parse_recipe(item, type_)
     elif type_ == 'choice':
-        if parent_type == 'sequence':
-            raise ValueError("Don't do choice inside sequence!")
-        put('\n')
-        for n, item in enumerate(recipe.findChildren(recursive=False)):
-            put('\t')
-            put('  ' if n == 0 else '| ')
-            parse_recipe(item, type_)
+        if parent_type is None:
             put('\n')
-        put('\t')
+            for n, item in enumerate(recipe.findChildren(recursive=False)):
+                put('\t' + ('  ' if n == 0 else '| '))
+                parse_recipe(item, type_)
+                put('\n')
+            put('\t')
+        else:
+            if parent_type == 'sequence': put('(')
+            for n, item in enumerate(recipe.findChildren(recursive=False)):
+                if n != 0: put(' | ')
+                parse_recipe(item, type_)
+            if parent_type == 'sequence': put(')')
+
     elif type_ == 'plus':
         put('{ ')
         parse_recipe(recipe.findChild(recursive=False), type_)
