@@ -1,0 +1,69 @@
+@@grammar :: Fortran90
+
+@@ignorecase :: True
+
+@@whitespace :: /[\t ]*&[\t ]*(?:![^\r\n]*)?(?:\r\n?|\n)[\t ]*(?:&?[\t ]*)|[\t ]+/
+
+@@keyword :: if elseif else end endif program endprogram implicit none
+@@keyword :: integer real double precision complex character logical type endtype
+@@keyword :: operator assignment common data equivalence namelist
+@@keyword :: subroutine endsubroutine function endfunction recursive
+@@keyword :: kind parameter entry result optional intent
+@@keyword :: dimension external internal intrinsic public private sequence
+@@keyword :: interface endinterface module endmodule use only contains
+@@keyword :: allocatable pointer save target allocate deallocate
+@@keyword :: cycle exit nullify call continue pause return stop
+@@keyword :: format backspace close file endfile inquire open print read write rewind
+@@keyword :: where endwhere assign to
+@@keyword :: select case default endselect
+@@keyword :: go goto do enddo while endwhile block endblock
+
+eos = /(?:(?:;|(?:![^\r\n]*)?(?:\r\n?|\n))[\t ]*)+/ ;
+
+start_comment_block = eos ;
+
+start = executable_program ;
+
+label = /\d{1,5}/ ;
+
+@name
+ident = /[A-Za-z][A-Za-z0-9_]*/ ;
+
+icon = /\d+/ ;
+
+scon_single = /'(?:''|&[ \t]*(?:\r\n?|\n)|[^'\r\n])*'(?!['"\w])/ ;
+
+scon_double = /"(?:""|&[ \t]*(?:\r\n?|\n)|[^"\r\n])*"(?!['"\w])/ ;
+
+scon = scon_single | scon_double ;
+
+rcon = /(?:\d+(?:\.\d*)?|\.\d+)(?:[dDeE][-+]?\d+)?(?![.'"0-9A-Za-z])/ ;
+
+binary_constant = /[Bb]'[01]+'/ | /[Bb]"[01]+"/ ;
+
+octal_constant = /[Oo]'[0-7]+'/ | /[Oo]"[0-7]+"/ ;
+
+hex_constant = /[Zz]'[0-9A-Fa-f]+'/ | /[Zz]"[0-9A-Fa-f]+"/ ;
+
+scalar_int_literal_constant = /[0-9]+/ ;
+
+letter = /[A-Za-z]/ ;
+
+character = /[-a-zA-Z0-9 =+*\/(),;':!"%&<>\\?$]/ ;
+
+builtin_dop =
+      '.true.'
+    | '.false.'
+    | '.and.'
+    | '.or.'
+    | '.eq.'
+    | '.ne.'
+    | '.gt.'
+    | '.ge.'
+    | '.lt.'
+    | '.le.'
+    | '.eqv.'
+    | '.neqv.'
+    ;
+
+dop = /.FIXME./ ;

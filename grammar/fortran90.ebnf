@@ -64,22 +64,22 @@ kind_selector =
 	| '*' icon
 	;
 
-expr = [ expr defined_binary_op ] level5_expr ;
+expr = level5_expr { defined_binary_op level5_expr } ;
 
 defined_binary_op = dop ;
 
-level5_expr = [ level5_expr equiv_op ] equiv_operand ;
+level5_expr = equiv_operand { equiv_op equiv_operand } ;
 
 equiv_op = 
 	  '.eqv.'
 	| '.neqv.'
 	;
 
-equiv_operand = [ equiv_operand or_op ] or_operand ;
+equiv_operand = or_operand { or_op or_operand } ;
 
 or_op = '.or.' ;
 
-or_operand = [ or_operand and_op ] and_operand ;
+or_operand =  and_operand { and_op and_operand } ;
 
 and_op = '.and.' ;
 
@@ -87,14 +87,14 @@ and_operand = [ not_op ] level4_expr ;
 
 not_op = '.not.' ;
 
-level4_expr = [ level3_expr rel_op ] level3_expr ;
+level4_expr = level3_expr { rel_op level3_expr } ;
 
-level3_expr = [ level3_expr concat_op ] level2_expr ;
+level3_expr = level2_expr { concat_op level2_expr } ;
 
 concat_op = '//' ;
 
 level2_expr = 
-	  [ level2_expr add_op ] add_operand
+	  add_operand { add_op add_operand }
 	| sign add_operand
 	;
 
@@ -103,14 +103,14 @@ add_op =
 	| '-'
 	;
 
-add_operand = [ add_operand mult_op ] mult_operand ;
+add_operand = mult_operand { mult_op mult_operand } ;
 
 mult_op = 
 	  '*'
 	| '/'
 	;
 
-mult_operand = level1_expr [ power_op mult_operand ] ;
+mult_operand = level1_expr { power_op level1_expr } ;
 
 level1_expr = [ defined_unary_op ] primary ;
 
@@ -119,9 +119,9 @@ defined_unary_op = dop ;
 primary = 
 	  array_constructor
 	| unsigned_arithmetic_constant
+	| function_reference
 	| name
 	| data_ref
-	| function_reference
 	| '(' expr ')'
 	| scon
 	| logical_constant
@@ -180,15 +180,11 @@ section_subscript =
 
 subscript_triplet = [ expr ] ':' [ expr ] [ ':' expr ] ;
 
-function_reference = name '(' [ function_arg_list ] ')' ;
+function_reference = name '(' [ function_arg_list | section_subscript_list ] ')' ;
 
-function_arg_list = 
-	  function_arg
-	| function_arg_list ',' function_arg
-	| section_subscript_list ',' function_arg
-	;
+function_arg_list = function_arg { ',' function_arg } ;
 
-function_arg = name '=' expr ;
+function_arg = [ name '=' ] expr ;
 
 logical_constant = 
 	  '.true.' '_' kind_param
@@ -674,7 +670,7 @@ private_sequence_stmt =
 	;
 
 component_def_stmt = 
-	  lbl_def type_spec [ ',' component_attr_spec_list ] ':' ':' component_decl_list eos
+	  lbl_def type_spec [ ',' component_attr_spec_list ] '::' component_decl_list eos
 	| lbl_def type_spec component_decl_list eos
 	;
 
@@ -1348,11 +1344,9 @@ module_stmt = lbl_def 'module' module_name eos ;
 
 module_name = ident ;
 
-module_body = 
+module_body = {
 	  specification_part_construct
-	| module_subprogram_part_construct
-	| module_body specification_part_construct
-	| module_body module_subprogram_part_construct
+	| module_subprogram_part_construct }+
 	;
 
 module_subprogram_part_construct = 
