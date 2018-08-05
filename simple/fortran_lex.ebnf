@@ -1,0 +1,132 @@
+@@grammar :: Fortran90Lexer
+
+@@ignorecase :: True
+
+@@whitespace :: /[\t ]*&[\t ]*(?:![^\r\n]*)?(?:\r\n?|\n)[\t ]*(?:&?[\t ]*)|[\t ]+/
+
+@@keyword :: if elseif else end endif program endprogram implicit none
+@@keyword :: integer real double precision complex character logical type endtype
+@@keyword :: operator assignment common data equivalence namelist
+@@keyword :: subroutine endsubroutine function endfunction recursive
+@@keyword :: kind parameter entry result optional intent
+@@keyword :: dimension external internal intrinsic public private sequence
+@@keyword :: interface endinterface module endmodule use only contains
+@@keyword :: allocatable pointer save target allocate deallocate
+@@keyword :: cycle exit nullify call continue pause return stop
+@@keyword :: format backspace close file endfile inquire open print read write rewind
+@@keyword :: where endwhere assign to
+@@keyword :: select case default endselect
+@@keyword :: go goto do enddo while endwhile block endblock
+
+start = { token } $ ;
+
+token =
+      eol ~ [ line_start_token ]
+    | ident
+    | end
+    | keyword
+    | literal
+    | operator
+    ;
+
+eol = /(?:![^\r\n]*)?(?:\r\n?|\n)/ ;
+
+line_start_token =
+      label
+    | preproc_stmt
+    ;
+
+label = /\d{1,5}/ ;
+
+preproc_stmt = /#[^\r\n]+/ ;
+
+@name
+ident = /[A-Za-z][A-Za-z0-9_]*/ ;
+
+end = /(?i)end/ ;
+
+keyword = /[A-Za-z][A-Za-z_]+/ ;
+
+literal =
+      int_literal
+    | string_literal
+    | real_literal
+    | binary_literal
+    | octal_literal
+    | hex_literal
+    | bool_literal
+    ;
+
+int_literal = /\d+(?![A-Za-z0-9]|\.(?![A-Za-z]+\.))/ ;
+
+string_literal = sq_string_literal | dq_string_literal ;
+
+sq_string_literal = /'(?:''|&[ \t]*(?:\r\n?|\n)|[^'\r\n])*'(?!['"\w])/ ;
+
+dq_string_literal = /"(?:""|&[ \t]*(?:\r\n?|\n)|[^"\r\n])*"(?!['"\w])/ ;
+
+real_literal = /(?:(?:\d+\.\d*|\.\d+)(?:[dDeE][-+]?\d+)?|\d+[dDeE][-+]?\d+)(?!['"0-9A-Za-z])/ ;
+
+binary_literal = /[Bb]'[01]+'/ | /[Bb]"[01]+"/ ;
+
+octal_literal = /[Oo]'[0-7]+'/ | /[Oo]"[0-7]+"/ ;
+
+hex_literal = /[Zz]'[0-9A-Fa-f]+'/ | /[Zz]"[0-9A-Fa-f]+"/ ;
+
+bool_literal = /(?i)\.(true|false)\./ ;
+
+operator =
+      plus_op
+    | mul_op
+    | pow_op
+    | concat_op
+    | open_parens
+    | close_parens
+    | open_arr_constr
+    | close_arr_constr
+    | assign_op
+    | assign_ptr_op
+    | other_op
+    | rel_op
+    | or_op
+    | and_op
+    | not_op
+    | equiv_op
+    | custom_op
+    ;
+
+plus_op = /[-+]/ ;
+
+mul_op = /\*(?!\*)|\/(?![\/)=])/ ;
+
+pow_op = '**' ;
+
+concat_op = '//' ;
+
+open_parens = /\((?!\/)/ ;
+
+close_parens = ')' ;
+
+open_arr_constr = '(/' ;
+
+close_arr_constr = '/)' ;
+
+assign_op = /=(?![=>])/ ;
+
+assign_ptr_op = '=>' ;
+
+other_op = /[%$,_:;]/ ;
+
+rel_op = /(?i)\.(?:eq|ne|l[te]|g[te])\.|[\/=]=|<=?|>=?/ ;
+
+or_op = '.or.' ;
+
+and_op = '.and.' ;
+
+not_op = '.not.' ;
+
+equiv_op = /(?i)\.n?eqv\./ ;
+
+custom_op = !intrinsic_dot_expr /\.[A-Za-z]+\./ ;
+
+intrinsic_dot_expr = /(?i)\.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or|true|false)\./ ;
