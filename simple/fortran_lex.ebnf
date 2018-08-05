@@ -1,4 +1,4 @@
-@@grammar :: Fortran90Lexer
+@@grammar :: FortranLex
 
 @@ignorecase :: True
 
@@ -19,12 +19,12 @@
 @@keyword :: SELECT CASE DEFAULT ENDSELECT
 @@keyword :: GO GOTO DO ENDDO WHILE ENDWHILE BLOCK ENDBLOCK
 
-start = { token } $ ;
+lexer = { token } $ ;
 
 token =
       eol ~ [ line_start_token ]
     | contractives
-    | identifier_unchecked
+    | word
     | literal
     | operator
     ;
@@ -41,9 +41,9 @@ label = /\d{1,5}/ ;
 preproc_stmt = /#[^\r\n]+/ ;
 
 @name
-identifier = identifier_unchecked ;
+identifier = word ;
 
-identifier_unchecked = /[A-Za-z][A-Za-z0-9_]*/ ;
+word = /[A-Za-z][A-Za-z0-9_]*/ ;
 
 contractives =
       end
