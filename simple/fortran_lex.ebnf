@@ -4,27 +4,27 @@
 
 @@whitespace :: /[\t ]*&[\t ]*(?:![^\r\n]*)?(?:\r\n?|\n)[\t ]*(?:&?[\t ]*)|[\t ]+/
 
-@@keyword :: if elseif else end endif program endprogram implicit none
-@@keyword :: integer real double precision complex character logical type endtype
-@@keyword :: operator assignment common data equivalence namelist
-@@keyword :: subroutine endsubroutine function endfunction recursive
-@@keyword :: kind parameter entry result optional intent
-@@keyword :: dimension external internal intrinsic public private sequence
-@@keyword :: interface endinterface module endmodule use only contains
-@@keyword :: allocatable pointer save target allocate deallocate
-@@keyword :: cycle exit nullify call continue pause return stop
-@@keyword :: format backspace close file endfile inquire open print read write rewind
-@@keyword :: where endwhere assign to
-@@keyword :: select case default endselect
-@@keyword :: go goto do enddo while endwhile block endblock
+# HACK: Tatsu requires keywords to be in uppercase in case-insensitive grammars
+@@keyword :: IF ELSEIF ELSE END ENDIF PROGRAM ENDPROGRAM IMPLICIT NONE
+@@keyword :: INTEGER REAL DOUBLE PRECISION COMPLEX CHARACTER LOGICAL TYPE ENDTYPE
+@@keyword :: OPERATOR ASSIGNMENT COMMON DATA EQUIVALENCE NAMELIST
+@@keyword :: SUBROUTINE ENDSUBROUTINE FUNCTION ENDFUNCTION RECURSIVE
+@@keyword :: KIND PARAMETER ENTRY RESULT OPTIONAL INTENT
+@@keyword :: DIMENSION EXTERNAL INTERNAL INTRINSIC PUBLIC PRIVATE SEQUENCE
+@@keyword :: INTERFACE ENDINTERFACE MODULE ENDMODULE USE ONLY CONTAINS
+@@keyword :: ALLOCATABLE POINTER SAVE TARGET ALLOCATE DEALLOCATE
+@@keyword :: CYCLE EXIT NULLIFY CALL CONTINUE PAUSE RETURN STOP
+@@keyword :: FORMAT BACKSPACE CLOSE FILE ENDFILE INQUIRE OPEN PRINT READ WRITE REWIND
+@@keyword :: WHERE ENDWHERE ASSIGN TO
+@@keyword :: SELECT CASE DEFAULT ENDSELECT
+@@keyword :: GO GOTO DO ENDDO WHILE ENDWHILE BLOCK ENDBLOCK
 
 start = { token } $ ;
 
 token =
       eol ~ [ line_start_token ]
-    | ident
-    | end
-    | keyword
+    | contractives
+    | identifier_unchecked
     | literal
     | operator
     ;
@@ -41,11 +41,21 @@ label = /\d{1,5}/ ;
 preproc_stmt = /#[^\r\n]+/ ;
 
 @name
-ident = /[A-Za-z][A-Za-z0-9_]*/ ;
+identifier = identifier_unchecked ;
 
-end = /(?i)end/ ;
+identifier_unchecked = /[A-Za-z][A-Za-z0-9_]*/ ;
 
-keyword = /[A-Za-z][A-Za-z_]+/ ;
+contractives =
+      end
+    | go
+    | else
+    ;
+
+end = /(?i)end(?=\s|if|where|do|while|forall|subroutine|function|program|file|module|block)/ ;
+
+go = /(?i)go(?=\s|to)/ ;
+
+else = /(?i)else(?=\s|if|where)/ ;
 
 literal =
       int_literal
