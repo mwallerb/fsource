@@ -29,7 +29,7 @@ label = /\d{1,5}/ ;
 @name
 ident = /[A-Za-z][A-Za-z0-9_]*/ ;
 
-icon = /\d+/ ;
+icon = /\d+(?![.A-Za-z0-9])/ ;
 
 scon_single = /'(?:''|&[ \t]*(?:\r\n?|\n)|[^'\r\n])*'(?!['"\w])/ ;
 
@@ -37,7 +37,7 @@ scon_double = /"(?:""|&[ \t]*(?:\r\n?|\n)|[^"\r\n])*"(?!['"\w])/ ;
 
 scon = scon_single | scon_double ;
 
-rcon = /(?:\d+(?:\.\d*)?|\.\d+)(?:[dDeE][-+]?\d+)?(?![.'"0-9A-Za-z])/ ;
+rcon = /(?:(?:\d+\.\d*|\.\d+)(?:[dDeE][-+]?\d+)?)(?![.'"0-9A-Za-z])/ ;
 
 binary_constant = /[Bb]'[01]+'/ | /[Bb]"[01]+"/ ;
 
