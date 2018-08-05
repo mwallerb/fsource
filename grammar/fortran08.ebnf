@@ -1,0 +1,461 @@
+@@grammar :: Fortran90
+
+@@whitespace :: /[\t ]*&[\t ]*(?:![^\r\n]*)?(?:\r\n?|\n)[\t ]*(?:&?[\t ]*)|[\t ]+/
+
+@@keyword :: if elseif else end endif program endprogram implicit none
+@@keyword :: integer real double precision complex character logical type endtype
+@@keyword :: operator assignment common data equivalence namelist
+@@keyword :: subroutine endsubroutine function endfunction recursive
+@@keyword :: kind parameter entry result optional intent
+@@keyword :: dimension external internal intrinsic public private sequence
+@@keyword :: interface endinterface module endmodule use only contains
+@@keyword :: allocatable pointer save target allocate deallocate
+@@keyword :: cycle exit nullify call continue pause return stop
+@@keyword :: format backspace close file endfile inquire open print read write rewind
+@@keyword :: where endwhere assign to
+@@keyword :: select case default endselect
+@@keyword :: go goto do enddo while endwhile block endblock
+
+
+# ==== SECTION 2
+
+start = executable-program ;
+
+executable_program = [ eos ] { program_unit }+ ;
+
+program_unit =
+	  main_program
+	| subprogram
+	| module
+	| block_data
+	;
+
+main_program = [ program_stmt ] program_body end_program_stmt ;
+
+subprogram = function_subprogram | subroutine_subprogram ;
+
+function_subprogram = function_stmt [ program_body ] end_function_stmt ;
+
+subroutine_subprogram = subroutine_stmt [ program_body ] end_subroutine_stmt ;
+
+program_body = [ specification_part ] [ execution_part ] [ subprogram_part ] ;
+
+module = module_stmt [ specification_part ] [ subprogram_part ] end_module_stmt ;
+
+block_data = block_data_stmt specification_part end_block_data_stmt ;
+
+specification_part = { use_stmt } { implicit_stmt | declaration_construct } ;
+
+declaration_construct =
+	  derived_type_dev
+	| entry_stmt
+	| enum_def
+	| format_stmt
+	| interface_block
+	| parameter_stmt
+	| procedure_declaration_stmt
+	| other_specification_stmt
+	| type_declaration_stmt
+	| stmt_function_stmt ;
+
+execution_part = { execution_part_construct } ;
+
+execution_part_construct =
+	  executable_construct
+	| format_stmt
+	| data_stmt
+	| entry_stmt ;
+
+subprogram_part = contains_stmt { subprogram } ;
+
+specification_stmt =
+	  access_stmt
+	| allocatable_stmt
+	| asynchronous_stmt
+	| bind_stmt
+	| codimension_stmt
+	| common_stmt
+	| data_stmt
+	| dimension_stmt
+	| equivalence_stmt
+	| external_stmt
+	| intent_stmt
+	| intrinsic_stmt
+	| namelist_stmt
+	| optional_stmt
+	| pointer_stmt
+	| protected_stmt
+	| save_stmt
+	| target_stmt
+	| volatile_stmt
+	| value_stmt
+	;
+
+executable_construct =
+	  action_stmt
+	| associate_construct
+	| block_construct
+	| case_construct
+	| critical_construct
+	| do_construct
+	| forall_construct
+	| if_construct
+	| select_type_construct
+	| where_construct
+	;
+
+action_stmt =
+	  allocate_stmt
+	| arithmetic_if_stmt
+	| assignment_stmt
+	| backspace_stmt
+	| call_stmt
+	| close_stmt
+	| computed_goto_stmt
+	| continue_stmt
+	| cycle_stmt
+	| deallocate_stmt
+	| endfile_stmt
+	| error_stop_stmt
+	| exit_stmt
+	| flush_stmt
+	| forall_stmt
+	| goto_stmt
+	| if_stmt
+	| inquire_stmt
+	| lock_stmt
+	| nullify_stmt
+	| open_stmt
+	| pointer_assignment_stmt
+	| print_stmt
+	| read_stmt
+	| return_stmt
+	| rewind_stmt
+	| stop_stmt
+	| sync_all_stmt
+	| sync_images_stmt
+	| sync_memory_stmt
+	| unlock_stmt
+	| where_stmt
+	| write_stmt
+	;
+
+
+# ====== SECTION 3
+
+eos = /(?:(?:;|(?:![^\r\n]*)?(?:\r\n?|\n))[\t ]*)+/ ;
+
+@name
+name = /[A-Za-z][A-Za-z0-9_]*/ ;
+
+constant = named_constant | literal_constant ;
+
+literal_constant =
+      int_literal_constant
+    | real_literal_constant
+    | complex_literal_constant
+    | logical_literal_constant
+    | boz_literal_constant
+    ;
+
+named_constant = name ;
+
+int_constant = constant ;
+
+char_constant = constant ;
+
+intrinsic_operator =
+      '**'
+    | mult_op
+    | add_op
+    | '//'
+    | rel_op
+    | '.not.'
+    | '.and.'
+    | '.or.'
+    | equiv_op
+    ;
+
+mult_op = '*' | '/' ;
+
+add_op = '+' | '-' ;
+
+rel_op = /(?i)\.(?:eq|ne|l[te]|g[te])\.|[\/=]=|<=?|>=?/ ;
+
+equiv_op = /(?i)\.n?eqv\./ ;
+
+defined_operator =
+    | defined_unary_op
+    | defined_binary_op
+    | extended_intrinsic_op
+    ;
+
+defined_unary_op = defined_op_token ;
+
+defined_binary_op = defined_op_token ;
+
+defined_op_name = !intrinsic_dot_expr /\.[A-Za-z]+\./ ;
+
+intrinsic_dot_expr = /(?i)\.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or|true|false)\./ ;
+
+extended_intrinsic_op = intrinsic_operator ;
+
+label = /\d{1,5}/ ;
+
+# FIXME includes
+
+
+# ====== SECTION 4
+
+type_param_value = scalar_int_expr | '*' | ':' ;
+
+type_spec = intrinsic_type_spec | derived_type_spec ;
+
+declaration_type_spec =
+      intrinsic_type_spec
+    | 'type' '(' type_spec ')'
+    | 'class' '(' derived_type_spec ')'
+    | 'class' '(' '*' ')'
+    ;
+
+intrinsic_type_spec =
+	  'integer' [ kind_selector ]
+	| 'real' [ kind_selector ]
+	| 'double' 'precision'
+	| 'complex' [ kind_selector ]
+	| 'character' [ char_selector ]
+	| 'logical' [ kind_selector ]
+    ;
+
+kind_selector =
+      '(' [ 'kind' '=' ] scalar_int_constant_expr ')'
+# MAYBE?
+#   | '*' digit_string
+    ;
+
+scalar_int_constant_expr = int_constant_expr ;
+
+signed_int_literal_constant = [ sign ] int_literal_constant ;
+
+sign = /[+-]/ ;
+
+int_literal_constant = digit_string [ kind_suffix ] ;
+
+digit_string = /\d+(?![.A-Za-z0-9])/ ;
+
+kind_suffix = '_' kind_param ;
+
+kind_param = digit_string | scalar_int_constant_name ;
+
+scalar_int_constant_name = name ;
+
+signed_real_literal_constant = [ sign ] real_literal_constant ;
+
+real_literal_constant = real_literal_base [ kind_suffix ] ;
+
+real_literal_base = /(?:(?:\d+\.\d*|\.\d+)(?:[dDeE][-+]?\d+)?)(?![.'"0-9A-Za-z])/ ;
+
+complex_literal_constant = '(' real_imag_part ',' real_imag_part ')' ;
+
+real_imag_part =
+      signed_int_literal_constant
+    | signed_real_literal_constant
+    | named_constant
+    ;
+
+char_selector =
+      length_selector
+	| '(' [ 'len' '=' ] type_param_value ',' [ 'kind' '=' ] scalar_int_constant_expr ')'
+    | '(' 'kind' '=' scalar_int_constant_expr  [ ',' 'len' '='  type_param_value ] ')'
+	;
+
+length_selector =
+	  '(' [ 'len' '=' ] type_param_value ')'
+	| '*' char_length [ ',' ]
+	;
+
+char_length =
+	  '(' type_param_value ')'
+	| int_literal_constant
+	;
+
+char_literal_constant = [ kind_prefix ] char_literal_base ;
+
+kind_prefix = kind_param '_' ;
+
+char_literal_base = single_quoted_literal | double_qouted_literal ;
+
+single_quoted_literal = /'(?:''|&[ \t]*(?:\r\n?|\n)|[^'\r\n])*'(?!['"\w])/ ;
+
+double_qouted_literal = /"(?:""|&[ \t]*(?:\r\n?|\n)|[^"\r\n])*"(?!['"\w])/ ;
+
+logical_literal_constant = logical_literal_base [ kind_suffix ] ;
+
+logical_literal_base = '.true.' | '.false.' ;
+
+derived_type_dev = derived_type_stmt
+    { type_param_def_stmt }
+    { private_or_sequence }
+    [ component_part ]
+    [ type_bound_procedure_part ]
+    end_type_stmt
+    ;
+
+derived_type_stmt = 'type' [ { ',' type_attr_spec } '::' ] type_name [ type_param_name_list ] eos ;
+
+type_name = name ;
+
+type_param_name_list = '(' type_param_name { ',' type_param_name } ')' ;
+
+type_param_name = name ;
+
+type_attr_spec =
+      'abstract'
+    | access_spec
+    | 'bind' '(' 'C' ')'
+    | 'extends' '(' parent_type_name ')'
+    ;
+
+parent_type_name = type_name ;
+
+private_or_sequence =
+      private_components_stmt
+    | sequence_stmt
+    ;
+
+end_type_stmt = end 'type' [ type_name ] eos ;
+
+# Usually, one is allowed to contract end with whatever token is next
+end = /(?i)end/ ;
+
+sequence_stmt = 'sequence' eos ;
+
+type_param_def_stmt = 'integer' [ kind_selector ] ',' type_param_attr_spec '::'
+                      type_param_decl { ',' type_param_decl } eos ;
+
+type_param_decl = type_param_name [ '=' scalar_int_constant_expr ] ;
+
+type_param_attr_spec = 'kind' | 'len' ;
+
+
+
+
+
+
+
+
+
+
+
+
+
+type_spec =
+	  'integer' kind_selector
+	| 'real' kind_selector
+	| 'double' 'precision'
+	| 'complex' kind_selector
+	| 'character' char_selector
+	| 'logical' kind_selector
+	| 'type' '(' type_name ')'
+	| 'integer'
+	| 'real'
+	| 'complex'
+	| 'logical'
+	| 'character'
+	| 'character' length_selector
+	;
+
+kind_selector =
+	  '(' [ 'kind' '=' ] expr ')'
+	| '*' icon
+	;
+
+char_selector =
+	  '(' 'len' '=' type_param_value ',' 'kind' '=' expr ')'
+	| '(' 'len' '=' type_param_value ',' expr ')'
+	| '(' 'len' '=' type_param_value ')'
+	| '(' [ 'kind' '=' ] expr ')'
+	;
+
+length_selector =
+	  '(' type_param_value ')'
+	| '*' char_length
+	;
+
+char_length =
+	  '(' type_param_value ')'
+	| scalar_int_literal_constant
+	;
+
+
+
+
+
+expr = level5_expr { defined_binary_op level5_expr } ;
+
+defined_binary_op = dop ;
+
+level5_expr = equiv_operand { equiv_op equiv_operand } ;
+
+equiv_op =
+	  '.eqv.'
+	| '.neqv.'
+	;
+
+equiv_operand = or_operand { or_op or_operand } ;
+
+or_op = '.or.' ;
+
+or_operand =  and_operand { and_op and_operand } ;
+
+and_op = '.and.' ;
+
+and_operand = [ not_op ] level4_expr ;
+
+not_op = '.not.' ;
+
+level4_expr = level3_expr { rel_op level3_expr } ;
+
+level3_expr = level2_expr { concat_op level2_expr } ;
+
+concat_op = '//' ;
+
+level2_expr =
+	  add_operand { add_op add_operand }
+	| sign add_operand
+	;
+
+add_op =
+	  '+'
+	| '-'
+	;
+
+add_operand = mult_operand { mult_op mult_operand } ;
+
+mult_op =
+	  '*'
+	| '/'
+	;
+
+mult_operand = level1_expr { power_op level1_expr } ;
+
+level1_expr = [ defined_unary_op ] primary ;
+
+defined_unary_op = dop ;
+
+primary =
+	  array_constructor
+	| unsigned_arithmetic_constant
+	| function_reference
+	| name
+	| data_ref
+	| '(' expr ')'
+	| scon
+	| logical_constant
+	;
+
+
+
+
+eos = /(?:(?:;|(?:![^\r\n]*)?(?:\r\n?|\n))[\t ]*)+/ ;
+
