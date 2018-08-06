@@ -22,8 +22,12 @@
 lexer = { token } $ ;
 
 token =
-      eol ~ [ line_start_token ]
-    | contractives
+      stmt_sep
+    | stmt_token
+    ;
+
+stmt_token =
+      contractives
     | word
     | literal
     | operator
@@ -134,7 +138,7 @@ assign_op = /=(?![=>])/ ;
 
 assign_ptr_op = '=>' ;
 
-other_op = /[%$,_:;]/ ;
+other_op = /[%$,_:]/ ;
 
 rel_op = /(?i)\.(?:eq|ne|l[te]|g[te])\.|[\/=]=|<=?|>=?/ ;
 
