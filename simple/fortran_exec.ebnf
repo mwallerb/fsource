@@ -72,6 +72,8 @@ case_lower = expr ;
 
 case_upper = expr ;
 
+end_select_stmt = end 'select' [ construct_name ] eos ;
+
 
 where_construct =
     where_construct_stmt ~ where_block
@@ -146,10 +148,54 @@ action_stmt =
 	| write_stmt
 	;
 
+
 if_stmt = 'if' '(' expr ')' action_stmt ;
 
-where_stmt = 'where' '(' mask_expr ')' where_assignment_stmt ;
+arithmetic_if_stmt =
+    'if' '(' expr ')' label ~ ',' label',' label eos ;
+
+where_stmt = 'where' '(' expr ')' where_assignment_stmt ;
+
+goto_stmt = go 'to' label ~ eos ;
+
+assigned_goto_stmt =
+    go 'to' variable ~ [ ',' ] '(' label { ',' label } ')' eos ;
+
+computed_goto_stmt =
+    go 'to' '(' ~ label { ',' label } ')' [ ',' ] expr eos ;
+
+assignment_stmt = lobject assign_op ~ expr eos ;
+
+lobject = object_ref_or_call ;
+
+pointer_assignment_stmt = lpointer assign_ptr_op ~ expr eos ;
+
+lpointer = object ;
+
+continue_stmt = 'continue' ~ eos ;
 
 
+# We don't care about the rest
 
-
+cycle_stmt = 'cycle' ~ ->eos ;
+exit_stmt = 'exit' ~ ->eos ;
+return_stmt = 'return' ~ ->eos ;
+stop_stmt = 'stop' ~ ->eos ;
+call_stmt = 'call' ~ ->eos ;
+entry_stmt = 'entry' ~ ->eos ;
+data_stmt = 'data' ~ ->eos ;
+allocate_stmt = 'allocate' ~ ->eos ;
+deallocate_stmt = 'deallocate' ~ ->eos ;
+assign_stmt = 'assign' ~ ->eos ;
+nullify_stmt = 'nullify' ~ ->eos ;
+open_stmt = 'open' ~ ->eos ;
+backspace_stmt = 'backspace' ~ ->eos ;
+inquire_stmt = 'inquire' ~ ->eos ;
+format_stmt = 'format' ~ ->eos ;
+read_stmt = 'read' ~ ->eos ;
+write_stmt = 'write' ~ ->eos ;
+print_stmt = 'print' ~ ->eos ;
+rewind_stmt = 'rewind' ~ ->eos ;
+pause_stmt = 'pause' ~ ->eos ;
+close_stmt = 'close' ~ ->eos ;
+endfile_stmt = 'endfile' ~ ->eos ;

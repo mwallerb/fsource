@@ -86,12 +86,4 @@ contained_part = contains_stmt { subprogram } ;
 contains_stmt = 'contains' eos ;
 
 
-#execution_part = { executable_construct } ;
-
-# Use these rules to test stuff
-#
-# specification_part = { use_stmt } { implicit_stmt } ;
-execution_part = [ 'XXX' ] ;
-# type_spec = 'XXX' ;
-
-
+execution_part = { executable_construct } ;
