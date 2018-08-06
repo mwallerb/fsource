@@ -1,0 +1,82 @@
+#include :: fortran_expr.ebnf
+
+compilation_unit = [ eos ] { program_unit }+ $ ;
+
+program_unit =
+      main_program
+    | subprogram
+    | module
+    | block_data
+    ;
+
+main_program = [ program_stmt ] program_body end_program_stmt ;
+
+program_stmt = 'program' program_name eos ;
+
+end_program_stmt = end [ 'program' [ program_name ] ] eos ;
+
+program_name = identifier ;
+
+subprogram = function_subprogram | subroutine_subprogram ;
+
+function_subprogram = function_stmt [ program_body ] end_function_stmt ;
+
+function_stmt = { func_prefix } 'function' func_name func_args { func_suffix } eos ;
+
+func_prefix =
+      'recursive'
+    | type_spec
+    ;
+
+func_name = identifier ;
+
+func_args = open_parens [ dummy_arg_name { ',' dummy_arg_name } ] close_parens ;
+
+func_suffix = 'result' '(' variable ')' ;
+
+end_function_stmt = end [ 'function' [ func_name ] ] eos ;
+
+subroutine_subprogram = subroutine_stmt [ program_body ] end_subroutine_stmt ;
+
+subroutine_stmt = { sub_prefix } sub_name sub_args eos ;
+
+sub_prefix = 'recursive' ;
+
+sub_name = indentifier ;
+
+sub_args = open_parens [ placeholder { ',' placeholder } ] close_parens ;
+
+placeholder =
+      dummy_arg_name
+    | '*'
+    ;
+
+dummy_arg_name = identifier ;
+
+end_subroutine_stmt = end [ 'subroutine' [ sub_name ] ] eos ;
+
+program_body = [ specification_part ] [ execution_part ] [ contained_part ] ;
+
+module = module_stmt [ specification_part ] [ contained_part ] end_module_stmt ;
+
+module_stmt = 'module' module_name eos ;
+
+module_name = identifier ;
+
+end_module_stmt = end [ 'module' [ module_name ] ] eos ;
+
+block_data = block_data_stmt specification_part end_block_data_stmt ;
+
+block_data_stmt = 'block' 'data' [ block_data_name ] eos ;
+
+block_data_name = identifier ;
+
+end_block_data_stmt = end [ 'block' 'data' [ block_data_name ] ] eos ;
+
+contained_part = contains_stmt { subprogram } ;
+
+contains_stmt = 'contains' eos ;
+
+specification_part = { use_stmt } { implicit_stmt } { declaration_construct } ;
+
+execution_part = { executable_construct } ;
