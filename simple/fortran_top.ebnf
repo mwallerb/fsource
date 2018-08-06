@@ -1,4 +1,4 @@
-#include :: fortran_expr.ebnf
+#include :: fortran_decl.ebnf
 
 compilation_unit = [ eos ] { program_unit }+ $ ;
 
@@ -42,7 +42,7 @@ subroutine_stmt = { sub_prefix } sub_name sub_args eos ;
 
 sub_prefix = 'recursive' ;
 
-sub_name = indentifier ;
+sub_name = identifier ;
 
 sub_args = open_parens [ placeholder { ',' placeholder } ] close_parens ;
 
@@ -80,3 +80,31 @@ contains_stmt = 'contains' eos ;
 specification_part = { use_stmt } { implicit_stmt } { declaration_construct } ;
 
 execution_part = { executable_construct } ;
+
+use_stmt =
+      'use' module_name { ',' rename_clause } eos
+    | 'use' module_name ',' 'only' ':' only_clause { ',' only_clause } eos
+    ;
+
+rename_clause = identifier '=>' use_name ;
+
+only_clause =
+      generic_spec
+    | [ identifier '=>' ] use_name
+    ;
+
+generic_spec =
+      'operator' '(' operator ')'
+    | 'assignment' '(' '=' ')'
+    ;
+
+use_name = identifier ;
+
+implicit_stmt =
+      'implicit' 'none' eos
+    | 'implicit' implicit_spec { ',' implicit_spec } eos
+    ;
+
+implicit_spec = type_spec '(' letter_spec { ',' letter_spec } ')' ;
+
+letter_spec = letter [ '-' letter ] ;
