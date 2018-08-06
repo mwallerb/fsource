@@ -1,4 +1,4 @@
-@@grammar :: FortranLex
+@@grammar :: Fortran
 
 @@ignorecase :: True
 
@@ -12,7 +12,7 @@
 @@keyword :: KIND PARAMETER ENTRY RESULT OPTIONAL INTENT
 @@keyword :: DIMENSION EXTERNAL INTERNAL INTRINSIC PUBLIC PRIVATE SEQUENCE
 @@keyword :: INTERFACE ENDINTERFACE MODULE ENDMODULE USE ONLY CONTAINS
-@@keyword :: ALLOCATABLE POINTER SAVE TARGET ALLOCATE DEALLOCATE
+@@keyword :: ALLOCATABLE POINTER SAVE ALLOCATE DEALLOCATE
 @@keyword :: CYCLE EXIT NULLIFY CALL CONTINUE PAUSE RETURN STOP
 @@keyword :: FORMAT BACKSPACE CLOSE FILE ENDFILE INQUIRE OPEN PRINT READ WRITE REWIND
 @@keyword :: WHERE ENDWHERE ASSIGN TO
@@ -29,10 +29,11 @@ token =
     | operator
     ;
 
-eos =
-      eol ~ [ line_start_token ]
+eos = { stmt_sep }+ | $ ;
+
+stmt_sep =
+      eol [ line_start_token ]
     | ';'
-    | $
     ;
 
 eol = /(?:![^\r\n]*)?(?:\r\n?|\n)/ ;
@@ -50,6 +51,8 @@ preproc_stmt = /#[^\r\n]+/ ;
 identifier = word ;
 
 word = /[A-Za-z][A-Za-z0-9_]*/ ;
+
+letter = /[A-Za-z]/ ;
 
 contractives =
       end

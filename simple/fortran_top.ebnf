@@ -1,3 +1,4 @@
+
 #include :: fortran_decl.ebnf
 
 compilation_unit = [ eos ] { program_unit }+ $ ;
@@ -17,7 +18,9 @@ end_program_stmt = end [ 'program' [ program_name ] ] eos ;
 
 program_name = identifier ;
 
+
 subprogram = function_subprogram | subroutine_subprogram ;
+
 
 function_subprogram = function_stmt ~ [ program_body ] end_function_stmt ;
 
@@ -38,7 +41,8 @@ end_function_stmt = end [ 'function' [ func_name ] ] eos ;
 
 subroutine_subprogram = subroutine_stmt ~ [ program_body ] end_subroutine_stmt ;
 
-subroutine_stmt = { sub_prefix } sub_name sub_args eos ;
+
+subroutine_stmt = { sub_prefix } 'subroutine' ~ sub_name sub_args eos ;
 
 sub_prefix = 'recursive' ;
 
@@ -55,7 +59,9 @@ dummy_arg_name = identifier ;
 
 end_subroutine_stmt = end [ 'subroutine' [ sub_name ] ] eos ;
 
+
 program_body = [ specification_part ] [ execution_part ] [ contained_part ] ;
+
 
 module = module_stmt ~ [ specification_part ] [ contained_part ] end_module_stmt ;
 
@@ -65,6 +71,7 @@ module_name = identifier ;
 
 end_module_stmt = end [ 'module' [ module_name ] ] eos ;
 
+
 block_data = block_data_stmt ~ specification_part end_block_data_stmt ;
 
 block_data_stmt = 'block' 'data' ~ [ block_data_name ] eos ;
@@ -73,18 +80,19 @@ block_data_name = identifier ;
 
 end_block_data_stmt = end [ 'block' 'data' [ block_data_name ] ] eos ;
 
+
 contained_part = contains_stmt { subprogram } ;
 
 contains_stmt = 'contains' eos ;
 
 specification_part = { use_stmt } { implicit_stmt } { declaration_construct } ;
 
-execution_part = { executable_construct } ;
+#execution_part = { executable_construct } ;
 
 # Use these rules to test stuff
 #
 # specification_part = { use_stmt } { implicit_stmt } ;
-# execution_part = [ 'XXX' ] ;
+execution_part = [ 'XXX' ] ;
 # type_spec = 'XXX' ;
 
 use_stmt =
