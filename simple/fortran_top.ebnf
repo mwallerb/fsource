@@ -85,7 +85,6 @@ contained_part = contains_stmt { subprogram } ;
 
 contains_stmt = 'contains' eos ;
 
-specification_part = { use_stmt } { implicit_stmt } { declaration_construct } ;
 
 #execution_part = { executable_construct } ;
 
@@ -94,33 +93,5 @@ specification_part = { use_stmt } { implicit_stmt } { declaration_construct } ;
 # specification_part = { use_stmt } { implicit_stmt } ;
 execution_part = [ 'XXX' ] ;
 # type_spec = 'XXX' ;
-
-use_stmt =
-      'use' module_name { ',' rename_clause } eos
-    | 'use' module_name ',' 'only' ':' only_clause { ',' only_clause } eos
-    ;
-
-rename_clause = identifier '=>' use_name ;
-
-only_clause =
-      generic_spec
-    | [ identifier '=>' ] use_name
-    ;
-
-generic_spec =
-      'operator' '(' operator ')'
-    | 'assignment' '(' '=' ')'
-    ;
-
-use_name = identifier ;
-
-implicit_stmt =
-      'implicit' 'none' eos
-    | 'implicit' implicit_spec { ',' implicit_spec } eos
-    ;
-
-implicit_spec = type_spec '(' letter_spec { ',' letter_spec } ')' ;
-
-letter_spec = letter [ '-' letter ] ;
 
 

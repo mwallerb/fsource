@@ -1,5 +1,30 @@
 #include :: fortran_expr.ebnf
 
+specification_part = { use_stmt } { implicit_stmt } { declaration_construct } ;
+
+use_stmt =
+      'use' module_name { ',' rename_clause } eos
+    | 'use' module_name ',' 'only' ':' only_clause { ',' only_clause } eos
+    ;
+
+rename_clause = identifier '=>' use_name ;
+
+only_clause =
+      generic_spec
+    | [ identifier '=>' ] use_name
+    ;
+
+use_name = identifier ;
+
+implicit_stmt =
+      'implicit' 'none' eos
+    | 'implicit' implicit_spec { ',' implicit_spec } eos
+    ;
+
+implicit_spec = type_spec '(' letter_spec { ',' letter_spec } ')' ;
+
+letter_spec = letter [ '-' letter ] ;
+
 declaration_construct =
 	  entity_decl_stmt
 	| specification_stmt
@@ -60,13 +85,6 @@ access_spec =
 	  'public'
 	| 'private'
 	;
-
-generic_spec_or_name =
-	  generic_name
-	| generic_spec
-	;
-
-generic_name = identifier ;
 
 
 common_stmt = 'common' common_block { [ ',' ] common_block } eos ;
@@ -156,9 +174,23 @@ interface_body_part =
 end_interface_stmt = 'end' [ 'interface' [ generic_spec_or_name ] ] eos ;
 
 
-module_proc_stmt = 'module' 'procedure' procedure_name { ',' procedure_name } eos ;
+module_proc_stmt = 'module' 'procedure' ~ procedure_name { ',' procedure_name } eos ;
 
 procedure_name = identifier ;
+
+
+generic_spec_or_name =
+	  generic_name
+	| generic_spec
+	;
+
+generic_spec =
+      'operator' '(' operator ')'
+    | 'assignment' '(' '=' ')'
+    ;
+
+generic_name = identifier ;
+
 
 
 type_spec =
@@ -236,4 +268,3 @@ implied_shape_spec = [ lower_bound ':' ] '*' ;
 lower_bound = expr ;
 
 upper_bound = expr ;
-
