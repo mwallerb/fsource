@@ -29,6 +29,12 @@ token =
     | operator
     ;
 
+eos =
+      eol ~ [ line_start_token ]
+    | ';'
+    | $
+    ;
+
 eol = /(?:![^\r\n]*)?(?:\r\n?|\n)/ ;
 
 line_start_token =
@@ -92,8 +98,8 @@ operator =
     | concat_op
     | open_parens
     | close_parens
-    | open_arr_constr
-    | close_arr_constr
+    | open_arr
+    | close_arr
     | assign_op
     | assign_ptr_op
     | other_op
@@ -105,7 +111,7 @@ operator =
     | custom_op
     ;
 
-plus_op = /[-+]/ ;
+plus_op = /[-+](?![*\/=])/ ;
 
 mul_op = /\*(?!\*)|\/(?![\/)=])/ ;
 
@@ -117,9 +123,9 @@ open_parens = /\((?!\/)/ ;
 
 close_parens = ')' ;
 
-open_arr_constr = '(/' ;
+open_arr = '(/' ;
 
-close_arr_constr = '/)' ;
+close_arr = '/)' ;
 
 assign_op = /=(?![=>])/ ;
 
