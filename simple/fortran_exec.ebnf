@@ -1,0 +1,155 @@
+# ===
+
+#include :: fortran_expr.ebnf
+
+executable_construct =
+	  nested_construct
+    | action_stmt
+    ;
+
+# === NESTED CONSTRUCTS
+
+nested_construct =
+	| if_construct
+	| do_construct
+	| case_construct
+	| where_construct
+#	| end_do_stmt
+	;
+
+if_construct =
+    if_then_stmt ~ block
+    { else_if_stmt ~ block }
+    [ else_stmt ~ block ]
+    end_if_stmt ;
+
+if_then_stmt = [ construct_tag ] 'if' '(' expr ')' 'then' ~ eos ;
+
+else_if_stmt = else 'if' ~ '(' expr ')' 'then' [ construct_name ] eos ;
+
+else_stmt = 'else' [ construct_name ] eos ;
+
+end_if_stmt = end 'if' [ construct_name ] eos ;
+
+
+do_construct =
+	  do_block
+#	| do_nonblock
+	;
+
+do_block = do_stmt ~ block end_do_stmt ;
+
+do_stmt = [ construct_tag ] 'do' ~ [ label ] [ loop_control ] eos ;
+
+loop_control =
+      while_control
+    | do_control
+    ;
+
+while_control = 'while' ~ '(' expr ')' ;
+
+end_do_stmt = end 'do' [ construct_name ] eos ;
+
+
+case_construct = select_case_stmt { case } end_select_stmt ;
+
+select_case_stmt =
+    [ construct_tag ] 'select' ~ 'case' '(' expr ')' eos ;
+
+case = case_stmt block ;
+
+case_stmt = 'case' ~ '(' case_range { ',' case_range } ')' eos ;
+
+case_range =
+      case_value
+    | case_lower ':' [ case_upper ]
+    | ':' case_upper
+    ;
+
+case_value = expr ;
+
+case_lower = expr ;
+
+case_upper = expr ;
+
+
+where_construct =
+    where_construct_stmt ~ where_block
+    { masked_elsewhere_stmt where_block }
+    [ elsewhere_stmt where_block ]
+    end_where_stmt ;
+
+where_construct_stmt =
+    [ construct_tag ] 'where' '(' expr ')' eos ;
+
+where_block = { where_body_construct } ;
+
+where_body_construct =
+      where_assignment_stmt
+    | where_stmt
+    | where_construct
+    ;
+
+where_assignment_stmt = assignment_stmt ;
+
+masked_elsewhere_stmt = 'elsewhere' '(' ~ expr ')' [ construct_name ] eos ;
+
+elsewhere_stmt = 'elsewhere' [ construct_name ] eos ;
+
+end_where_stmt = end 'where' [ construct_name ] eos ;
+
+
+block = { block_construct } ;
+
+block_construct =
+      executable_construct
+    | format_stmt
+    | entry_stmt
+    | data_stmt
+    ;
+
+construct_tag = construct_name ':' ;
+
+construct_name = identifier ;
+
+
+# === ACTION STMTS
+
+action_stmt =
+	  allocate_stmt
+	| cycle_stmt
+	| deallocate_stmt
+	| exit_stmt
+	| nullify_stmt
+	| pointer_assignment_stmt
+	| where_stmt
+	| arithmetic_if_stmt
+	| assignment_stmt
+	| assign_stmt
+	| backspace_stmt
+	| call_stmt
+	| close_stmt
+	| continue_stmt
+	| endfile_stmt
+	| goto_stmt
+	| computed_goto_stmt
+	| assigned_goto_stmt
+	| if_stmt
+	| inquire_stmt
+	| open_stmt
+	| pause_stmt
+	| print_stmt
+	| read_stmt
+	| return_stmt
+	| rewind_stmt
+	| stop_stmt
+	| write_stmt
+	;
+
+if_stmt = 'if' '(' expr ')' action_stmt ;
+
+where_stmt = 'where' '(' mask_expr ')' where_assignment_stmt ;
+
+
+
+
