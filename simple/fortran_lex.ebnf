@@ -6,10 +6,10 @@
 
 # HACK: Tatsu requires keywords to be in uppercase in case-insensitive grammars
 @@keyword :: IF ELSEIF ELSE END ENDIF PROGRAM ENDPROGRAM IMPLICIT NONE
-@@keyword :: INTEGER REAL DOUBLE PRECISION COMPLEX CHARACTER LOGICAL TYPE ENDTYPE
+@@keyword :: INTEGER DOUBLE PRECISION COMPLEX CHARACTER LOGICAL TYPE ENDTYPE
 @@keyword :: OPERATOR ASSIGNMENT COMMON DATA EQUIVALENCE NAMELIST
 @@keyword :: SUBROUTINE ENDSUBROUTINE FUNCTION ENDFUNCTION RECURSIVE
-@@keyword :: KIND PARAMETER ENTRY RESULT OPTIONAL INTENT
+@@keyword :: PARAMETER ENTRY RESULT OPTIONAL INTENT
 @@keyword :: DIMENSION EXTERNAL INTERNAL INTRINSIC PUBLIC PRIVATE SEQUENCE
 @@keyword :: INTERFACE ENDINTERFACE MODULE ENDMODULE USE ONLY CONTAINS
 @@keyword :: ALLOCATABLE POINTER SAVE ALLOCATE DEALLOCATE
@@ -18,6 +18,9 @@
 @@keyword :: WHERE ENDWHERE ASSIGN TO
 @@keyword :: SELECT CASE DEFAULT ENDSELECT
 @@keyword :: GO GOTO DO ENDDO WHILE ENDWHILE BLOCK ENDBLOCK
+
+# TODO
+# @@keyword :: REAL
 
 lexer = { token } $ ;
 
@@ -30,7 +33,9 @@ stmt_token =
       contractives
     | word
     | literal
+    | bracketed_operator
     | operator
+    | bracketing
     ;
 
 eos = { stmt_sep }+ | $ ;
@@ -98,15 +103,13 @@ hex_literal = /[Zz]'[0-9A-Fa-f]+'/ | /[Zz]"[0-9A-Fa-f]+"/ ;
 
 bool_literal = /(?i)\.(true|false)\./ ;
 
+bracketed_operator = '(' ('/' | operator) ')' ;
+
 operator =
       plus_op
     | mul_op
     | pow_op
     | concat_op
-    | open_parens
-    | close_parens
-    | open_arr
-    | close_arr
     | assign_op
     | assign_ptr_op
     | other_op
@@ -116,6 +119,13 @@ operator =
     | not_op
     | equiv_op
     | custom_op
+    ;
+
+bracketing =
+    | open_parens
+    | close_parens
+    | open_arr
+    | close_arr
     ;
 
 plus_op = /[-+](?![*\/=])/ ;

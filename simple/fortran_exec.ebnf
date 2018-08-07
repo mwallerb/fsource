@@ -58,7 +58,12 @@ select_case_stmt =
 
 case = case_stmt block ;
 
-case_stmt = 'case' ~ '(' case_range { ',' case_range } ')' eos ;
+case_stmt = 'case' ~ case_selector eos ;
+
+case_selector =
+      '(' ~ case_range { ',' case_range } ')'
+    | 'default'
+    ;
 
 case_range =
       case_value

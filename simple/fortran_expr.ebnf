@@ -75,13 +75,15 @@ object = { constituent '%' } variable ;
 
 constituent = variable [ part ] ;
 
+# FIXME: make this nicer
+
 part = open_parens subscript { ',' subscript } close_parens ;
 
 part_or_args = open_parens [ subscript { ',' subscript } ] close_parens ;
 
 subscript =
       slice
-    | [ 'kind' '=' ] expr
+    | [ variable '='] expr
     ;
 
 slice = [ expr ] ':' [ expr ] [ ':' expr ] ;

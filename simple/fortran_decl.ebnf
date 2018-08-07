@@ -20,7 +20,7 @@ use_name = identifier ;
 
 implicit_stmt =
       'implicit' 'none' eos
-    | 'implicit' implicit_spec { ',' implicit_spec } eos
+    | 'implicit' implicit_spec ~ { ',' implicit_spec } eos
     ;
 
 implicit_spec = type_spec '(' letter_spec { ',' letter_spec } ')' ;
@@ -35,7 +35,7 @@ declaration_construct =
 	;
 
 entity_decl_stmt =
-    type_spec [ { ',' attr_spec } '::' ~ ] entity_decl_list eos ;
+    type_spec [ { ',' ~ attr_spec } '::' ~ ] entity_decl_list eos ;
 
 entity_decl_list = entity_decl { ',' entity_decl } ;
 
@@ -60,6 +60,8 @@ attr_spec =
 	| 'pointer'
 	| 'save'
 	| 'target'
+	| 'value'
+	| 'volatile'
 	;
 
 specification_stmt =
@@ -149,11 +151,12 @@ private_stmt = 'private' eos ;
 sequence_stmt = 'sequence' eos ;
 
 component_def_stmt =
-	  type_spec [ { ',' comp_attr_spec } '::' ] entity_decl { ',' entity_decl } eos;
+	  type_spec [ { ',' ~ comp_attr_spec } '::' ] entity_decl { ',' entity_decl } eos;
 
 comp_attr_spec =
 	  'pointer'
 	| 'dimension' '(' comp_array_spec ')'
+	| 'allocatable'
 	;
 
 comp_array_spec =
@@ -187,7 +190,7 @@ generic_spec_or_name =
 	;
 
 generic_spec =
-      'operator' '(' operator ')'
+      'operator' bracketed_operator
     | 'assignment' '(' '=' ')'
     ;
 

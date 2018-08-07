@@ -24,10 +24,14 @@ subprogram = function_subprogram | subroutine_subprogram ;
 
 function_subprogram = function_stmt ~ [ program_body ] end_function_stmt ;
 
-function_stmt = { func_prefix } 'function' ~ func_name func_args { func_suffix } eos ;
+function_stmt =
+    { func_prefix } 'function' ~ func_name func_args { func_suffix } eos ;
 
 func_prefix =
-      'recursive'
+      'elemental'
+    | 'impure'
+    | 'pure'
+    | 'recursive'
     | type_spec
     ;
 
@@ -35,27 +39,35 @@ func_name = identifier ;
 
 func_args = open_parens [ dummy_arg_name { ',' dummy_arg_name } ] close_parens ;
 
-func_suffix = 'result' '(' variable ')' ;
+func_suffix =
+      'result' '(' variable ')'
+    | c_binding
+    ;
 
 end_function_stmt = end [ 'function' [ func_name ] ] eos ;
 
 subroutine_subprogram = subroutine_stmt ~ [ program_body ] end_subroutine_stmt ;
 
 
-subroutine_stmt = { sub_prefix } 'subroutine' ~ sub_name sub_args eos ;
+subroutine_stmt =
+    { sub_prefix } 'subroutine' ~ sub_name [ sub_args [ c_binding ] ] eos ;
 
 sub_prefix = 'recursive' ;
 
 sub_name = identifier ;
 
-sub_args = open_parens [ placeholder { ',' placeholder } ] close_parens ;
+sub_args = open_parens [ dummy_arg { ',' dummy_arg } ] close_parens ;
 
-placeholder =
+dummy_arg =
       dummy_arg_name
     | '*'
     ;
 
 dummy_arg_name = identifier ;
+
+c_binding = 'bind' '(' 'C' [ ',' 'name' '=' c_name ] ')' ;
+
+c_name = expr ;
 
 end_subroutine_stmt = end [ 'subroutine' [ sub_name ] ] eos ;
 
