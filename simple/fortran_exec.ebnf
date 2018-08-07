@@ -13,6 +13,7 @@ nested_construct =
 	| if_construct
 	| do_construct
 	| case_construct
+	| forall_construct
 	| where_construct
 #	| end_do_stmt
 	;
@@ -80,6 +81,36 @@ case_upper = expr ;
 end_select_stmt = end 'select' [ construct_name ] eos ;
 
 
+forall_construct =
+    forall_construct_stmt ~
+    { forall_body_construct }
+    end_forall_stmt ;
+
+forall_construct_stmt =
+    [ construct_tag ] 'forall' forall_header eos ;
+
+forall_header =
+    '(' [ type_spec '::' ]
+    forall_select { ',' forall_select } [ ',' expr ] ')' ;
+
+forall_select = variable assign_op expr ':' expr [ ':' expr ] ;
+
+forall_body_construct =
+      forall_assignment_stmt
+    | where_stmt
+    | where_construct
+    | forall_construct
+    | forall_stmt
+    ;
+
+forall_assignment_stmt =
+      assignment_stmt
+    | pointer_assignment_stmt
+    ;
+
+end_forall_stmt = end 'forall' [ construct_name ] eos ;
+
+
 where_construct =
     where_construct_stmt ~ where_block
     { masked_elsewhere_stmt where_block }
@@ -142,6 +173,7 @@ action_stmt =
 	| computed_goto_stmt
 	| assigned_goto_stmt
 	| if_stmt
+	| forall_stmt
 	| inquire_stmt
 	| open_stmt
 	| pause_stmt
@@ -158,6 +190,8 @@ if_stmt = 'if' '(' expr ')' action_stmt ;
 
 arithmetic_if_stmt =
     'if' '(' expr ')' label ~ ',' label',' label eos ;
+
+forall_stmt = 'forall' forall_header forall_assignment_stmt ;
 
 where_stmt = 'where' '(' expr ')' where_assignment_stmt ;
 

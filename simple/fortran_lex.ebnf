@@ -4,6 +4,8 @@
 
 @@whitespace :: /[\t ]*&[\t ]*(?:![^\r\n]*)?(?:\r\n?|\n)[\t ]*(?:&?[\t ]*)|[\t ]+/
 
+@@namechars :: 'A-Za-z0-9_'
+
 # HACK: Tatsu requires keywords to be in uppercase in case-insensitive grammars
 @@keyword :: IF ELSEIF ELSE ENDIF PROGRAM ENDPROGRAM IMPLICIT NONE
 @@keyword :: INTEGER DOUBLE PRECISION COMPLEX CHARACTER LOGICAL TYPE ENDTYPE
