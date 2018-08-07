@@ -44,8 +44,8 @@ entity_decl = entity_name [ '*' char_length ] [ '(' array_spec ')' ] [ initializ
 entity_name = identifier ;
 
 initializer =
-      '=' expr
-    | '=>' expr
+      assign_op expr
+    | assign_ptr_op expr
     ;
 
 attr_spec =

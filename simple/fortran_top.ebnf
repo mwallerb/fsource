@@ -52,7 +52,11 @@ subroutine_subprogram = subroutine_stmt ~ [ program_body ] end_subroutine_stmt ;
 subroutine_stmt =
     { sub_prefix } 'subroutine' ~ sub_name [ sub_args [ c_binding ] ] eos ;
 
-sub_prefix = 'recursive' ;
+sub_prefix =
+      'recursive'
+    | 'impure'
+    | 'pure'
+    ;
 
 sub_name = identifier ;
 

@@ -5,7 +5,7 @@
 @@whitespace :: /[\t ]*&[\t ]*(?:![^\r\n]*)?(?:\r\n?|\n)[\t ]*(?:&?[\t ]*)|[\t ]+/
 
 # HACK: Tatsu requires keywords to be in uppercase in case-insensitive grammars
-@@keyword :: IF ELSEIF ELSE END ENDIF PROGRAM ENDPROGRAM IMPLICIT NONE
+@@keyword :: IF ELSEIF ELSE ENDIF PROGRAM ENDPROGRAM IMPLICIT NONE
 @@keyword :: INTEGER DOUBLE PRECISION COMPLEX CHARACTER LOGICAL TYPE ENDTYPE
 @@keyword :: OPERATOR ASSIGNMENT COMMON DATA EQUIVALENCE NAMELIST
 @@keyword :: SUBROUTINE ENDSUBROUTINE FUNCTION ENDFUNCTION RECURSIVE
@@ -20,7 +20,7 @@
 @@keyword :: GO GOTO DO ENDDO WHILE ENDWHILE BLOCK ENDBLOCK
 
 # TODO
-# @@keyword :: REAL
+# @@keyword :: REAL END
 
 lexer = { token } $ ;
 
