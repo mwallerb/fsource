@@ -10,20 +10,20 @@ equiv_operand = or_operand { or_op or_operand } ;
 
 or_operand =  and_operand { and_op and_operand } ;
 
-and_operand = [ not_op ~ ] level4_expr ;
+and_operand = [ not_op ] level4_expr ;
 
 level4_expr = level3_expr { rel_op level3_expr } ;
 
 level3_expr = level2_expr { concat_op level2_expr } ;
 
 # This means one cannot write, e.g., 3*-2 in Fortran
-level2_expr = [ plus_op ~ ] add_operand { plus_op add_operand } ;
+level2_expr = [ plus_op ] add_operand { plus_op add_operand } ;
 
 add_operand = mult_operand { mul_op mult_operand } ;
 
 mult_operand = level1_expr { pow_op level1_expr } ;
 
-level1_expr = [ custom_unary_op ~ ] primary ;
+level1_expr = [ custom_unary_op ] primary ;
 
 custom_binary_op = custom_op ;
 

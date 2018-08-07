@@ -248,13 +248,7 @@ type_param_value =
     ;
 
 
-array_spec =
-      explicit_shape_spec_list
-    | deferred_shape_spec_list
-    | assumed_shape_spec { ',' assumed_shape_spec }
-    | { explicit_shape_spec ',' } implied_shape_spec
-    | implied_shape_spec { ',' implied_shape_spec }
-    ;
+array_spec = any_shape_spec_list ;
 
 explicit_shape_spec_list =
     explicit_shape_spec { ',' explicit_shape_spec } ;
@@ -262,14 +256,21 @@ explicit_shape_spec_list =
 deferred_shape_spec_list =
     deferred_shape_spec { ',' deferred_shape_spec } ;
 
+any_shape_spec_list =
+    any_shape_spec { ',' any_shape_spec } ;
+
+# For some reason we need to have this order here (should not matter)
+any_shape_spec =
+      [ lower_bound ] ':' [ upper_bound_impl ]
+    | upper_bound_impl
+    ;
+
 explicit_shape_spec = [ lower_bound ':' ] upper_bound ;
 
 deferred_shape_spec = ':' ;
 
-assumed_shape_spec = [ lower_bound ] ':' ;
-
-implied_shape_spec = [ lower_bound ':' ] '*' ;
-
 lower_bound = expr ;
 
 upper_bound = expr ;
+
+upper_bound_impl = '*' | upper_bound ;
