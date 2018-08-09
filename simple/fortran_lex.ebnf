@@ -28,16 +28,20 @@ lexer = { token } $ ;
 
 token =
       stmt_sep
-    | stmt_token
+    | contractives
+    | word
+    | literal
+    | bracketed_slashes
+    | bracket
+    | operator
     ;
 
 stmt_token =
-      contractives
-    | word
+      word
     | literal
-    | bracketed_operator
+    | bracketed_slashes
+    | bracket
     | operator
-    | bracketing
     ;
 
 eos = { stmt_sep }+ | $ ;
@@ -97,38 +101,21 @@ dq_string_literal = /"(?:""|&[ \t]*(?:\r\n?|\n)|[^"\r\n])*"(?!['"\w])/ ;
 
 real_literal = /(?:(?:\d+\.\d*|\.\d+)(?:[dDeE][-+]?\d+)?|\d+[dDeE][-+]?\d+)(?!['"0-9A-Za-z])/ ;
 
-binary_literal = /[Bb]'[01]+'/ | /[Bb]"[01]+"/ ;
+binary_literal = /[Bb](?:'[01]+'|"[01]+")/ ;
 
-octal_literal = /[Oo]'[0-7]+'/ | /[Oo]"[0-7]+"/ ;
+octal_literal = /[Oo](?:'[0-7]+'|"[0-7]+")/ ;
 
-hex_literal = /[Zz]'[0-9A-Fa-f]+'/ | /[Zz]"[0-9A-Fa-f]+"/ ;
+hex_literal = /[Zz](?:'[0-9A-Fa-f]+'|"[0-9A-Fa-f]+")/ ;
 
 bool_literal = /(?i)\.(true|false)\./ ;
 
-bracketed_operator = '(' ('/' | operator) ')' ;
 
-operator =
-      plus_op
-    | mul_op
-    | pow_op
-    | concat_op
-    | assign_op
-    | assign_ptr_op
-    | other_op
-    | rel_op
-    | or_op
-    | and_op
-    | not_op
-    | equiv_op
-    | custom_op
-    ;
+bracketed_slashes = /\(\/\/?\s*\)/ ;
 
-bracketing =
-    | open_parens
-    | close_parens
-    | open_arr
-    | close_arr
-    ;
+bracket = /\(\/?|\/?\)/ ;
+
+operator = /[-+,_%]|=>?|:|\*\*?|\/[\/=]?|[<>]=?|\.[A-Za-z]+\./ ;
+
 
 plus_op = /[-+](?![*\/=])/ ;
 

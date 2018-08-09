@@ -190,7 +190,7 @@ generic_spec_or_name =
 	;
 
 generic_spec =
-      'operator' bracketed_operator
+      'operator' '(' operator ')'
     | 'assignment' '(' '=' ')'
     ;
 
