@@ -1,60 +1,96 @@
 import re
 import itertools
 
-NEWLINE_P = r"""[\t ]*(?:\r\n?|\n)"""
-COMMENT_P = r"""(?:![^\r\n]*)"""
-SKIPWS_P = r"""[\t ]*"""
-CONTINUE_P = r"""&{skipws}{comment}?{newline}{skipws}&?""" \
-             .format(skipws=SKIPWS_P, comment=COMMENT_P, newline=NEWLINE_P)
+def _get_lexer_regex():
+    """Return regular expression for parsing free-form Fortran 2008"""
+    newline = r"""[\t ]*(?:\r\n?|\n)"""
+    comment = r"""(?:![^\r\n]*)"""
+    skip_ws = r"""[\t ]*"""
+    continuation = r"""&{skipws}{comment}?{newline}{skipws}&?""" \
+            .format(skipws=skip_ws, comment=comment, newline=newline)
+    postquote = r"""(?!['"\w])"""
+    sq_string = r"""'(?:''|&{newline}|[^'\r\n])*'{postquote}""" \
+                .format(newline=newline, postquote=postquote)
+    dq_string = r""""(?:""|&{newline}|[^"\r\n])*"{postquote}""" \
+                .format(newline=newline, postquote=postquote)
+    postnum = r"""(?!['"0-9A-Za-z]|\.[0-9])"""
+    integer = r"""\d+{postnum}""".format(postnum=postnum)
+    decimal = r"""(?:\d+\.\d*|\.\d+)"""
+    exponent = r"""(?:[dDeE][-+]?\d+)"""
+    real = r"""(?:{decimal}{exponent}?|\d+{exponent}){postnum}""" \
+                .format(decimal=decimal, exponent=exponent, postnum=postnum)
+    binary = r"""[Bb](?:'[01]+'|"[01]+"){postq}""".format(postq=postquote)
+    octal = r"""[Oo](?:'[0-7]+'|"[0-7]+"){postq}""".format(postq=postquote)
+    hexadec = r"""[Zz](?:'[0-9A-Fa-f]+'|"[0-9A-Fa-f]+"){postq}""" \
+                .format(postq=postquote)
+    bracketed_slashes = r"""\({skipws}//?{skipws}\)""".format(skipws=skip_ws)
+    operator = r"""\(/?|\)|[-+,;:_%]|=>?|\*\*?|\/[\/=)]?|[<>]=?"""
+    dotop = r"""\.[A-Za-z]+\."""
+    preproc = r"""(?:\#[^\r\n]+)"""
+    word = r"""[A-Za-z][A-Za-z0-9_]*"""
+    fortran_token = r"""(?x) {skipws}(
+          {newline}(?:{skipws}{pp})?
+        | {contd}
+        | {comment}
+        | {sqstring}
+        | {dqstring}
+        | {real}
+        | {int}
+        | {binary}
+        | {octal}
+        | {hex}
+        | {brslash}
+        | {operator}
+        | {dotop}
+        | {word}
+        | (?=.)
+        )""".format(skipws=skip_ws, newline=newline, comment=comment,
+                    contd=continuation, pp=preproc,
+                    sqstring=sq_string, dqstring=dq_string,
+                    real=real, int=integer, binary=binary, octal=octal,
+                    hex=hexadec, brslash=bracketed_slashes, operator=operator,
+                    dotop=dotop, word=word)
 
-POSTQUOTE_P = r"""(?!['"\w])"""
-SQSTRING_P = r"""'(?:''|&{newline}|[^'\r\n])*'{postquote}""" \
-             .format(newline=NEWLINE_P, postquote=POSTQUOTE_P)
-DQSTRING_P = r""""(?:""|&{newline}|[^"\r\n])*"{postquote}""" \
-             .format(newline=NEWLINE_P, postquote=POSTQUOTE_P)
+    return re.compile(fortran_token)
 
-POSTNUM_P = r"""(?!['"0-9A-Za-z]|\.[0-9])"""
-INT_P = r"""\d+{postnum}""".format(postnum=POSTNUM_P)
-DECIMAL_P = r"""(?:\d+\.\d*|\.\d+)"""
-EXPONENT_P = r"""(?:[dDeE][-+]?\d+)"""
-REAL_P = r"""(?:{decimal}{exponent}?|\d+{exponent}){postnum}""" \
-         .format(decimal=DECIMAL_P, exponent=EXPONENT_P, postnum=POSTNUM_P)
+def _get_string_body_regex():
+    newline = r"""[\t ]*(?:\r\n?|\n)"""
+    sq_body = r"""(?x)(''|&{newline}(?:\s*&)|[^'\r\n]+)""" \
+                .format(newline=newline)
+    dq_body = r"""(?x)(""|&{newline}(?:\s*&)|[^"\r\n]+)""" \
+                .format(newline=newline)
 
-BINARY_P = r"""[Bb](?:'[01]+'|"[01]+"){postq}""".format(postq=POSTQUOTE_P)
-OCTAL_P = r"""[Oo](?:'[0-7]+'|"[0-7]+"){postq}""".format(postq=POSTQUOTE_P)
-HEX_P = r"""[Zz](?:'[0-9A-Fa-f]+'|"[0-9A-Fa-f]+"){postq}""".format(postq=POSTQUOTE_P)
+    return {"'": re.compile(sq_body),
+            '"': re.compile(dq_body)
+            }
 
-BRSLASH_P = r"""\({skipws}//?{skipws}\)""".format(skipws=SKIPWS_P)
-OPERATOR_P = r"""\(/?|\)|[-+,;:_%]|=>?|\*\*?|\/[\/=)]?|[<>]=?"""
-DOTOP_P = r"""\.[A-Za-z]+\."""
-PP_P = r"""(?:\#[^\r\n]+)"""
+LEXER_REGEX = _get_lexer_regex()
+STRING_BODY_REGEX = _get_string_body_regex()
 
-WORD_P = r"""[A-Za-z][A-Za-z0-9_]*"""
+def _sublex_string_body(tok):
+    quote = tok[0]
+    body = tok[1:-1]
+    for subtok in STRING_BODY_REGEX[quote].findall(body):
+        if subtok[0] == quote:
+            yield quote
+        elif subtok[0] == '&':
+            yield '\n'
+        else:
+            yield subtok
 
-FORTRAN_P = r"""(?x) {skipws}(
-       {newline}(?:{skipws}{pp})?
-     | {contd}
-     | {comment}
-     | {sqstring}
-     | {dqstring}
-     | {real}
-     | {int}
-     | {binary}
-     | {octal}
-     | {hex}
-     | {brslash}
-     | {operator}
-     | {dotop}
-     | {word}
-     | (?=.)
-     )""".format(skipws=SKIPWS_P, newline=NEWLINE_P, comment=COMMENT_P,
-                 contd=CONTINUE_P, pp=PP_P,
-                 sqstring=SQSTRING_P, dqstring=DQSTRING_P,
-                 real=REAL_P, int=INT_P, binary=BINARY_P, octal=OCTAL_P,
-                 hex=HEX_P, brslash=BRSLASH_P, operator=OPERATOR_P,
-                 dotop=DOTOP_P, word=WORD_P)
+def parse_string(tok):
+    """Translates a Fortran string literal to a Python string"""
+    return "".join(_sublex_string_body(tok))
 
-fortran_lex_re = re.compile(FORTRAN_P)
+def parse_float(tok):
+    """Translates a Fortran real literal to a Python float"""
+    change_d_to_e = {100: 101, 68: 69}
+    return float(tok.translate(change_d_to_e))
+
+def parse_base_literal(tok):
+    """Parses a F03-style x'***' literal"""
+    base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
+    return int(tok[2:-1], base)
 
 
 class Symbol:
@@ -62,7 +98,7 @@ class Symbol:
         self.token = tok
 
     def __str__(self):
-        return "Symbol %s" % repr(self.token)
+        return "Symbol %s" % self.token
 
 class Invalid:
     def __init__(self, tok): pass
@@ -75,7 +111,7 @@ class EOS:
         self.token = tok
 
     def __str__(self):
-        return "EOS %s" % repr(self.token)
+        return "EOS"
 
 class PreprocStmt:
     def __init__(self, tok):
@@ -92,29 +128,10 @@ class Comment:
     def __str__(self):
         return "Comment %s" % repr(self.value)
 
-SQBODY_P = r"""(?x)(''|&{newline}(?:\s*&)|[^'\r\n]+)""".format(newline=NEWLINE_P)
-DQBODY_P = r"""(?x)(""|&{newline}(?:\s*&)|[^"\r\n]+)""".format(newline=NEWLINE_P)
-
-sqbody_lex_re = re.compile(SQBODY_P)
-dqbody_lex_re = re.compile(DQBODY_P)
-
 class String:
-    @classmethod
-    def parse_value(cls, tok):
-        quote = tok[0]
-        body = tok[1:-1]
-        lexre = sqbody_lex_re if quote == "'" else dqbody_lex_re
-        for subtok in lexre.findall(body):
-            if subtok[0] == quote:
-                yield quote
-            elif subtok[0] == '&':
-                yield '\n'
-            else:
-                yield subtok
-
     def __init__(self, tok):
         self.tok = tok
-        self.value = ''.join(self.parse_value(tok))
+        self.value = parse_string(tok)
 
     def __str__(self):
         return "String %s" % repr(self.value)
@@ -149,7 +166,7 @@ class Keyword:
         self.token = tok
 
     def __str__(self):
-        return "Keyword %s" % repr(self.token)
+        return "Keyword %s" % self.token
 
 class Name:
     def __init__(self, tok):
@@ -157,7 +174,7 @@ class Name:
         self.value = tok.lower()
 
     def __str__(self):
-        return "Name %s" % repr(self.value)
+        return "Name %s" % self.value
 
 MARKERS = {
     '\r': EOS,
@@ -250,8 +267,7 @@ for letter in 'acdefghijklmnpqrstuvwxy':
 
 def handle_word_or_pattern(tok):
     if tok[-1] in "'\"":
-        base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
-        val = int(tok[2:-1], base)
+        val = parse_base_literal(tok)
         return Integer(tok, val)
     else:
         return handle_word(tok)
@@ -275,12 +291,12 @@ def postproc(token):
 if __name__ == '__main__':
     import sys
     fname = sys.argv[1]
-    contents = open(fname).read()
-    tokens = fortran_lex_re.findall(contents)
+    contents = "\n" + open(fname).read() + "\n"
+    tokens = LEXER_REGEX.findall(contents)
     tokens = list(itertools.chain(*map(postproc, tokens)))
 
     if not all(tokens):
         print("ERROR IN LEXING")
     else:
-        print("\n".join(map(str, tokens)))
-        print("\n")
+        #print("\n".join(map(str, tokens)))
+        print("SUCCESS")
