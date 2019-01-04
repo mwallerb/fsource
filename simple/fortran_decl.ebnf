@@ -126,11 +126,11 @@ target_stmt = 'target' ~ [ '::' ] entity_ref { ',' entity_ref } eos ;
 entity_ref = entity_name [ '(' deferred_shape_spec_list ')' ] eos ;
 
 
-external_stmt = 'external' [ '::' ] external_name { ',' external_name } eos ;
+external_stmt = 'external' ~ [ '::' ] external_name { ',' external_name } eos ;
 
 external_name = identifier ;
 
-intrinsic_stmt = 'intrinsic' [ '::' ] intrinsic_proc { ',' intrinsic_proc } eos ;
+intrinsic_stmt = 'intrinsic' ~ [ '::' ] intrinsic_proc { ',' intrinsic_proc } eos ;
 
 intrinsic_proc = identifier ;
 
