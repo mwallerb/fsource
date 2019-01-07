@@ -102,19 +102,13 @@ KEYWORDS = {
     'file', 'do', 'while', 'block'
     }
 
-COMPOUNDS = {
-    'endif', 'endwhere', 'endprogram', 'endtype', 'endsubroutine',
-    'endfunction', 'endfile', 'enddo', 'endwhile', 'endblock', 'elseif',
-    'elsewhere', 'goto'
-    }
-
 BUILTIN_DOTOP = {
     '.eq.', '.ne.', '.lt.', '.le.', '.gt.', '.ge.', '.eqv.', '.neqv.',
     '.not.', '.and.', '.or.', '.true.', '.false.'
     }
 
 def run_lexer(text):
-    all_keywords = KEYWORDS.union(COMPOUNDS)
+    all_keywords = KEYWORDS
     def handle_word(tok):
         ltok = tok.lower()
         if ltok in all_keywords:
@@ -153,4 +147,4 @@ if __name__ == '__main__':
     fname = sys.argv[1]
     contents = "\n" + open(fname).read() + "\n"
     tokens = list(run_lexer(contents))
-    print("\n".join(map(str, tokens)))
+    #print("\n".join(map(str, tokens)))
