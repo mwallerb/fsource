@@ -27,7 +27,28 @@ def _get_lexer_regex():
     dotop = r"""\.[A-Za-z]+\."""
     preproc = r"""(?:\#[^\r\n]+)"""
     word = r"""[A-Za-z][A-Za-z0-9_]*"""
-    fortran_token = r"""(?x) {skipws}(?:
+    compound = r"""
+          (?: go(?=to)
+            | else(?=if|where)
+            | end(?=if|where|function|subroutine|program|do|while|block)
+            )
+          """
+    keyword = r"""
+          (?: else | program | implicit | none | end | integer | double
+            | precision | complex | character | logical | type
+            | operator | assignment | common | data | equivalence | namelist
+            | subroutine | function | recursive | parameter | entry | result
+            | optional | intent | dimension | external | internal | intrinsic
+            | public | private | sequence | interface | module | use | only
+            | contains | allocatable | pointer | save | allocate | deallocate
+            | cycle | exit | nullify | call | continue | pause | return
+            | stop | format | backspace | close | inquire | open | print
+            | read | write | rewind | where | assign | to | select | case
+            | default | go | if | where | program | type | subroutine
+            | function | file | do | while | block
+            )(?!\w)
+          """
+    fortran_token = r"""(?ix) {skipws}(?:
           ({newline})(?:{skipws}({pp}))?    #  1 newline, 2 preproc
         | ({contd})                         #  3 contd
         | ({comment})                       #  4 comment
@@ -38,13 +59,15 @@ def _get_lexer_regex():
         | \( {skipws} (//?) {skipws} \)     #  9 bracketed slashes
         | ({operator})                      # 10 symbolic operator
         | ({dotop})                         # 11 dot operator
-        | ({word})                          # 12 (key)word
+        | ({compound} | {keyword})          # 12 keyword
+        | ({word})                          # 13 word
         | (?=.)
         )""".format(skipws=skip_ws, newline=newline, comment=comment,
                     contd=continuation, pp=preproc,
                     sqstring=sq_string, dqstring=dq_string,
                     real=real, int=integer, binary=binary, octal=octal,
-                    hex=hexadec, operator=operator, dotop=dotop, word=word)
+                    hex=hexadec, operator=operator, dotop=dotop,
+                    compound=compound, keyword=keyword, word=word)
 
     return re.compile(fortran_token)
 
@@ -88,24 +111,18 @@ def parse_radix(tok):
     return int(tok[2:-1], base)
 
 KEYWORDS = {
-    'else',  'program',  'implicit',  'none',  'end', 'integer',  'double',
-    'precision',  'complex',  'character',  'logical',  'type',
-    'operator',  'assignment',  'common',  'data',  'equivalence',  'namelist',
-    'subroutine', 'function',   'recursive', 'parameter', 'entry', 'result',
-    'optional',  'intent', 'dimension',  'external',  'internal',  'intrinsic',
-    'public',  'private',  'sequence', 'interface', 'module', 'use', 'only',
-    'contains', 'allocatable',  'pointer',  'save',  'allocate',  'deallocate',
-    'cycle', 'exit', 'nullify', 'call',  'continue',  'pause',  'return',
-    'stop', 'format',  'backspace', 'close',  'inquire',  'open',  'print',
-    'read',  'write',  'rewind', 'where', 'assign',  'to', 'select', 'case',
+    'else', 'program', 'implicit', 'none', 'end', 'integer', 'double',
+    'precision', 'complex', 'character', 'logical', 'type',
+    'operator', 'assignment', 'common', 'data', 'equivalence', 'namelist',
+    'subroutine', 'function', 'recursive', 'parameter', 'entry', 'result',
+    'optional', 'intent', 'dimension', 'external', 'internal', 'intrinsic',
+    'public', 'private', 'sequence', 'interface', 'module', 'use', 'only',
+    'contains', 'allocatable', 'pointer', 'save', 'allocate', 'deallocate',
+    'cycle', 'exit', 'nullify', 'call', 'continue', 'pause', 'return',
+    'stop', 'format', 'backspace', 'close', 'inquire', 'open', 'print',
+    'read', 'write', 'rewind', 'where', 'assign', 'to', 'select', 'case',
     'default', 'go', 'if', 'where', 'program', 'type', 'subroutine' 'function',
     'file', 'do', 'while', 'block'
-    }
-
-COMPOUNDS = {
-    'endif', 'endwhere', 'endprogram', 'endtype', 'endsubroutine',
-    'endfunction', 'endfile', 'enddo', 'endwhile', 'endblock', 'elseif',
-    'elsewhere', 'goto'
     }
 
 BUILTIN_DOTOP = {
@@ -114,14 +131,6 @@ BUILTIN_DOTOP = {
     }
 
 def run_lexer(text):
-    all_keywords = KEYWORDS.union(COMPOUNDS)
-    def handle_word(tok):
-        ltok = tok.lower()
-        if ltok in all_keywords:
-            return ltok
-        else:
-            return 'NAME ' + ltok
-
     builtin_dotop = BUILTIN_DOTOP
     def handle_dotop(tok):
         ltok = tok.lower()
@@ -139,10 +148,11 @@ def run_lexer(text):
          lambda tok: 'REAL ' + repr(parse_float(tok)),
          lambda tok: 'INT ' + repr(int(tok)),
          lambda tok: 'RADIX ' + repr(parse_radix(tok)),
-         lambda tok: 'BSL ' + repr(tok),
+         lambda tok: 'BSL ' + tok,
          lambda tok: tok,
          handle_dotop,
-         handle_word
+         lambda tok: tok,
+         lambda tok: 'WORD ' + tok, #handle_word
         ]
     for match in LEXER_REGEX.finditer(text):
         type_ = match.lastindex
@@ -153,4 +163,4 @@ if __name__ == '__main__':
     fname = sys.argv[1]
     contents = "\n" + open(fname).read() + "\n"
     tokens = list(run_lexer(contents))
-    print("\n".join(map(str, tokens)))
+    #print("\n".join(map(str, tokens)))
