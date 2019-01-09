@@ -36,21 +36,6 @@ def _get_lexer_regex():
             | end(?=if|where|function|subroutine|program|do|while|block)
             )
           """
-    keyword = r"""
-          (?: else | program | implicit | none | end | integer | double
-            | precision | complex | character | logical | type
-            | operator | assignment | common | data | equivalence | namelist
-            | subroutine | function | recursive | parameter | entry | result
-            | optional | intent | dimension | external | internal | intrinsic
-            | public | private | sequence | interface | module | use | only
-            | contains | allocatable | pointer | save | allocate | deallocate
-            | cycle | exit | nullify | call | continue | pause | return
-            | stop | format | backspace | close | inquire | open | print
-            | read | write | rewind | where | assign | to | select | case
-            | default | go | if | where | program | type | subroutine
-            | function | file | do | while | block
-            )(?!\w)
-          """
     fortran_token = r"""(?ix) {skipws}(?:
           ({newline})(?:{skipws}({pp}))?    #  1 newline, 2 preproc
         | ({contd})                         #  3 contd
@@ -62,15 +47,14 @@ def _get_lexer_regex():
         | \( {skipws} (//?) {skipws} \)     #  9 bracketed slashes
         | ({operator} | {builtin_dot})      # 10 symbolic/dot operator
         | ({dotop})                         # 11 custom dot operator
-        | ({compound} | {keyword})          # 12 keyword
-        | ({word})                          # 13 word
+        | ({compound} | {word})             # 12 word
         | (?=.)
         )""".format(skipws=skip_ws, newline=newline, comment=comment,
                     contd=continuation, pp=preproc,
                     sqstring=sq_string, dqstring=dq_string,
                     real=real, int=integer, binary=binary, octal=octal,
                     hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                    dotop=dotop, compound=compound, keyword=keyword, word=word)
+                    dotop=dotop, compound=compound, word=word)
 
     return re.compile(fortran_token)
 
@@ -126,8 +110,7 @@ def run_lexer(text):
          lambda tok: 'BSL(%s)' % tok,
          lambda tok: tok,   # symbolic op/dotop
          lambda tok: 'DOTOP(%s)' % tok[1:-1],
-         lambda tok: tok,   # keyword
-         lambda tok: 'WORD(%s)' % tok, #handle_word
+         lambda tok: tok,   # word
         ]
     for match in LEXER_REGEX.finditer(text):
         type_ = match.lastindex
