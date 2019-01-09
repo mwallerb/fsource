@@ -24,6 +24,9 @@ def _get_lexer_regex():
     hexadec = r"""[Zz](?:'[0-9A-Fa-f]+'|"[0-9A-Fa-f]+"){postq}""" \
                 .format(postq=postquote)
     operator = r"""\(/?|\)|[-+,;:_%]|=>?|\*\*?|\/[\/=)]?|[<>]=?"""
+    builtin_dot = r"""
+          \.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or|true|false)\.
+          """
     dotop = r"""\.[A-Za-z]+\."""
     preproc = r"""(?:\#[^\r\n]+)"""
     word = r"""[A-Za-z][A-Za-z0-9_]*"""
@@ -42,16 +45,16 @@ def _get_lexer_regex():
         | ({int})                           #  7 ints
         | ({binary} | {octal} | {hex})      #  8 radix literals
         | \( {skipws} (//?) {skipws} \)     #  9 bracketed slashes
-        | ({operator})                      # 10 symbolic operator
-        | ({dotop})                         # 11 dot operator
-        | ({word} | {compound})             # 12 (key)word
+        | ({operator} | {builtin_dot})      # 10 symbolic/dot operator
+        | ({dotop})                         # 11 custom dot operator
+        | ({compound} | {word})             # 12 word
         | (?=.)
         )""".format(skipws=skip_ws, newline=newline, comment=comment,
                     contd=continuation, pp=preproc,
                     sqstring=sq_string, dqstring=dq_string,
                     real=real, int=integer, binary=binary, octal=octal,
-                    hex=hexadec, operator=operator, dotop=dotop,
-                    compound=compound, word=word)
+                    hex=hexadec, operator=operator, builtin_dot=builtin_dot,
+                    dotop=dotop, compound=compound, word=word)
 
     return re.compile(fortran_token)
 
@@ -94,56 +97,20 @@ def parse_radix(tok):
     base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
     return int(tok[2:-1], base)
 
-KEYWORDS = {
-    'else',  'program',  'implicit',  'none',  'end', 'integer',  'double',
-    'precision',  'complex',  'character',  'logical',  'type',
-    'operator',  'assignment',  'common',  'data',  'equivalence',  'namelist',
-    'subroutine', 'function',   'recursive', 'parameter', 'entry', 'result',
-    'optional',  'intent', 'dimension',  'external',  'internal',  'intrinsic',
-    'public',  'private',  'sequence', 'interface', 'module', 'use', 'only',
-    'contains', 'allocatable',  'pointer',  'save',  'allocate',  'deallocate',
-    'cycle', 'exit', 'nullify', 'call',  'continue',  'pause',  'return',
-    'stop', 'format',  'backspace', 'close',  'inquire',  'open',  'print',
-    'read',  'write',  'rewind', 'where', 'assign',  'to', 'select', 'case',
-    'default', 'go', 'if', 'where', 'program', 'type', 'subroutine' 'function',
-    'file', 'do', 'while', 'block'
-    }
-
-BUILTIN_DOTOP = {
-    '.eq.', '.ne.', '.lt.', '.le.', '.gt.', '.ge.', '.eqv.', '.neqv.',
-    '.not.', '.and.', '.or.', '.true.', '.false.'
-    }
-
 def run_lexer(text):
-    all_keywords = KEYWORDS
-    def handle_word(tok):
-        ltok = tok.lower()
-        if ltok in all_keywords:
-            return ltok
-        else:
-            return 'NAME ' + ltok
-
-    builtin_dotop = BUILTIN_DOTOP
-    def handle_dotop(tok):
-        ltok = tok.lower()
-        if ltok in builtin_dotop:
-            return ltok
-        else:
-            return 'DOTOP ' + ltok[1:-1]
-
     postproc = [None,
-         lambda tok: 'EOS',
-         lambda tok: 'PREPROC ' + repr(tok),
+         lambda tok: 'EOS\n',
+         lambda tok: 'PREPROC(%s)' % repr(tok),
          lambda tok: 'CONTD',
-         lambda tok: 'COMMENT ' + repr(tok),
-         lambda tok: 'STRING ' + repr(parse_string(tok)),
-         lambda tok: 'REAL ' + repr(parse_float(tok)),
-         lambda tok: 'INT ' + repr(int(tok)),
-         lambda tok: 'RADIX ' + repr(parse_radix(tok)),
-         lambda tok: 'BSL ' + repr(tok),
-         lambda tok: tok,
-         handle_dotop,
-         handle_word
+         lambda tok: 'COMMENT(%s)' % repr(tok),
+         lambda tok: 'STRING(%s)'% repr(parse_string(tok)),
+         lambda tok: 'REAL(%s)' % repr(parse_float(tok)),
+         lambda tok: 'INT(%s)' % repr(int(tok)),
+         lambda tok: 'RADIX(%s)' % repr(parse_radix(tok)),
+         lambda tok: 'BSL(%s)' % tok,
+         lambda tok: tok,   # symbolic op/dotop
+         lambda tok: 'DOTOP(%s)' % tok[1:-1],
+         lambda tok: tok,   # word
         ]
     for match in LEXER_REGEX.finditer(text):
         type_ = match.lastindex
@@ -154,4 +121,5 @@ if __name__ == '__main__':
     fname = sys.argv[1]
     contents = "\n" + open(fname).read() + "\n"
     tokens = list(run_lexer(contents))
-    #print("\n".join(map(str, tokens)))
+    if len(sys.argv) > 2:
+        print(" ".join(map(str, tokens)))
