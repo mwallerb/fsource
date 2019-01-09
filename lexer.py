@@ -3,16 +3,16 @@ import itertools
 
 def _get_lexer_regex():
     """Return regular expression for parsing free-form Fortran 2008"""
-    newline = r"""[\t ]*(?:\r\n?|\n)"""
+    newline = r"""(?:\r\n?|\n)"""
     comment = r"""(?:![^\r\n]*)"""
     skip_ws = r"""[\t ]*"""
     continuation = r"""&{skipws}{comment}?{newline}{skipws}&?""" \
             .format(skipws=skip_ws, comment=comment, newline=newline)
     postquote = r"""(?!['"\w])"""
-    sq_string = r"""'(?:''|&{newline}|[^'\r\n])*'{postquote}""" \
-                .format(newline=newline, postquote=postquote)
-    dq_string = r""""(?:""|&{newline}|[^"\r\n])*"{postquote}""" \
-                .format(newline=newline, postquote=postquote)
+    sq_string = r"""'(?:''|&{skipws}{newline}|[^'\r\n])*'{postquote}""" \
+                .format(skipws=skip_ws, newline=newline, postquote=postquote)
+    dq_string = r""""(?:""|&{skipws}{newline}|[^"\r\n])*"{postquote}""" \
+                .format(skipws=skip_ws, newline=newline, postquote=postquote)
     postnum = r"""(?!['"0-9A-Za-z]|\.[0-9])"""
     integer = r"""\d+{postnum}""".format(postnum=postnum)
     decimal = r"""(?:\d+\.\d*|\.\d+)"""
@@ -28,33 +28,40 @@ def _get_lexer_regex():
           \.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or|true|false)\.
           """
     dotop = r"""\.[A-Za-z]+\."""
-    preproc = r"""(?:\#[^\r\n]+)"""
+    preproc = r"""(?:\#[^\r\n]+){newline}""".format(newline=newline)
     word = r"""[A-Za-z][A-Za-z0-9_]*"""
+    linestart = r"""(?<=[\r\n])"""
     compound = r"""
           (?: go(?=to)
             | else(?=if|where)
             | end(?=if|where|function|subroutine|program|do|while|block)
             )
           """
-    fortran_token = r"""(?ix) {skipws}(?:
-          ({newline})(?:{skipws}({pp}))?    #  1 newline, 2 preproc
-        | ({contd})                         #  3 contd
-        | ({comment})                       #  4 comment
-        | ({sqstring} | {dqstring})         #  5 strings
-        | ({real})                          #  6 real
-        | ({int})                           #  7 ints
-        | ({binary} | {octal} | {hex})      #  8 radix literals
-        | \( {skipws} (//?) {skipws} \)     #  9 bracketed slashes
-        | ({operator} | {builtin_dot})      # 10 symbolic/dot operator
-        | ({dotop})                         # 11 custom dot operator
-        | ({compound} | {word})             # 12 word
-        | (?=.)
-        )""".format(skipws=skip_ws, newline=newline, comment=comment,
-                    contd=continuation, pp=preproc,
-                    sqstring=sq_string, dqstring=dq_string,
-                    real=real, int=integer, binary=binary, octal=octal,
-                    hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                    dotop=dotop, compound=compound, word=word)
+    fortran_token = r"""(?ix)
+          {linestart}({skipws}\d+)(?=\s)      #  1 line number
+        | {linestart}({skipws}{preproc})      #  2 preprocessor stmt
+        | {skipws}(?:
+            ({newline})                       #  3 newline or end
+          | ({contd})                         #  4 contd
+          | ({comment})                       #  5 comment
+          | ({sqstring} | {dqstring})         #  6 strings
+          | ({real})                          #  7 real
+          | ({int})                           #  8 ints
+          | ({binary} | {octal} | {hex})      #  9 radix literals
+          | \( {skipws} (//?) {skipws} \)     # 10 bracketed slashes
+          | ({operator} | {builtin_dot})      # 11 symbolic/dot operator
+          | ({dotop})                         # 12 custom dot operator
+          | ({compound} | {word})             # 13 word
+          | (?=.)
+          )
+        """.format(
+                skipws=skip_ws, newline=newline, linestart=linestart,
+                comment=comment, contd=continuation, preproc=preproc,
+                sqstring=sq_string, dqstring=dq_string,
+                real=real, int=integer, binary=binary, octal=octal,
+                hex=hexadec, operator=operator, builtin_dot=builtin_dot,
+                dotop=dotop, compound=compound, word=word
+                )
 
     return re.compile(fortran_token)
 
@@ -99,8 +106,9 @@ def parse_radix(tok):
 
 def run_lexer(text):
     postproc = [None,
-         lambda tok: 'EOS\n',
+         lambda tok: 'LINE(%s)' % tok,
          lambda tok: 'PREPROC(%s)' % repr(tok),
+         lambda tok: 'EOS\n',
          lambda tok: 'CONTD',
          lambda tok: 'COMMENT(%s)' % repr(tok),
          lambda tok: 'STRING(%s)'% repr(parse_string(tok)),
@@ -112,9 +120,13 @@ def run_lexer(text):
          lambda tok: 'DOTOP(%s)' % tok[1:-1],
          lambda tok: tok,   # word
         ]
-    for match in LEXER_REGEX.finditer(text):
-        type_ = match.lastindex
-        yield postproc[type_](match.group(type_))
+    try:
+        for match in LEXER_REGEX.finditer(text):
+            type_ = match.lastindex
+            yield postproc[type_](match.group(type_))
+    except:
+        print (match)
+        print (text[match.start():match.start()+100])
 
 if __name__ == '__main__':
     import sys
