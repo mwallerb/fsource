@@ -27,7 +27,13 @@ def _get_lexer_regex():
     dotop = r"""\.[A-Za-z]+\."""
     preproc = r"""(?:\#[^\r\n]+)"""
     word = r"""[A-Za-z][A-Za-z0-9_]*"""
-    fortran_token = r"""(?x) {skipws}(?:
+    compound = r"""
+          (?: go(?=to)
+            | else(?=if|where)
+            | end(?=if|where|function|subroutine|program|do|while|block)
+            )
+          """
+    fortran_token = r"""(?ix) {skipws}(?:
           ({newline})(?:{skipws}({pp}))?    #  1 newline, 2 preproc
         | ({contd})                         #  3 contd
         | ({comment})                       #  4 comment
@@ -38,13 +44,14 @@ def _get_lexer_regex():
         | \( {skipws} (//?) {skipws} \)     #  9 bracketed slashes
         | ({operator})                      # 10 symbolic operator
         | ({dotop})                         # 11 dot operator
-        | ({word})                          # 12 (key)word
+        | ({word} | {compound})             # 12 (key)word
         | (?=.)
         )""".format(skipws=skip_ws, newline=newline, comment=comment,
                     contd=continuation, pp=preproc,
                     sqstring=sq_string, dqstring=dq_string,
                     real=real, int=integer, binary=binary, octal=octal,
-                    hex=hexadec, operator=operator, dotop=dotop, word=word)
+                    hex=hexadec, operator=operator, dotop=dotop,
+                    compound=compound, word=word)
 
     return re.compile(fortran_token)
 
