@@ -38,20 +38,20 @@ def _get_lexer_regex():
             )
           """
     fortran_token = r"""(?ix)
-          {linestart}({skipws}\d+)(?=\s)      #  1 line number
-        | {linestart}({skipws}{preproc})      #  2 preprocessor stmt
+          {linestart}{skipws}(\d{{1,5}})(?=\s)  #  1 line number
+        | {linestart}({skipws}{preproc})        #  2 preprocessor stmt
         | {skipws}(?:
-            ({newline})                       #  3 newline or end
-          | ({contd})                         #  4 contd
-          | ({comment})                       #  5 comment
-          | ({sqstring} | {dqstring})         #  6 strings
-          | ({real})                          #  7 real
-          | ({int})                           #  8 ints
-          | ({binary} | {octal} | {hex})      #  9 radix literals
-          | \( {skipws} (//?) {skipws} \)     # 10 bracketed slashes
-          | ({operator} | {builtin_dot})      # 11 symbolic/dot operator
-          | ({dotop})                         # 12 custom dot operator
-          | ({compound} | {word})             # 13 word
+            ({newline}|$)                       #  3 newline or end
+          | ({contd})                           #  4 contd
+          | ({comment})                         #  5 comment
+          | ({sqstring} | {dqstring})           #  6 strings
+          | ({real})                            #  7 real
+          | ({int})                             #  8 ints
+          | ({binary} | {octal} | {hex})        #  9 radix literals
+          | \( {skipws} (//?) {skipws} \)       # 10 bracketed slashes
+          | ({operator} | {builtin_dot})        # 11 symbolic/dot operator
+          | ({dotop})                           # 12 custom dot operator
+          | ({compound} | {word})               # 13 word
           | (?=.)
           )
         """.format(
@@ -65,30 +65,39 @@ def _get_lexer_regex():
 
     return re.compile(fortran_token)
 
-def _get_string_body_regex():
-    newline = r"""[\t ]*(?:\r\n?|\n)"""
-    sq_body = r"""(?x)(''|&{newline}(?:\s*&)|[^'\r\n]+)""" \
-                .format(newline=newline)
-    dq_body = r"""(?x)(""|&{newline}(?:\s*&)|[^"\r\n]+)""" \
-                .format(newline=newline)
+def _get_stringlexer_regex(quote):
+    skipws = r"""[\t ]*"""
+    newline = r"""(?:\r\n?|\n)"""
+    pattern = r"""(?x)
+          ({quote}{quote})
+        | (&{skipws}{newline}(?:{skipws}&)?)
+        | (&)
+        | ([^{quote}&\r\n]+)
+        """.format(newline=newline, skipws=skipws, quote=quote)
+    return re.compile(pattern)
 
-    return {"'": re.compile(sq_body),
-            '"': re.compile(dq_body)
-            }
+def _get_stringlexer_actions():
+    return (None,
+        lambda tok: tok[0],
+        lambda tok: "\n",
+        lambda tok: "&",
+        lambda tok: tok,
+        )
 
 LEXER_REGEX = _get_lexer_regex()
-STRING_BODY_REGEX = _get_string_body_regex()
+STRING_LEXER_REGEX = {
+    "'": _get_stringlexer_regex("'"),
+    '"': _get_stringlexer_regex('"'),
+    }
+STRING_LEXER_ACTIONS = _get_stringlexer_actions()
 
 def _sublex_string_body(tok):
     quote = tok[0]
     body = tok[1:-1]
-    for subtok in STRING_BODY_REGEX[quote].findall(body):
-        if subtok[0] == quote:
-            yield quote
-        elif subtok[0] == '&':
-            yield '\n'
-        else:
-            yield subtok
+    action = STRING_LEXER_ACTIONS
+    for match in STRING_LEXER_REGEX[quote].finditer(body):
+        type_ = match.lastindex
+        yield action[type_](match.group(type_))
 
 def parse_string(tok):
     """Translates a Fortran string literal to a Python string"""
@@ -104,34 +113,38 @@ def parse_radix(tok):
     base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
     return int(tok[2:-1], base)
 
+class LexerError(RuntimeError): pass
+
 def run_lexer(text):
-    postproc = [None,
-         lambda tok: 'LINE(%s)' % tok,
-         lambda tok: 'PREPROC(%s)' % repr(tok),
-         lambda tok: 'EOS\n',
-         lambda tok: 'CONTD',
-         lambda tok: 'COMMENT(%s)' % repr(tok),
-         lambda tok: 'STRING(%s)'% repr(parse_string(tok)),
-         lambda tok: 'REAL(%s)' % repr(parse_float(tok)),
-         lambda tok: 'INT(%s)' % repr(int(tok)),
-         lambda tok: 'RADIX(%s)' % repr(parse_radix(tok)),
-         lambda tok: 'BSL(%s)' % tok,
+    postproc = (None,
+         lambda tok: '\\line(%s)' % tok,
+         lambda tok: '\\preproc(%s)' % repr(tok),
+         lambda tok: '\\eos\n',
+         lambda tok: '\\contd',
+         lambda tok: '\\comment(%s)' % repr(tok),
+         lambda tok: '\\string(%s)'% repr(parse_string(tok)),
+         lambda tok: '\\real(%s)' % repr(parse_float(tok)),
+         lambda tok: '\\int(%s)' % repr(int(tok)),
+         lambda tok: '\\radix(%s)' % repr(parse_radix(tok)),
+         lambda tok: '\\brslashes(%s)' % tok,
          lambda tok: tok,   # symbolic op/dotop
-         lambda tok: 'DOTOP(%s)' % tok[1:-1],
-         lambda tok: tok,   # word
-        ]
+         lambda tok: '\\dotop(%s)' % tok[1:-1],
+         lambda tok: '\\word(%s)' % tok,   # word
+        )
+
     try:
         for match in LEXER_REGEX.finditer(text):
             type_ = match.lastindex
             yield postproc[type_](match.group(type_))
-    except:
-        print (match)
-        print (text[match.start():match.start()+100])
+    except TypeError:
+        raise LexerError(
+            "Lexer error at character %d:\n%s" %
+            (match.start(), text[match.start():match.start()+100]))
 
 if __name__ == '__main__':
     import sys
     fname = sys.argv[1]
-    contents = "\n" + open(fname).read() + "\n"
+    contents = "\n" + open(fname).read()
     tokens = list(run_lexer(contents))
     if len(sys.argv) > 2:
         print(" ".join(map(str, tokens)))
