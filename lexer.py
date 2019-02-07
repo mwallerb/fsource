@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import re
 import itertools
 
@@ -115,36 +116,110 @@ def parse_radix(tok):
 
 class LexerError(RuntimeError): pass
 
-def run_lexer(text):
-    postproc = (None,
-         lambda tok: '\\line(%s)' % tok,
-         lambda tok: '\\preproc(%s)' % repr(tok),
-         lambda tok: '\\eos\n',
-         lambda tok: '\\contd',
-         lambda tok: '\\comment(%s)' % repr(tok),
-         lambda tok: '\\string(%s)'% repr(parse_string(tok)),
-         lambda tok: '\\real(%s)' % repr(parse_float(tok)),
-         lambda tok: '\\int(%s)' % repr(int(tok)),
-         lambda tok: '\\radix(%s)' % repr(parse_radix(tok)),
-         lambda tok: '\\brslashes(%s)' % tok,
-         lambda tok: tok,   # symbolic op/dotop
-         lambda tok: '\\dotop(%s)' % tok[1:-1],
-         lambda tok: '\\word(%s)' % tok,   # word
-        )
+class Token:
+    def __init__(self, token):
+        self.token = token
 
+    @property
+    def value(self):
+        return self.token
+
+class LineNumber(Token):
+    @property
+    def value(self): return int(self.token)
+
+class PreprocessorStmt(Token): pass
+class EOS(Token): pass
+class LineContinuation(Token): pass
+class Comment(Token): pass
+
+class LineNumber(Token):
+    @property
+    def value(self): return int(self.token)
+
+class String(Token):
+    @property
+    def value(self): return parse_string(self.token)
+
+class Float(Token):
+    @property
+    def value(self): return parse_float(self.token)
+
+class Integer(Token):
+    @property
+    def value(self): return int(self.token)
+
+class Radix(Token):
+    @property
+    def value(self): return parse_radix(self.token)
+
+class BracketedSlashes(Token): pass
+class Operator(Token): pass
+class CustomDotOperator(Token): pass
+class Word(Token): pass
+
+def _get_lexer_obj_actions():
+    return (None,
+            LineNumber,
+            PreprocessorStmt,
+            EOS,
+            LineContinuation,
+            Comment,
+            String,
+            Float,
+            Integer,
+            Radix,
+            BracketedSlashes,
+            Operator,
+            CustomDotOperator,
+            Word
+            )
+
+def _get_lexer_print_actions():
+    return (None,
+            lambda tok: 'line %s' % tok,
+            lambda tok: 'preproc %s\n' % tok,
+            lambda tok: 'eos\n',
+            lambda tok: 'contd',
+            lambda tok: 'comment %s' % repr(tok),
+            lambda tok: 'string %s' % repr(tok),
+            lambda tok: 'float %s' % repr(parse_float(tok)),
+            lambda tok: 'int %d' % int(tok),
+            lambda tok: 'radix %d' % parse_radix(tok),
+            lambda tok: 'bracketed_slash %s' % tok,
+            lambda tok: 'op %s' % tok,
+            lambda tok: 'custom_dot %s' % tok[1:-1],
+            lambda tok: 'word %s' % tok
+            )
+
+def _get_lexer_null_actions():
+    return (lambda tok: None,) * 14
+
+def run_lexer(text, actions=None):
+    if actions is None:
+        actions = _get_lexer_obj_actions()
     try:
         for match in LEXER_REGEX.finditer(text):
             type_ = match.lastindex
-            yield postproc[type_](match.group(type_))
+            yield actions[type_](match.group(type_))
     except TypeError:
         raise LexerError(
             "Lexer error at character %d:\n%s" %
             (match.start(), text[match.start():match.start()+100]))
 
 if __name__ == '__main__':
-    import sys
-    fname = sys.argv[1]
-    contents = "\n" + open(fname).read()
-    tokens = list(run_lexer(contents))
-    if len(sys.argv) > 2:
-        print(" ".join(map(str, tokens)))
+    import argparse
+    parser = argparse.ArgumentParser(description='Lexer for free-form Fortran')
+    parser.add_argument('files', metavar='FILE', type=str, nargs='+',
+                        help='files to lex')
+    parser.add_argument('--dump', dest='dump', action='store_true', default=False,
+                        help='dump the tree')
+    args = parser.parse_args()
+
+    actions = _get_lexer_print_actions() if args.dump else _get_lexer_null_actions()
+
+    for fname in args.files:
+        contents = "\n" + open(fname).read()
+        tokens = list(run_lexer(contents, actions))
+        if args.dump:
+            print(" ".join(tokens))
