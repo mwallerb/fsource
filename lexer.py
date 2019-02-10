@@ -162,7 +162,7 @@ if __name__ == '__main__':
     parser.add_argument('files', metavar='FILE', type=str, nargs='+',
                         help='files to lex')
     parser.add_argument('--dump', dest='dump', action='store_true', default=False,
-                        help='dump the tree')
+                        help='dump the tokens to stdout')
     args = parser.parse_args()
 
     for fname in args.files:

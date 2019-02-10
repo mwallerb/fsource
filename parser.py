@@ -1,61 +1,44 @@
 #!/usr/bin/env python
 from __future__ import print_function
-#import lexer
+import lexer
 import re
 
-token_pat = re.compile("\s*(?:(\d+)|(.))")
-def tokenize(program):
 
+class TokenStream:
+    def __init__(self, lexer):
+        self.lexer = iter(lexer)
+        self.cat = None
+        self.token = None
+        self.advance()
 
-def tokenize(program):
-    for number, operator in token_pat.findall(program):
-        if number:
-            yield Literal()
-        elif operator == "+":
-            yield InfixSymbol("+", 10)
-        else:
-            raise SyntaxError("unknown operator")
-    yield EndOfInput()
-    yield EndOfInput()
-
-
-class Parser:
-    def __init__(self, it):
-        self.it = iter(it)
-        self.lookahead = next(self.it)
-
-    def consume(self):
-        token = self.lookahead
-        self.lookahead = next(self.it)
+    def advance(self):
+        token = self.token
+        try:
+            self.cat, self.token = next(self.lexer)
+            print ("ADV", self.cat, self.token)
+        except StopIteration:
+            self.cat, self.token = 0, '<$>'
         return token
 
-    def get_handler(self, tok_code, token):
-        pass
 
-    def expression(self, min_glue=0):
-        print ("EXPR", min_glue)
-        result = token.head(self)
-        while token.glue >= min_glue:
-            token = self.advance()
-            result = token.tail(self, result)
-        return result
-
-class Literal:
+class LiteralHandler:
     def __init__(self, action=None):
         if action is None:
             action = lambda x: "'%s'" % x
+
         self.action = action
         self.glue = 10000     # shall not be used
 
-    def head(self, parser):
-        print ("LIT", parser.token)
-        return self.action(parser.token)
+    def head(self, tokens):
+        print ("LIT", tokens.token)
+        return self.action(tokens.advance())
 
-    def tail(self, parser, head):
+    def tail(self, tokens, head_result):
         raise ValueError("Two literals in a row are forbidden")
 
-class InfixSymbol:
-    def __init__(self, symbol, glue, action=None, assoc='left'):
+
+class InfixHandler:
+    def __init__(self, parser, symbol, glue, action=None, assoc='left'):
         if action is None:
             action = lambda x, y: "(%s %s %s)" % (symbol, x, y)
         if assoc not in ('left', 'right'):
@@ -63,43 +46,76 @@ class InfixSymbol:
         if glue < 0:
             raise ValueError("Glue must be a non-negative number")
 
+        self.parser = parser
         self.symbol = symbol
         self.glue = glue
         self.subglue = glue + (0 if assoc == 'right' else 1)
         self.action = action
 
-    def head(self, parser):
+    def head(self, tokens):
         raise ValueError("XXX is an infix operator")
 
-    def tail(self, parser, head):
+    def tail(self, tokens, head_result):
         print (self.symbol)
-        right = parser.expression(self.subglue)
-        return self.action(head, right)
+        tokens.advance()
+        tail_result = self.parser.expression(tokens, self.subglue)
+        return self.action(head_result, tail_result)
 
-class EndOfInput:
+
+class EndOfInputHandler:
     def __init__(self):
         self.glue = -1000
 
-    def head(self, parser):
+    def head(self, tokens):
         raise ValueError("End token must not be consumed")
 
-    def tail(self, parser, head):
+    def tail(self, tokens, head_result):
         raise ValueError("End token must not be consumed")
 
 
-token_pat = re.compile("\s*(?:(\d+)|(.))")
-def tokenize(program):
-    for number, operator in token_pat.findall(program):
-        if number:
-            yield Literal()
-        elif operator == "+":
-            yield InfixSymbol("+", 10)
-        else:
-            raise SyntaxError("unknown operator")
-    yield EndOfInput()
-    yield EndOfInput()
+class Parser:
+    def __init__(self):
+        self.handlers = (
+                EndOfInputHandler(),
+                LiteralHandler(),
+                InfixHandler(self, '+', 10),
+                InfixHandler(self, '**', 30, assoc='right'),
+                InfixHandler(self, '*', 20),
+                )
 
-program = "1+2"
-print (",".join(map(str, tokenize(program))))
-it = tokenize(program)
-print (Parser(it).expression())
+    def expression(self, tokens, min_glue=0):
+        print ("EXPR", min_glue)
+        handler = self.handlers[tokens.cat]
+        result = handler.head(tokens)
+
+        handler = self.handlers[tokens.cat]
+        while handler.glue >= min_glue:
+            result = handler.tail(tokens, result)
+            handler = self.handlers[tokens.cat]
+
+        return result
+
+
+lexre = re.compile("\s*(?:(\d+)|(\+)|(\*\*)|(\*))")
+program = "1 + 3 * 4 ** 5 ** 6 + 2"
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(slexer)
+parser = Parser()
+print (parser.expression(tokens))
+
+#token_pat = re.compile("\s*(?:(\d+)|(.))")
+#def tokenize(program):
+    #for number, operator in token_pat.findall(program):
+        #if number:
+            #yield Literal()
+        #elif operator == "+":
+            #yield InfixSymbol("+", 10)
+        #else:
+            #raise SyntaxError("unknown operator")
+    #yield EndOfInput()
+    #yield EndOfInput()
+
+#program = "1+2"
+#print (",".join(map(str, tokenize(program))))
+#it = tokenize(program)
+#print (Parser(it).expression())
