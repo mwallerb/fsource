@@ -3,7 +3,6 @@ from __future__ import print_function
 import lexer
 import re
 
-
 class TokenStream:
     def __init__(self, lexer):
         self.lexer = iter(lexer)
@@ -116,6 +115,28 @@ class ParensHandler:
         raise ValueError("Invalid call type %s" % self.begin_symbol)
 
 
+class SubscriptHandler:
+    def __init__(self, parser, begin_symbol, end_symbol, glue, inner_glue, action=None):
+        if action is None:
+            action = lambda x, y: "(%s%s %s %s)" % (begin_symbol, end_symbol, x, y)
+
+        self.parser = parser
+        self.begin_symbol = begin_symbol
+        self.end_symbol = end_symbol
+        self.glue = glue
+        self.inner_glue = inner_glue
+        self.action = action
+
+    def head(self, tokens):
+        raise ValueError("Invalid parenthesis type %s" % self.begin_symbol)
+
+    def tail(self, tokens, head_result):
+        tokens.advance()
+        tail_result = self.parser.expression(tokens, self.inner_glue)
+        tokens.expect(self.end_symbol)
+        return self.action(head_result, tail_result)
+
+
 class EndExpressionMarker:
     def __init__(self, inner_glue):
         self.glue = inner_glue - 1
@@ -132,7 +153,10 @@ class Parser:
                     ),
                 InfixHandler(self, '**', 30, 'right'),
                 InfixHandler(self, '*', 20, 'right'),
-                ParensHandler(self, '(', ')', 0),
+                PrefixOrInfix(
+                    ParensHandler(self, '(', ')', 0),
+                    SubscriptHandler(self, '(', ')', 150, 0),
+                ),
                 EndExpressionMarker(0),
                 )
 
@@ -149,8 +173,8 @@ class Parser:
         return result
 
 
-lexre = re.compile("\s*(?:(\d+)|(\+)|(\*\*)|(\*)|(\()|(\)))")
-program = "+1 + 3 * 4 ** 5 ** (6 + 1) + 2"
+lexre = re.compile("\s*(?:(\w+)|(\+)|(\*\*)|(\*)|(\()|(\)))")
+program = "+1 + 3 * 4 ** 5 ** sin(6 + 1) + 2"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(slexer)
 parser = Parser()
