@@ -15,10 +15,15 @@ class TokenStream:
         token = self.token
         try:
             self.cat, self.token = next(self.lexer)
-            print ("ADV", self.cat, self.token)
+            #print ("ADV", self.cat, self.token)
         except StopIteration:
             self.cat, self.token = 0, '<$>'
         return token
+
+    def expect(self, expected):
+        if self.token != expected:
+            raise ValueError("Expected %s, got %s", expected, self.token)
+        self.advance()
 
 
 class LiteralHandler:
@@ -27,24 +32,40 @@ class LiteralHandler:
             action = lambda x: "'%s'" % x
 
         self.action = action
-        self.glue = 10000     # shall not be used
+        self.glue = None
 
     def head(self, tokens):
-        print ("LIT", tokens.token)
         return self.action(tokens.advance())
 
     def tail(self, tokens, head_result):
         raise ValueError("Two literals in a row are forbidden")
 
 
+class PrefixHandler:
+    def __init__(self, parser, symbol, subglue, action=None):
+        if action is None:
+            action = lambda x: "(%s %s)" % (symbol, x)
+
+        self.parser = parser
+        self.symbol = symbol
+        self.subglue = subglue
+        self.action = action
+
+    def head(self, tokens):
+        tokens.advance()
+        result = self.parser.expression(tokens, self.subglue)
+        return self.action(result)
+
+    def tail(self, tokens, head_result):
+        raise ValueError("%s is an prefix operator" % self.symbol)
+
+
 class InfixHandler:
-    def __init__(self, parser, symbol, glue, action=None, assoc='left'):
+    def __init__(self, parser, symbol, glue, assoc, action=None):
         if action is None:
             action = lambda x, y: "(%s %s %s)" % (symbol, x, y)
         if assoc not in ('left', 'right'):
             raise ValueError("Associativity must be either left or right")
-        if glue < 0:
-            raise ValueError("Glue must be a non-negative number")
 
         self.parser = parser
         self.symbol = symbol
@@ -53,38 +74,70 @@ class InfixHandler:
         self.action = action
 
     def head(self, tokens):
-        raise ValueError("XXX is an infix operator")
+        raise ValueError("%s is an infix operator" % self.symbol)
 
     def tail(self, tokens, head_result):
-        print (self.symbol)
         tokens.advance()
         tail_result = self.parser.expression(tokens, self.subglue)
         return self.action(head_result, tail_result)
 
 
-class EndOfInputHandler:
-    def __init__(self):
-        self.glue = -1000
+class PrefixOrInfix:
+    def __init__(self, prefix, infix):
+        self.prefix = prefix
+        self.infix = infix
+        self.glue = infix.glue
 
     def head(self, tokens):
-        raise ValueError("End token must not be consumed")
+        return self.prefix.head(tokens)
 
     def tail(self, tokens, head_result):
-        raise ValueError("End token must not be consumed")
+        return self.infix.tail(tokens, head_result)
+
+
+class ParensHandler:
+    def __init__(self, parser, begin_symbol, end_symbol, inner_glue, action=None):
+        if action is None:
+            action = lambda x: "(%s%s %s)" % (begin_symbol, end_symbol, x)
+
+        self.parser = parser
+        self.begin_symbol = begin_symbol
+        self.end_symbol = end_symbol
+        self.inner_glue = inner_glue
+        self.action = action
+
+    def head(self, tokens):
+        tokens.advance()
+        result = self.parser.expression(tokens, self.inner_glue)
+        tokens.expect(self.end_symbol)
+        return self.action(result)
+
+    def tail(self, tokens, head_result):
+        raise ValueError("Invalid call type %s" % self.begin_symbol)
+
+
+class EndExpressionMarker:
+    def __init__(self, inner_glue):
+        self.glue = inner_glue - 1
 
 
 class Parser:
     def __init__(self):
         self.handlers = (
-                EndOfInputHandler(),
+                EndExpressionMarker(0),
                 LiteralHandler(),
-                InfixHandler(self, '+', 10),
-                InfixHandler(self, '**', 30, assoc='right'),
-                InfixHandler(self, '*', 20),
+                PrefixOrInfix(
+                    PrefixHandler(self, '+', 100),
+                    InfixHandler(self, '+', 10, 'left'),
+                    ),
+                InfixHandler(self, '**', 30, 'right'),
+                InfixHandler(self, '*', 20, 'right'),
+                ParensHandler(self, '(', ')', 0),
+                EndExpressionMarker(0),
                 )
 
     def expression(self, tokens, min_glue=0):
-        print ("EXPR", min_glue)
+        #print ("EXPR", min_glue)
         handler = self.handlers[tokens.cat]
         result = handler.head(tokens)
 
@@ -96,8 +149,8 @@ class Parser:
         return result
 
 
-lexre = re.compile("\s*(?:(\d+)|(\+)|(\*\*)|(\*))")
-program = "1 + 3 * 4 ** 5 ** 6 + 2"
+lexre = re.compile("\s*(?:(\d+)|(\+)|(\*\*)|(\*)|(\()|(\)))")
+program = "+1 + 3 * 4 ** 5 ** (6 + 1) + 2"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(slexer)
 parser = Parser()
