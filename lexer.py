@@ -1,8 +1,9 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import re
 import itertools
 
-def _get_lexer_regex():
+def _lexer_regex():
     """Return regular expression for parsing free-form Fortran 2008"""
     newline = r"""(?:\r\n?|\n)"""
     comment = r"""(?:![^\r\n]*)"""
@@ -66,7 +67,7 @@ def _get_lexer_regex():
 
     return re.compile(fortran_token)
 
-def _get_stringlexer_regex(quote):
+def _string_lexer_regex(quote):
     skipws = r"""[\t ]*"""
     newline = r"""(?:\r\n?|\n)"""
     pattern = r"""(?x)
@@ -77,7 +78,7 @@ def _get_stringlexer_regex(quote):
         """.format(newline=newline, skipws=skipws, quote=quote)
     return re.compile(pattern)
 
-def _get_stringlexer_actions():
+def _string_lexer_actions():
     return (None,
         lambda tok: tok[0],
         lambda tok: "\n",
@@ -85,20 +86,19 @@ def _get_stringlexer_actions():
         lambda tok: tok,
         )
 
-LEXER_REGEX = _get_lexer_regex()
+LEXER_REGEX = _lexer_regex()
 STRING_LEXER_REGEX = {
-    "'": _get_stringlexer_regex("'"),
-    '"': _get_stringlexer_regex('"'),
+    "'": _string_lexer_regex("'"),
+    '"': _string_lexer_regex('"'),
     }
-STRING_LEXER_ACTIONS = _get_stringlexer_actions()
+STRING_LEXER_ACTIONS = _string_lexer_actions()
 
-def _sublex_string_body(tok):
+def _sublex_string_body(tok, actions=STRING_LEXER_ACTIONS):
     quote = tok[0]
     body = tok[1:-1]
-    action = STRING_LEXER_ACTIONS
     for match in STRING_LEXER_REGEX[quote].finditer(body):
         type_ = match.lastindex
-        yield action[type_](match.group(type_))
+        yield actions[type_](match.group(type_))
 
 def parse_string(tok):
     """Translates a Fortran string literal to a Python string"""
@@ -114,90 +114,32 @@ def parse_radix(tok):
     base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
     return int(tok[2:-1], base)
 
-class LexerError(RuntimeError): pass
+class LexerError(RuntimeError):
+    pass
 
-class Token:
-    def __init__(self, token):
-        self.token = token
+def lexer_null_actions():
+    return (lambda tok: None,) * 14
 
-    @property
-    def value(self):
-        return self.token
-
-class LineNumber(Token):
-    @property
-    def value(self): return int(self.token)
-
-class PreprocessorStmt(Token): pass
-class EOS(Token): pass
-class LineContinuation(Token): pass
-class Comment(Token): pass
-
-class LineNumber(Token):
-    @property
-    def value(self): return int(self.token)
-
-class String(Token):
-    @property
-    def value(self): return parse_string(self.token)
-
-class Float(Token):
-    @property
-    def value(self): return parse_float(self.token)
-
-class Integer(Token):
-    @property
-    def value(self): return int(self.token)
-
-class Radix(Token):
-    @property
-    def value(self): return parse_radix(self.token)
-
-class BracketedSlashes(Token): pass
-class Operator(Token): pass
-class CustomDotOperator(Token): pass
-class Word(Token): pass
-
-def _get_lexer_obj_actions():
+def lexer_print_actions():
     return (None,
-            LineNumber,
-            PreprocessorStmt,
-            EOS,
-            LineContinuation,
-            Comment,
-            String,
-            Float,
-            Integer,
-            Radix,
-            BracketedSlashes,
-            Operator,
-            CustomDotOperator,
-            Word
-            )
-
-def _get_lexer_print_actions():
-    return (None,
-            lambda tok: 'line %s' % tok,
-            lambda tok: 'preproc %s\n' % tok,
+            lambda tok: 'lineno:%s' % tok,
+            lambda tok: 'preproc:%s\n' % tok,
             lambda tok: 'eos\n',
             lambda tok: 'contd',
-            lambda tok: 'comment %s' % repr(tok),
-            lambda tok: 'string %s' % repr(tok),
-            lambda tok: 'float %s' % repr(parse_float(tok)),
-            lambda tok: 'int %d' % int(tok),
-            lambda tok: 'radix %d' % parse_radix(tok),
-            lambda tok: 'bracketed_slash %s' % tok,
-            lambda tok: 'op %s' % tok,
-            lambda tok: 'custom_dot %s' % tok[1:-1],
-            lambda tok: 'word %s' % tok
+            lambda tok: 'comment:%s' % repr(tok),
+            lambda tok: 'string:%s' % repr(tok),
+            lambda tok: 'float:%s' % repr(parse_float(tok)),
+            lambda tok: 'int:%d' % int(tok),
+            lambda tok: 'radix:%d' % parse_radix(tok),
+            lambda tok: 'bracketed_slashes:%s' % tok[1:-1],
+            lambda tok: 'op:%s' % tok,
+            lambda tok: 'custom_dot:%s' % tok[1:-1],
+            lambda tok: 'word:%s' % tok
             )
-
-def _get_lexer_null_actions():
-    return (lambda tok: None,) * 14
 
 def run_lexer(text, actions=None):
     if actions is None:
-        actions = _get_lexer_obj_actions()
+        actions = lexer_print_actions()
     try:
         for match in LEXER_REGEX.finditer(text):
             type_ = match.lastindex
@@ -216,7 +158,7 @@ if __name__ == '__main__':
                         help='dump the tree')
     args = parser.parse_args()
 
-    actions = _get_lexer_print_actions() if args.dump else _get_lexer_null_actions()
+    actions = lexer_print_actions() if args.dump else lexer_null_actions()
 
     for fname in args.files:
         contents = "\n" + open(fname).read()
