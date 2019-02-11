@@ -204,7 +204,6 @@ class InplaceArrayHandler:
         seq = []
         result = None
         while True:
-            # Expression eats comments, cont'ns, etc., so we should be OK.
             result = self.parser.expression(tokens, expect_result=False)
             token = tokens.token
             if token == ",":
@@ -307,7 +306,7 @@ class Parser:
             "_":      InfixHandler(self, "_",     130, 'left', actions.kind),
             "(":      PrefixOrInfix(
                         ParensHandler(self, actions.parens, actions.impl_do),
-                        SubscriptHandler(self, 140, actions.call, actions.slice),
+                        SubscriptHandler(self, 140, actions.call, actions.slice)
                         ),
             ")":      EndExpressionMarker(),
             "(/":     InplaceArrayHandler(self, actions.array),
@@ -325,22 +324,22 @@ class Parser:
         operators[">"]  = operators[".gt."]
 
         cat_switch = (
-                EndExpressionMarker(),          # end of input
-                IgnoreHandler(),                # line number
-                IgnoreHandler(),                # preprocessor
-                EndExpressionMarker(),          # end of stmt
-                LiteralHandler(actions.string), # string
-                LiteralHandler(actions.float),  # float
-                LiteralHandler(actions.int),    # int
-                LiteralHandler(actions.radix),  # radix
-                EndExpressionMarker(),          # bracketed slash
-                None,                           # operator (9)
-                PrefixOrInfix(
-                        PrefixHandler(self, '.unary.', 120, actions.unary),
-                        InfixHandler(self, '.binary.', 10, 'left', actions.binary)
-                        ),
-                LiteralHandler(actions.word),   # word
-                )
+            EndExpressionMarker(),                  # end of input
+            IgnoreHandler(),                        # line number
+            IgnoreHandler(),                        # preprocessor
+            EndExpressionMarker(),                  # end of stmt
+            LiteralHandler(actions.string),         # string
+            LiteralHandler(actions.float),          # float
+            LiteralHandler(actions.int),            # int
+            LiteralHandler(actions.radix),          # radix
+            EndExpressionMarker(),                  # bracketed slash
+            None,                                   # operator (9)
+            PrefixOrInfix(
+                PrefixHandler(self, '.unary.', 120, actions.unary),
+                InfixHandler(self, '.binary.', 10, 'left', actions.binary)
+                ),
+            LiteralHandler(actions.word),           # word
+            )
 
         self._operators = operators
         self._cat_switch = cat_switch
