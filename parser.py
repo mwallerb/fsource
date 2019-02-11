@@ -104,13 +104,11 @@ class PrefixOrInfix:
 
 
 class ParensHandler:
-    def __init__(self, parser, begin_symbol, end_symbol, inner_glue, action=None):
+    def __init__(self, parser, inner_glue, action=None):
         if action is None:
-            action = lambda x: "(%s%s %s)" % (begin_symbol, end_symbol, x)
+            action = lambda x: "%s" % x
 
         self.parser = parser
-        self.begin_symbol = begin_symbol
-        self.end_symbol = end_symbol
         self.inner_glue = inner_glue
         self.action = action
 
@@ -119,29 +117,68 @@ class ParensHandler:
             raise ValueError("Invalid call type %s" % self.begin_symbol)
         tokens.advance()
         result = self.parser.expression(tokens, self.inner_glue)
-        tokens.expect(self.end_symbol)
+        tokens.expect(")")
         return self.action(result)
 
 
-class SubscriptHandler:
-    def __init__(self, parser, begin_symbol, end_symbol, glue, inner_glue, action=None):
+class SliceHandler:
+    def __init__(self, parser, glue, inner_glue, action=None):
         if action is None:
-            action = lambda x, y: "(%s%s %s %s)" % (begin_symbol, end_symbol, x, y)
+            action = lambda x, y, z: "(: %s %s %s)" % (x, y, z)
 
         self.parser = parser
-        self.begin_symbol = begin_symbol
-        self.end_symbol = end_symbol
         self.glue = glue
         self.inner_glue = inner_glue
         self.action = action
 
     def expr(self, tokens, head_result):
+        slice_begin = head_result
+        tokens.advance()
+        slice_end = self.parser.expression(tokens, self.inner_glue, False)
+        if tokens.marker(":"):
+            slice_stride = self.parser.expression(tokens, self.inner_glue)
+            if tokens.token == ":":
+                raise ValueError("Too many %s" % self.symbol)
+        else:
+            slice_stride = None
+        return self.action(slice_begin, slice_end, slice_stride)
+
+
+class SubscriptHandler:
+    def __init__(self, parser, glue, inner_glue, seq_action=None, slice_action=None):
+        if seq_action is None:
+            seq_action = lambda *x: "(() %s)" % " ".join(x)
+
+        self.parser = parser
+        self.glue = glue
+        self.inner_glue = inner_glue
+        self.slice_handler = SliceHandler(parser, inner_glue-2, inner_glue, slice_action)
+        self.action = seq_action
+
+    def expr(self, tokens, head_result):
         if head_result is None:
             raise ValueError("Invalid parenthesis type %s" % self.begin_symbol)
+
         tokens.advance()
-        tail_result = self.parser.expression(tokens, self.inner_glue)
-        tokens.expect(self.end_symbol)
-        return self.action(head_result, tail_result)
+        seq = []
+        result = None
+        while True:
+            # Expression eats comments, cont'ns, etc., so we should be OK.
+            result = self.parser.expression(tokens, self.inner_glue, False)
+            token = tokens.token
+            if tokens.token == ":":
+                result = self.slice_handler.expr(tokens, result)
+                token = tokens.token
+            if token == "," or token == ")":
+                if result is None:
+                    raise ValueError("Expecting result here")
+                tokens.advance()
+                seq.append(result)
+                result = None
+                if token == ")":
+                    return self.action(head_result, *seq)
+            else:
+                raise ValueError("Unexpected token %s" % token)
 
 
 class EndExpressionMarker:
@@ -152,34 +189,12 @@ class EndExpressionMarker:
         raise ValueError("Empty expression")
 
 
-class SliceHandler:
-    def __init__(self, parser, symbol, glue, action=None):
-        if action is None:
-            action = lambda x, y, z: "(%s %s %s %s)" % (symbol, x, y, z)
-
-        self.parser = parser
-        self.symbol = symbol
-        self.glue = glue
-        self.action = action
-
-    def expr(self, tokens, head_result):
-        slice_begin = head_result
-        tokens.advance()
-        slice_end = self.parser.expression(tokens, self.glue + 1, False)
-        if tokens.marker(self.symbol):
-            slice_stride = self.parser.expression(tokens, self.glue + 1)
-            if tokens.token == self.symbol:
-                raise ValueError("Too many %s" % self.symbol)
-        else:
-            slice_stride = None
-        return self.action(slice_begin, slice_end, slice_stride)
-
 
 class Parser:
     def __init__(self):
         operators = {
-            ",":      InfixHandler(self, ",",     -20, 'left'),
-            ":":      SliceHandler(self, ":",     -10),
+            ",":      EndExpressionMarker(0),
+            ":":      EndExpressionMarker(0),
             ".eqv.":  InfixHandler(self, ".eqv.",  20, 'right'),
             ".neqv.": InfixHandler(self, ".neqv.", 20, 'right'),
             ".or.":   InfixHandler(self, ".or.",   30, 'right'),
@@ -205,10 +220,12 @@ class Parser:
             "%":      InfixHandler(self, "%",     130, 'left'),
             "_":      InfixHandler(self, "_",     130, 'left'),
             "(":      PrefixOrInfix(
-                        ParensHandler(self, '(', ')', 0),
-                        SubscriptHandler(self, '(', ')', 140, -20),     # TODO
+                        ParensHandler(self, 0),
+                        SubscriptHandler(self, 140, 0),     # TODO
                         ),
-            ")":      EndExpressionMarker(-20),
+            ")":      EndExpressionMarker(0),
+            #"(/":     InplaceArrayHandler(self, '(/', '/)', 0),
+            #"/)":     EndExpressionMarker(0),
             ".true.": LiteralHandler(),
             ".false.": LiteralHandler(),
             }
@@ -254,6 +271,7 @@ class Parser:
         result = None
         while True:
             handler = self._get_handler(tokens.cat, tokens.token)
+            #print (tokens.cat, tokens.token, handler, result)
             if handler.glue < min_glue:
                 if expect_result and result is None:
                     raise ValueError("Expecting expression")
@@ -262,7 +280,8 @@ class Parser:
 
 
 lexre = lexer.LEXER_REGEX
-program = "+1 + 3 * x(::1,2:3) * 4 ** 5 ** sin(6, 1) + 2"
+program = """x(3:1, 4, 5::2)"""
+#program = "+1 + 3 * x(::1, 2:3) * 4 ** 5 ** sin(6, 1) + 2"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(slexer)
 parser = Parser()
