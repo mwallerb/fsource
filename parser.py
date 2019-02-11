@@ -104,15 +104,13 @@ class PrefixOrInfix:
 
 
 class ParensHandler:
-    def __init__(self, parser, inner_glue,
-                 parens_action=None, impl_do_action=None):
+    def __init__(self, parser, parens_action=None, impl_do_action=None):
         if parens_action is None:
             parens_action = lambda x: "%s" % x
         if impl_do_action is None:
             impl_do_action = lambda *r: "(implied_do %s)" % " ".join(map(str, r))
 
         self.parser = parser
-        self.inner_glue = inner_glue
         self.parens_action = parens_action
         self.impl_do_action = impl_do_action
 
@@ -122,15 +120,15 @@ class ParensHandler:
         while tokens.token == ',':
             tokens.advance()
             args.append(result)
-            result = self.parser.expression(tokens, self.inner_glue)
+            result = self.parser.expression(tokens)
 
         dovar = result
         tokens.expect('=')
-        start = self.parser.expression(tokens, self.inner_glue)
+        start = self.parser.expression(tokens)
         tokens.expect(',')
-        stop = self.parser.expression(tokens, self.inner_glue)
+        stop = self.parser.expression(tokens)
         if tokens.marker(','):
-            step = self.parser.expression(tokens, self.inner_glue)
+            step = self.parser.expression(tokens)
         else:
             step = None
         tokens.expect(')')
@@ -140,7 +138,7 @@ class ParensHandler:
         if head_result is not None:
             raise ValueError("Invalid call type %s" % self.begin_symbol)
         tokens.advance()
-        result = self.parser.expression(tokens, self.inner_glue)
+        result = self.parser.expression(tokens)
 
         if tokens.token == ',':
             return self.handle_implied_do(tokens, result)
@@ -166,7 +164,7 @@ class SliceHandler:
         if tokens.marker(":"):
             slice_stride = self.parser.expression(tokens, self.inner_glue)
             if tokens.token == ":":
-                raise ValueError("Too many %s" % self.symbol)
+                raise ValueError("Malformed slice: Too many ::")
         else:
             slice_stride = None
         return self.action(slice_begin, slice_end, slice_stride)
@@ -290,7 +288,7 @@ class Parser:
             "%":      InfixHandler(self, "%",     130, 'left'),
             "_":      InfixHandler(self, "_",     130, 'left'),
             "(":      PrefixOrInfix(
-                        ParensHandler(self, 0),
+                        ParensHandler(self),
                         SubscriptHandler(self, 140, 0),     # TODO
                         ),
             ")":      EndExpressionMarker(0),
@@ -351,7 +349,7 @@ class Parser:
 
 lexre = lexer.LEXER_REGEX
 #program = """x(3:1, 4, 5::2) * (3 + 5)"""
-program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** 5 ** sin(6, 1) + (/ 1, 2, (i, i=1,5), 3 /)"
+program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(6, 1) + (/ 1, 2, (i, i=1,5), 3 /)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(slexer)
 parser = Parser()
