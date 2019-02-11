@@ -33,8 +33,8 @@ def _lexer_regex():
     newline = r"""(?:\r\n?|\n)"""
     comment = r"""(?:![^\r\n]*)"""
     skip_ws = r"""[\t ]*"""
-    continuation = r"""&{skipws}{comment}?{newline}{skipws}&?""" \
-            .format(skipws=skip_ws, comment=comment, newline=newline)
+    contn = r"""(?:&{skipws}{comment}?{newline}{skipws}(?:&{skipws})?)""" \
+                .format(skipws=skip_ws, comment=comment, newline=newline)
     postquote = r"""(?!['"\w])"""
     sq_string = r"""'(?:''|&{skipws}{newline}|[^'\r\n])*'{postquote}""" \
                 .format(skipws=skip_ws, newline=newline, postquote=postquote)
@@ -67,23 +67,21 @@ def _lexer_regex():
     fortran_token = r"""(?ix)
           {linestart}{skipws}(\d{{1,5}})(?=\s)  #  1 line number
         | {linestart}({skipws}{preproc})        #  2 preprocessor stmt
-        | {skipws}(?:
-            ({newline}|$)                       #  3 newline or end
-          | ({contd})                           #  4 contd
-          | ({comment})                         #  5 comment
-          | ({sqstring} | {dqstring})           #  6 strings
-          | ({real})                            #  7 real
-          | ({int})                             #  8 ints
-          | ({binary} | {octal} | {hex})        #  9 radix literals
-          | \( {skipws} (//?) {skipws} \)       # 10 bracketed slashes
-          | ({operator} | {builtin_dot})        # 11 symbolic/dot operator
-          | ({dotop})                           # 12 custom dot operator
-          | ({compound} | {word})               # 13 word
+        | {skipws}{contd}?(?:
+            ({comment}?(?:{newline}|$))         #  3 newline or end
+          | ({sqstring} | {dqstring})           #  4 strings
+          | ({real})                            #  5 real
+          | ({int})                             #  6 ints
+          | ({binary} | {octal} | {hex})        #  7 radix literals
+          | \( {skipws} (//?) {skipws} \)       #  8 bracketed slashes
+          | ({operator} | {builtin_dot})        #  9 symbolic/dot operator
+          | ({dotop})                           # 10 custom dot operator
+          | ({compound} | {word})               # 11 word
           | (?=.)
           )
         """.format(
                 skipws=skip_ws, newline=newline, linestart=linestart,
-                comment=comment, contd=continuation, preproc=preproc,
+                comment=comment, contd=contn, preproc=preproc,
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
@@ -140,10 +138,8 @@ class LexerError(RuntimeError):
 def lexer_print_actions():
     return (None,
             lambda tok: 'lineno:%s' % tok,
-            lambda tok: 'preproc:%s\n' % tok,
-            lambda tok: 'eos\n',
-            lambda tok: 'contd',
-            lambda tok: 'comment:%s' % repr(tok),
+            lambda tok: 'preproc:%s' % tok,
+            lambda tok: 'eos:%s\n' % repr(tok.rstrip()),
             lambda tok: 'string:%s' % repr(parse_string(tok)),
             lambda tok: 'float:%s' % repr(parse_float(tok)),
             lambda tok: 'int:%d' % int(tok),

@@ -309,14 +309,12 @@ class Parser:
                 IgnoreHandler(),                # line number
                 IgnoreHandler(),                # preprocessor
                 EndExpressionMarker(),          # end of stmt
-                IgnoreHandler(),                # line cont'n
-                IgnoreHandler(),                # comment
                 LiteralHandler(),               # string
                 LiteralHandler(),               # float
                 LiteralHandler(),               # int
                 LiteralHandler(),               # radix
                 EndExpressionMarker(),          # bracketed slash
-                None,                           # operator (11)
+                None,                           # operator (9)
                 PrefixOrInfix(
                         PrefixHandler(self, '.unary.', 120),
                         InfixHandler(self, '.binary.', 10, 'left')
@@ -328,7 +326,7 @@ class Parser:
         self._cat_switch = cat_switch
 
     def _get_handler(self, cat, token):
-        if cat == 11:
+        if cat == 9:
             return self._operators[token.lower()]
         else:
             return self._cat_switch[cat]
@@ -346,7 +344,8 @@ class Parser:
 
 
 lexre = lexer.LEXER_REGEX
-#program = """x(3:1, 4, 5::2) * (3 + 5)"""
+#program = """x(3:1, 4, 5::2) * &   ! something
+#&  (3 + 5)"""
 program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(6, 1) + (/ 1, 2, (i, i=1,5), 3 /)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(slexer)
