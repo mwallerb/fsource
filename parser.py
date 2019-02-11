@@ -171,14 +171,13 @@ class SliceHandler:
 
 
 class SubscriptHandler:
-    def __init__(self, parser, glue, inner_glue, seq_action=None, slice_action=None):
+    def __init__(self, parser, glue, seq_action=None, slice_action=None):
         if seq_action is None:
             seq_action = lambda *x: "(() %s)" % " ".join(x)
 
         self.parser = parser
         self.glue = glue
-        self.inner_glue = inner_glue
-        self.slice_handler = SliceHandler(parser, inner_glue-2, inner_glue, slice_action)
+        self.slice_handler = SliceHandler(parser, -2, 0, slice_action)
         self.action = seq_action
 
     def expr(self, tokens, head_result):
@@ -190,7 +189,7 @@ class SubscriptHandler:
         result = None
         while True:
             # Expression eats comments, cont'ns, etc., so we should be OK.
-            result = self.parser.expression(tokens, self.inner_glue, False)
+            result = self.parser.expression(tokens, expect_result=False)
             token = tokens.token
             if tokens.token == ":":
                 result = self.slice_handler.expr(tokens, result)
@@ -207,14 +206,13 @@ class SubscriptHandler:
                 raise ValueError("Unexpected token %s" % token)
 
 class InplaceArrayHandler:
-    def __init__(self, parser, inner_glue, seq_action=None, slice_action=None):
+    def __init__(self, parser, seq_action=None, slice_action=None):
         if seq_action is None:
             seq_action = lambda *x: "(array %s)" % " ".join(map(str, x))
 
         self.parser = parser
-        self.inner_glue = inner_glue
         self.glue = 100000
-        self.slice_handler = SliceHandler(parser, inner_glue-2, inner_glue, slice_action)
+        self.slice_handler = SliceHandler(parser, -2, 0, slice_action)
         self.action = seq_action
 
     def expr(self, tokens, head_result):
@@ -226,7 +224,7 @@ class InplaceArrayHandler:
         result = None
         while True:
             # Expression eats comments, cont'ns, etc., so we should be OK.
-            result = self.parser.expression(tokens, self.inner_glue, False)
+            result = self.parser.expression(tokens, expect_result=False)
             token = tokens.token
             if tokens.token == ":":
                 result = self.slice_handler.expr(tokens, result)
@@ -249,8 +247,8 @@ class InplaceArrayHandler:
 
 
 class EndExpressionMarker:
-    def __init__(self, inner_glue):
-        self.glue = inner_glue - 1
+    def __init__(self):
+        self.glue = -1
 
     def expr(self, tokens, head_result):
         raise ValueError("Empty expression")
@@ -260,9 +258,9 @@ class EndExpressionMarker:
 class Parser:
     def __init__(self):
         operators = {
-            ",":      EndExpressionMarker(0),
-            ":":      EndExpressionMarker(0),
-            "=":      EndExpressionMarker(0),
+            ",":      EndExpressionMarker(),
+            ":":      EndExpressionMarker(),
+            "=":      EndExpressionMarker(),
             ".eqv.":  InfixHandler(self, ".eqv.",  20, 'right'),
             ".neqv.": InfixHandler(self, ".neqv.", 20, 'right'),
             ".or.":   InfixHandler(self, ".or.",   30, 'right'),
@@ -289,11 +287,11 @@ class Parser:
             "_":      InfixHandler(self, "_",     130, 'left'),
             "(":      PrefixOrInfix(
                         ParensHandler(self),
-                        SubscriptHandler(self, 140, 0),     # TODO
+                        SubscriptHandler(self, 140),
                         ),
-            ")":      EndExpressionMarker(0),
-            "(/":     InplaceArrayHandler(self, 0),
-            "/)":     EndExpressionMarker(0),
+            ")":      EndExpressionMarker(),
+            "(/":     InplaceArrayHandler(self),
+            "/)":     EndExpressionMarker(),
             ".true.": LiteralHandler(),
             ".false.": LiteralHandler(),
             }
@@ -307,17 +305,17 @@ class Parser:
         operators[">"]  = operators[".gt."]
 
         cat_switch = (
-                EndExpressionMarker(0),         # end of input
+                EndExpressionMarker(),          # end of input
                 IgnoreHandler(),                # line number
                 IgnoreHandler(),                # preprocessor
-                EndExpressionMarker(0),         # end of stmt
+                EndExpressionMarker(),          # end of stmt
                 IgnoreHandler(),                # line cont'n
                 IgnoreHandler(),                # comment
                 LiteralHandler(),               # string
                 LiteralHandler(),               # float
                 LiteralHandler(),               # int
                 LiteralHandler(),               # radix
-                EndExpressionMarker(0),         # bracketed slash
+                EndExpressionMarker(),          # bracketed slash
                 None,                           # operator (11)
                 PrefixOrInfix(
                         PrefixHandler(self, '.unary.', 120),
