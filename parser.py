@@ -240,10 +240,11 @@ class InplaceArrayHandler:
                 seq.append(result)
                 result = None
             elif token == "/)":
-                if result is None and seq:
-                    raise ValueError("Expecting expression")
+                if result is None:
+                    if seq: raise ValueError("Expecting expression")
+                else:
+                    seq.append(result)
                 tokens.advance()
-                seq.append(result)
                 return self.action(*seq)
             else:
                 raise ValueError("Unexpected token %s" % token)
