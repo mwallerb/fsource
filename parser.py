@@ -42,8 +42,7 @@ class IgnoreHandler:
 
 
 class LiteralHandler:
-    def __init__(self, action=None):
-        if action is None: action = lambda x: "'%s'" % x
+    def __init__(self, action):
         self.action = action
         self.glue = 100000
 
@@ -54,8 +53,7 @@ class LiteralHandler:
 
 
 class PrefixHandler:
-    def __init__(self, parser, symbol, subglue, action=None):
-        if action is None: action = lambda x: "(%s %s)" % (symbol, x)
+    def __init__(self, parser, symbol, subglue, action):
         self.parser = parser
         self.symbol = symbol
         self.subglue = subglue
@@ -70,9 +68,7 @@ class PrefixHandler:
 
 
 class InfixHandler:
-    def __init__(self, parser, symbol, glue, assoc, action=None):
-        if action is None:
-            action = lambda x, y: "(%s %s %s)" % (symbol, x, y)
+    def __init__(self, parser, symbol, glue, assoc, action):
         if assoc not in ('left', 'right'):
             raise ValueError("Associativity must be either left or right")
 
@@ -104,12 +100,7 @@ class PrefixOrInfix:
 
 
 class ParensHandler:
-    def __init__(self, parser, parens_action=None, impl_do_action=None):
-        if parens_action is None:
-            parens_action = lambda x: "%s" % x
-        if impl_do_action is None:
-            impl_do_action = lambda *r: "(implied_do %s)" % " ".join(map(str, r))
-
+    def __init__(self, parser, parens_action, impl_do_action):
         self.parser = parser
         self.parens_action = parens_action
         self.impl_do_action = impl_do_action
@@ -148,10 +139,7 @@ class ParensHandler:
 
 
 class SliceHandler:
-    def __init__(self, parser, glue, inner_glue, action=None):
-        if action is None:
-            action = lambda x, y, z: "(: %s %s %s)" % (x, y, z)
-
+    def __init__(self, parser, glue, inner_glue, action):
         self.parser = parser
         self.glue = glue
         self.inner_glue = inner_glue
@@ -171,10 +159,7 @@ class SliceHandler:
 
 
 class SubscriptHandler:
-    def __init__(self, parser, glue, seq_action=None, slice_action=None):
-        if seq_action is None:
-            seq_action = lambda *x: "(() %s)" % " ".join(x)
-
+    def __init__(self, parser, glue, seq_action, slice_action):
         self.parser = parser
         self.glue = glue
         self.slice_handler = SliceHandler(parser, -2, 0, slice_action)
@@ -206,13 +191,9 @@ class SubscriptHandler:
                 raise ValueError("Unexpected token %s" % token)
 
 class InplaceArrayHandler:
-    def __init__(self, parser, seq_action=None, slice_action=None):
-        if seq_action is None:
-            seq_action = lambda *x: "(array %s)" % " ".join(map(str, x))
-
+    def __init__(self, parser, seq_action):
         self.parser = parser
         self.glue = 100000
-        self.slice_handler = SliceHandler(parser, -2, 0, slice_action)
         self.action = seq_action
 
     def expr(self, tokens, head_result):
@@ -226,9 +207,6 @@ class InplaceArrayHandler:
             # Expression eats comments, cont'ns, etc., so we should be OK.
             result = self.parser.expression(tokens, expect_result=False)
             token = tokens.token
-            if tokens.token == ":":
-                result = self.slice_handler.expr(tokens, result)
-                token = tokens.token
             if token == ",":
                 if result is None:
                     raise ValueError("Expecting result here")
@@ -254,46 +232,88 @@ class EndExpressionMarker:
         raise ValueError("Empty expression")
 
 
+def _opt(x): return "null" if x is None else x
+
+class DefaultActions:
+    def eqv(self, l, r): return "(eqv %s %s)" % (l, r)
+    def neqv(self, l, r): return "(neqv %s %s)" % (l, r)
+    def or_(self, l, r): return "(or %s %s)" % (l, r)
+    def and_(self, l, r): return "(and %s %s)" % (l, r)
+    def not_(self, op): return "(not %s)" % op
+    def eq(self, l, r): return "(eq %s %s)" % (l, r)
+    def ne(self, l, r): return "(ne %s %s)" % (l, r)
+    def le(self, l, r): return "(le %s %s)" % (l, r)
+    def lt(self, l, r): return "(lt %s %s)" % (l, r)
+    def ge(self, l, r): return "(ge %s %s)" % (l, r)
+    def gt(self, l, r): return "(gt %s %s)" % (l, r)
+    def concat(self, l, r): return "(// %s %s)" % (l, r)
+    def plus(self, l, r): return "(+ %s %s)" % (l, r)
+    def pos(self, op): return "(pos %s)" % op
+    def minus(self, l, r): return "(- %s %s)" % (l, r)
+    def neg(self, op): return "(neg %s)" % op
+    def mul(self, l, r): return "(* %s %s)" % (l, r)
+    def div(self, l, r): return "(/ %s %s)" % (l, r)
+    def pow(self, l, r): return "(pow %s %s)" % (l, r)
+    def resolve(self, l, r): return "(%% %s %s)" % (l, r)
+    def kind(self, l, r): return "(_ %s %s)" % (l, r)
+    def parens(self, op): return op
+    def call(self, fn, *args): return "(() %s %s)" % (fn, " ".join(args))
+    def slice(self, b, e, s): return "(: %s %s %s)" % tuple(map(_opt, (b,e,s)))
+    def array(self, *args): return "(array %s)" % " ".join(args)
+    def impl_do(self, v, b, e, s, *args):
+        return "(implied_do %s %s %s %s %s)" % (v, b, e, _opt(s), " ".join(args))
+    def unary(self, op): return "(unary %s)" % op
+    def binary(self, l, r): return "(binary %s %s)" % (l, r)
+
+    def true(self): return "true"
+    def false(self): return "false"
+    def int(self, tok): return tok
+    def float(self, tok): return tok
+    def string(self, tok): return "(string %s)" % repr(lexer.parse_string(tok))
+    def radix(self, tok): return "(radix %s)" % tok
+    def word(self, tok): return repr(tok)
+
 
 class Parser:
-    def __init__(self):
+    def __init__(self, actions):
         operators = {
             ",":      EndExpressionMarker(),
             ":":      EndExpressionMarker(),
             "=":      EndExpressionMarker(),
-            ".eqv.":  InfixHandler(self, ".eqv.",  20, 'right'),
-            ".neqv.": InfixHandler(self, ".neqv.", 20, 'right'),
-            ".or.":   InfixHandler(self, ".or.",   30, 'right'),
-            ".and.":  InfixHandler(self, ".and.",  40, 'right'),
-            ".not.":  PrefixHandler(self, ".not.",  50),
-            ".eq.":   InfixHandler(self, ".eq.",   60, 'left'),
-            ".ne.":   InfixHandler(self, ".neq.",  60, 'left'),
-            ".le.":   InfixHandler(self, ".le.",   60, 'left'),
-            ".lt.":   InfixHandler(self, ".lt.",   60, 'left'),
-            ".ge.":   InfixHandler(self, ".ge.",   60, 'left'),
-            ".gt.":   InfixHandler(self, ".gt.",   60, 'left'),
-            "//":     InfixHandler(self, "//",     70, 'left'),
+            ".eqv.":  InfixHandler(self, ".eqv.",  20, 'right', actions.eqv),
+            ".neqv.": InfixHandler(self, ".neqv.", 20, 'right', actions.neqv),
+            ".or.":   InfixHandler(self, ".or.",   30, 'right', actions.or_),
+            ".and.":  InfixHandler(self, ".and.",  40, 'right', actions.and_),
+            ".not.":  PrefixHandler(self, ".not.",  50, actions.not_),
+            ".eq.":   InfixHandler(self, ".eq.",   60, 'left', actions.eq),
+            ".ne.":   InfixHandler(self, ".neq.",  60, 'left', actions.ne),
+            ".le.":   InfixHandler(self, ".le.",   60, 'left', actions.le),
+            ".lt.":   InfixHandler(self, ".lt.",   60, 'left', actions.lt),
+            ".ge.":   InfixHandler(self, ".ge.",   60, 'left', actions.ge),
+            ".gt.":   InfixHandler(self, ".gt.",   60, 'left', actions.gt),
+            "//":     InfixHandler(self, "//",     70, 'left', actions.concat),
             "+":      PrefixOrInfix(
-                        PrefixHandler(self, "+",   110),
-                        InfixHandler (self, "+",    80, 'left')
+                        PrefixHandler(self, "+",   110, actions.pos),
+                        InfixHandler (self, "+",    80, 'left', actions.plus)
                         ),
             "-":      PrefixOrInfix(
-                        PrefixHandler(self, "-",   110),
-                        InfixHandler(self, "-",    80, 'left')
+                        PrefixHandler(self, "-",   110, actions.neg),
+                        InfixHandler(self, "-",    80, 'left', actions.minus)
                         ),
-            "*":      InfixHandler(self, "*",      90, 'left'),
-            "**":     InfixHandler(self, "**",    100, 'right'),
-            "%":      InfixHandler(self, "%",     130, 'left'),
-            "_":      InfixHandler(self, "_",     130, 'left'),
+            "*":      InfixHandler(self, "*",      90, 'left', actions.mul),
+            "/":      InfixHandler(self, "/",      90, 'left', actions.div),
+            "**":     InfixHandler(self, "**",    100, 'right', actions.pow),
+            "%":      InfixHandler(self, "%",     130, 'left', actions.resolve),
+            "_":      InfixHandler(self, "_",     130, 'left', actions.kind),
             "(":      PrefixOrInfix(
-                        ParensHandler(self),
-                        SubscriptHandler(self, 140),
+                        ParensHandler(self, actions.parens, actions.impl_do),
+                        SubscriptHandler(self, 140, actions.call, actions.slice),
                         ),
             ")":      EndExpressionMarker(),
-            "(/":     InplaceArrayHandler(self),
+            "(/":     InplaceArrayHandler(self, actions.array),
             "/)":     EndExpressionMarker(),
-            ".true.": LiteralHandler(),
-            ".false.": LiteralHandler(),
+            ".true.": LiteralHandler(actions.true),
+            ".false.": LiteralHandler(actions.false),
             }
 
         # Fortran 90 operator aliases
@@ -309,17 +329,17 @@ class Parser:
                 IgnoreHandler(),                # line number
                 IgnoreHandler(),                # preprocessor
                 EndExpressionMarker(),          # end of stmt
-                LiteralHandler(),               # string
-                LiteralHandler(),               # float
-                LiteralHandler(),               # int
-                LiteralHandler(),               # radix
+                LiteralHandler(actions.string), # string
+                LiteralHandler(actions.float),  # float
+                LiteralHandler(actions.int),    # int
+                LiteralHandler(actions.radix),  # radix
                 EndExpressionMarker(),          # bracketed slash
                 None,                           # operator (9)
                 PrefixOrInfix(
-                        PrefixHandler(self, '.unary.', 120),
-                        InfixHandler(self, '.binary.', 10, 'left')
+                        PrefixHandler(self, '.unary.', 120, actions.unary),
+                        InfixHandler(self, '.binary.', 10, 'left', actions.binary)
                         ),
-                LiteralHandler(),               # word
+                LiteralHandler(actions.word),   # word
                 )
 
         self._operators = operators
@@ -349,22 +369,6 @@ lexre = lexer.LEXER_REGEX
 program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(6, 1) + (/ 1, 2, (i, i=1,5), 3 /)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(slexer)
-parser = Parser()
+parser = Parser(DefaultActions())
 print (parser.expression(tokens))
 
-#token_pat = re.compile("\s*(?:(\d+)|(.))")
-#def tokenize(program):
-    #for number, operator in token_pat.findall(program):
-        #if number:
-            #yield Literal()
-        #elif operator == "+":
-            #yield InfixSymbol("+", 10)
-        #else:
-            #raise SyntaxError("unknown operator")
-    #yield EndOfInput()
-    #yield EndOfInput()
-
-#program = "1+2"
-#print (",".join(map(str, tokenize(program))))
-#it = tokenize(program)
-#print (Parser(it).expression())
