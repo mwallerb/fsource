@@ -1,0 +1,101 @@
+
+
+F <-> C
+
+Fortran
+ - understand modules and module dependencies
+ - understand and translate structures
+ - understand static arrays (?)
+
+C
+ - header file
+
+
+fbridge - Like a bridge over troubled Fortran
+
+
+
+
+
+
+---------
+
+void $$$_get(double **data, size_t *shape, size_t *stride, size_t *ndim);
+
+    Gets information for the Fortran array $$$.
+
+    For each parameter (data, shape, stride, ndim), if it is NULL on input,
+    it is not used.  This can be used to selectively choose which information
+    should be retrieved.
+
+    If present (`data != NULL` on input), then on output `*data` will point
+    to the first element of the array.  If the array is unallocated, `*data`
+    will become `NULL`.
+
+    If present, `shape` and `stride` must point to arrays with at least
+    size `ndim` (note that Fortran arrays are at most 7-dimensional).  If the
+    array is allocated, then `shape` and `stride` will get the number of
+    elements and stride length for each dimension, starting from the left-most
+    one.  If the array is unallocated, `shape` and `stride` will be untouched.
+
+    If present, `*ndim` will get the number of dimensions of the array,
+    regardless of whether the array is allocated or not.
+
+    A possible implementation looks like this:
+
+        subroutine $$$_get(data, shape, stride, ndim) bind('C')
+            type(c_ptr), intent(out) :: data
+            type(c_size_t), intent(out), optional :: shape(DIM($$$))
+            type(c_size_t), intent(out), optional :: stride(DIM($$$))
+            type(c_size_t), intent(out), optional :: ndim
+
+            if (allocated($$))
+                if (c_associated(data)) data = c_loc($$$)
+                if (present(shape)) shape = SHAPE($$$)
+                if (present(stride)) stride = STRIDES($$$)
+            else
+                if (c_associated(data)) data = c_nullptr
+            endif
+            if (present(ndim)) ndim = DIM($$$)
+        end subroutine $$$_get
+
+
+
+
+
+void gtau_allocate(const size_t *dim, const size_t *strides=NULL);
+
+void gtau_deallocate();
+
+
+
+
+
+
+
+    struct array_info gtau_info();
+
+
+
+
+
+struct {
+
+
+}
+
+
+get_xscale()
+
+function XXXX_C bind(C, name='XXXX')
+
+
+
+
+
+end function
+
+
+
+C <-> Python
+

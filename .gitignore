@@ -1,0 +1,9 @@
+.*
+!.gitignore
+*~
+\#*\#
+
+__pycache__/
+*.pyc
+
+*.kdev*
