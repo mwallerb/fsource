@@ -14,18 +14,24 @@ class TokenStream:
         token = self.token
         try:
             self.cat, self.token = next(self.lexer)
-            #print ("ADV", self.cat, self.token)
+            print ("ADV", self.cat, self.token)
         except StopIteration:
             self.cat, self.token = 0, '<$>'
+            print ("END OF INPUT")
         return token
 
     def expect(self, expected):
-        if self.token != expected:
+        if self.token.lower() != expected:
             raise ValueError("Expected %s, got %s", expected, self.token)
         self.advance()
 
+    def expect_cat(self, expected):
+        if self.cat != expected:
+            raise ValueError("Expected cat %d, got %d", expected, self.cat)
+        self.advance()
+
     def marker(self, marker):
-        if self.token == marker:
+        if self.token.lower() == marker:
             self.advance()
             return True
         else:
@@ -100,10 +106,11 @@ class PrefixOrInfix:
 
 
 class ParensHandler:
-    def __init__(self, parser, parens_action, impl_do_action):
+    def __init__(self, parser, parens_action, impl_do_action, do_control_action):
         self.parser = parser
         self.parens_action = parens_action
         self.impl_do_action = impl_do_action
+        self.do_control_action = do_control_action
 
     def handle_implied_do(self, tokens, head_result):
         result = head_result
@@ -123,7 +130,9 @@ class ParensHandler:
         else:
             step = None
         tokens.expect(')')
-        return self.impl_do_action(dovar, start, stop, step, *args)
+        return self.impl_do_action(
+                        self.do_control_action(dovar, start, stop, step),
+                        *args)
 
     def expr(self, tokens, head_result):
         if head_result is not None:
@@ -234,6 +243,12 @@ class EndExpressionMarker:
 def _opt(x): return "null" if x is None else x
 
 class DefaultActions:
+    # Blocks
+    def block(self, *s): return "(block %s)" % " ".join(map(_opt, s))
+    def if_(self, *b): return "(if %s)" % " ".join(map(_opt, b))
+    def arith_if(self, a, b, c): return "(arith_if %s %s %s)" % (a, b, c)
+
+    # Expression actions
     def eqv(self, l, r): return "(eqv %s %s)" % (l, r)
     def neqv(self, l, r): return "(neqv %s %s)" % (l, r)
     def or_(self, l, r): return "(or %s %s)" % (l, r)
@@ -259,11 +274,13 @@ class DefaultActions:
     def call(self, fn, *args): return "(() %s %s)" % (fn, " ".join(args))
     def slice(self, b, e, s): return "(: %s %s %s)" % tuple(map(_opt, (b,e,s)))
     def array(self, *args): return "(array %s)" % " ".join(args)
-    def impl_do(self, v, b, e, s, *args):
-        return "(implied_do %s %s %s %s %s)" % (v, b, e, _opt(s), " ".join(args))
+    def impl_do(self, c, *args): return "(implied_do %s %s)" % (c, " ".join(args))
+    def do_control(self, v, b, e, s):
+        return "(do_control %s %s %s %s)" % (v, b, e, _opt(s))
     def unary(self, op): return "(unary %s)" % op
     def binary(self, l, r): return "(binary %s %s)" % (l, r)
 
+    # Literals actions
     def true(self): return "true"
     def false(self): return "false"
     def int(self, tok): return tok
@@ -273,7 +290,7 @@ class DefaultActions:
     def word(self, tok): return repr(tok)
 
 
-class Parser:
+class ExpressionParser:
     def __init__(self, actions):
         operators = {
             ",":      EndExpressionMarker(),
@@ -305,7 +322,8 @@ class Parser:
             "%":      InfixHandler(self, "%",     130, 'left', actions.resolve),
             "_":      InfixHandler(self, "_",     130, 'left', actions.kind),
             "(":      PrefixOrInfix(
-                        ParensHandler(self, actions.parens, actions.impl_do),
+                        ParensHandler(self, actions.parens, actions.impl_do,
+                                      actions.do_control),
                         SubscriptHandler(self, 140, actions.call, actions.slice)
                         ),
             ")":      EndExpressionMarker(),
@@ -324,21 +342,21 @@ class Parser:
         operators[">"]  = operators[".gt."]
 
         cat_switch = (
-            EndExpressionMarker(),                  # end of input
-            IgnoreHandler(),                        # line number
-            IgnoreHandler(),                        # preprocessor
-            EndExpressionMarker(),                  # end of stmt
-            LiteralHandler(actions.string),         # string
-            LiteralHandler(actions.float),          # float
-            LiteralHandler(actions.int),            # int
-            LiteralHandler(actions.radix),          # radix
-            EndExpressionMarker(),                  # bracketed slash
-            None,                                   # operator (9)
+            EndExpressionMarker(),                  # 0 end of input
+            IgnoreHandler(),                        # 1 line number
+            IgnoreHandler(),                        # 2 preprocessor
+            EndExpressionMarker(),                  # 3 end of stmt
+            LiteralHandler(actions.string),         # 4 string
+            LiteralHandler(actions.float),          # 5 float
+            LiteralHandler(actions.int),            # 6 int
+            LiteralHandler(actions.radix),          # 7 radix
+            EndExpressionMarker(),                  # 8 bracketed slash
+            None,                                   # 9 operator
             PrefixOrInfix(
                 PrefixHandler(self, '.unary.', 120, actions.unary),
                 InfixHandler(self, '.binary.', 10, 'left', actions.binary)
                 ),
-            LiteralHandler(actions.word),           # word
+            LiteralHandler(actions.word),           # 10 word
             )
 
         self._operators = operators
@@ -362,12 +380,205 @@ class Parser:
             result = handler.expr(tokens, result)
 
 
+class DiscardStatement:
+    def __init__(self): pass
+
+    def stmt(self, tokens, label, block_name):
+        while tokens.cat != 3 and tokens.cat != 0:
+            tokens.advance()
+        tokens.advance()
+        return None
+
+
+class IfConstruct:
+    def __init__(self, parser, if_action=None, arith_if_action=None):
+        self.parser = parser
+        self.if_action = if_action
+        self.arith_if_action = arith_if_action
+
+    def _handle_blockname(self, tokens, block_name):
+        if tokens.cat == 10:
+            if tokens.token.lower() != block_name:
+                raise ValueError("Block name inconsistent")
+            tokens.advance()
+        tokens.expect_cat(3)  # EOS
+
+    def _handle_condition(self, tokens):
+        tokens.expect('(')
+        condition = self.parser.expression(tokens)
+        tokens.expect(')')
+        return condition
+
+    def stmt(self, tokens, label, block_name):
+        tokens.advance()
+        cases = []
+        condition = self._handle_condition(tokens)
+
+        if tokens.marker('then'):
+            # IF BLOCK
+            tokens.expect_cat(3)
+            then_block = self.parser.block(tokens)
+            cases += [condition, then_block]
+
+            while tokens.marker('else'):
+                if tokens.marker('if'):
+                    condition = self._handle_condition(tokens)
+                    tokens.expect('then')
+                    self._handle_blockname(tokens, block_name)
+                    then_block = self.parser.block(tokens)
+                    cases += [condition, then_block]
+                else:
+                    self._handle_blockname(tokens, block_name)
+                    then_block = self.parser.block(tokens)
+                    cases += [None, then_block]
+
+            tokens.expect('end')
+            tokens.marker('if')
+            self._handle_blockname(tokens, block_name)
+            return self.if_action(*cases)
+        elif tokens.cat == 6:
+            # ARITHMETIC IF STATEMENT
+            first = tokens.advance()
+            tokens.expect(",")
+            second = tokens.advance()
+            tokens.expect(",")
+            third = tokens.advance()
+            tokens.expect_cat(3)
+            return self.arith_if_action(first, second, third)
+        else:
+            # IF STATEMENT
+            then_block = self.parser.stmt(tokens)
+            return self.if_action(condition, then_block)
+
+
+class WhereConstruct:
+    def __init__(self, parser, action=None):
+        self.parser = parser
+        self.action = action
+
+    def _handle_blockname(self, tokens, block_name):
+        if tokens.cat == 10:
+            if tokens.token.lower() != block_name:
+                raise ValueError("Block name inconsistent")
+            tokens.advance()
+        tokens.expect_cat(3)  # EOS
+
+    def _handle_condition(self, tokens):
+        tokens.expect('(')
+        condition = self.parser.expression(tokens)
+        tokens.expect(')')
+        return condition
+
+    def stmt(self, tokens, label, block_name):
+        tokens.advance()
+        cases = []
+        condition = self._handle_condition(tokens)
+
+        if tokens.cat == 3:
+            # WHERE BLOCK
+            tokens.advance()
+            where_block = self.parser.block(tokens)
+            cases += [condition, where_block]
+
+            while tokens.marker('elsewhere'):
+                if tokens.token == '(':
+                    condition = self._handle_condition(tokens)
+                    self._handle_blockname(tokens, block_name)
+                    where_block = self.parser.block(tokens)
+                    cases += [condition, where_block]
+                else:
+                    self._handle_blockname(tokens, block_name)
+                    where_block = self.parser.block(tokens)
+                    cases += [None, where_block]
+
+            tokens.expect('end')
+            tokens.marker('where')
+            self._handle_blockname(tokens, block_name)
+            return self.action(*cases)
+        else:
+            # WHERE STATEMENT
+            where_block = self.parser.stmt(tokens)
+            return self.action(condition, where_block)
+
+
+class BlockParser:
+    def __init__(self, actions):
+        self.expr_parser = ExpressionParser(actions)
+        self.actions = actions
+        self._stmt_headers = {
+            # unnecessary statements to understand
+            'cycle': DiscardStatement(),
+            'exit': DiscardStatement(),
+            'return': DiscardStatement(),
+            'stop': DiscardStatement(),
+            'call': DiscardStatement(),
+            'entry': DiscardStatement(),
+            'data': DiscardStatement(),
+            'allocate': DiscardStatement(),
+            'deallocate': DiscardStatement(),
+            'assign': DiscardStatement(),
+            'nullify': DiscardStatement(),
+            'open': DiscardStatement(),
+            'backspace': DiscardStatement(),
+            'inquire': DiscardStatement(),
+            'format': DiscardStatement(),
+            'read': DiscardStatement(),
+            'write': DiscardStatement(),
+            'print': DiscardStatement(),
+            'rewind': DiscardStatement(),
+            'pause': DiscardStatement(),
+            'close': DiscardStatement(),
+            'endfile': DiscardStatement(),
+            'if': IfConstruct(self, actions.if_, actions.arith_if),
+            'where': WhereConstruct(self),
+            }
+        self._endblock_markers = {
+            'end',
+            'else',
+            'elsewhere',
+            }
+
+    def expression(self, tokens, min_glue=0, expect_result=True):
+        return self.expr_parser.expression(tokens, min_glue, expect_result)
+
+    def stmt(self, tokens, label=None, block_name=None):
+        stmt_type = self._stmt_headers[tokens.token.lower()]
+        return stmt_type.stmt(tokens, label, block_name)
+
+    def block(self, tokens):
+        stmts = []
+        while True:
+            if tokens.cat == 3:  # empty statement
+                tokens.advance()
+                continue
+            if tokens.cat == 1:  # line number
+                label = self.actions.label(self.tokens.advance())
+            else:
+                label = None
+            if tokens.cat == 0 or tokens.token.lower() in self._endblock_markers:
+                break
+            stmts.append(self.stmt(tokens, label))
+
+        return self.actions.block(*stmts)
+
+
 lexre = lexer.LEXER_REGEX
 #program = """x(3:1, 4, 5::2) * &   ! something
 #&  (3 + 5)"""
-program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(6, 1) + (/ 1, 2, (i, i=1,5), 3 /)"
+#program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(6, 1) + (/ 1, 2, (i, i=1,5), 3 /)"
+program = """
+    if (x == 3) then
+        call something(3)
+        return
+    else if (x == 5) then
+        call something(4)
+    else
+        call something(5)
+    end if
+    """
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(slexer)
-parser = Parser(DefaultActions())
-print (parser.expression(tokens))
-
+#parser = ExpressionParser(DefaultActions())
+#print (parser.expression(tokens))
+parser = BlockParser(DefaultActions())
+print (parser.block(tokens))
