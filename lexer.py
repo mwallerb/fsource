@@ -52,7 +52,7 @@ def _lexer_regex():
                 .format(postq=postquote)
     operator = r"""\(/?|\)|[-+,;:_%]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
     builtin_dot = r"""
-          \.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or|true|false)\.
+          \.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)\.
           """
     dotop = r"""\.[A-Za-z]+\."""
     preproc = r"""(?:\#[^\r\n]+){newline}""".format(newline=newline)
@@ -72,11 +72,12 @@ def _lexer_regex():
           | ({sqstring} | {dqstring})           #  4 strings
           | ({real})                            #  5 real
           | ({int})                             #  6 ints
-          | ({binary} | {octal} | {hex})        #  7 radix literals
-          | \( {skipws} (//?) {skipws} \)       #  8 bracketed slashes
-          | ({operator} | {builtin_dot})        #  9 symbolic/dot operator
-          | ({dotop})                           # 10 custom dot operator
-          | ({compound} | {word})               # 11 word
+          | (\.true\. | \.false\.)              #  7 booleans
+          | ({binary} | {octal} | {hex})        #  8 radix literals
+          | \( {skipws} (//?) {skipws} \)       #  9 bracketed slashes
+          | ({operator} | {builtin_dot})        # 10 symbolic/dot operator
+          | ({dotop})                           # 11 custom dot operator
+          | ({compound} | {word})               # 12 word
           | (?=.)
           )
         """.format(
@@ -89,6 +90,20 @@ def _lexer_regex():
                 )
 
     return re.compile(fortran_token)
+
+CAT_DOLLAR = 0
+CAT_LINENO = 1
+CAT_PREPROC = 2
+CAT_EOS = 3
+CAT_STRING = 4
+CAT_FLOAT = 5
+CAT_INT = 6
+CAT_BOOLEAN = 7
+CAT_RADIX = 8
+CAT_BRACKETED_SLASH = 9
+CAT_OP = 10
+CAT_CUSTOM_DOT = 11
+CAT_WORD = 12
 
 LEXER_REGEX = _lexer_regex()
 
@@ -127,10 +142,14 @@ def parse_float(tok):
     change_d_to_e = {100: 101, 68: 69}
     return float(tok.translate(change_d_to_e))
 
+def parse_bool(tok):
+    return {'.true.': True, '.false.': False }[tok.lower()]
+
 def parse_radix(tok):
     """Parses a F03-style x'***' literal"""
     base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
     return int(tok[2:-1], base)
+
 
 class LexerError(RuntimeError):
     pass
@@ -143,6 +162,7 @@ def lexer_print_actions():
             lambda tok: 'string:%s' % repr(parse_string(tok)),
             lambda tok: 'float:%s' % repr(parse_float(tok)),
             lambda tok: 'int:%d' % int(tok),
+            lambda tok: 'bool:%s' % repr(parse_bool(tok)),
             lambda tok: 'radix:%d' % parse_radix(tok),
             lambda tok: 'bracketed_slashes:%s' % tok[1:-1],
             lambda tok: 'op:%s' % tok,
