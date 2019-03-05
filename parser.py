@@ -3,6 +3,10 @@ from __future__ import print_function
 import lexer
 import re
 
+class NoMatch(Exception):
+    pass
+
+
 class TokenStream:
     def __init__(self, lexer):
         self.lexer = iter(lexer)
@@ -208,10 +212,6 @@ class UnrecognizedToken(Exception):
     pass
 
 
-class NoMatch(Exception):
-    pass
-
-
 class ExpressionParser:
     def __init__(self, actions):
         prefix_ops = {
@@ -278,7 +278,7 @@ class ExpressionParser:
             else:
                 return self._prefix_cats[cat]
         except KeyError:
-            raise UnrecognizedToken()
+            raise NoMatch()
 
     def _get_infix_handler(self, cat, token):
         try:
@@ -287,22 +287,18 @@ class ExpressionParser:
             else:
                 return self._infix_cats[cat]
         except KeyError:
-            raise UnrecognizedToken()
+            raise NoMatch()
 
     def parse(self, tokens, min_glue=0):
         # Get prefix
-        try:
-            handler = self._get_prefix_handler(tokens.cat, tokens.token)
-        except UnrecognizedToken:
-            raise NoMatch()
-        else:
-            result = handler.handle(tokens)
+        handler = self._get_prefix_handler(tokens.cat, tokens.token)
+        result = handler.handle(tokens)
 
         # Cycle through appropriate infixes:
         while True:
             try:
                 handler = self._get_infix_handler(tokens.cat, tokens.token)
-            except UnrecognizedToken:
+            except NoMatch:
                 return result
             else:
                 if handler.glue < min_glue:
