@@ -8,47 +8,72 @@ class NoMatch(Exception):
 
 
 class TokenStream:
-    def __init__(self, lexer):
-        self.lexer = iter(lexer)
-        self.cat = None
-        self.token = None
-        self.advance()
+    def __init__(self, tokens, pos=0):
+        self.tokens = tokens
+        self.pos = pos
+        self.stack = []
+
+    def peek(self):
+        try:
+            return self.tokens[self.pos]
+        except IndexError:
+            if self.pos > len(self.tokens):
+                raise StopIteration()
+            return lexer.CAT_DOLLAR, '<$>'
+
+    def __next__(self):
+        value = self.peek()
+        self.pos += 1
+        return value
+
+    def push(self):
+        self.stack.append(self.pos)
+
+    def backtrack(self):
+        self.pos = self.stack.pop()
+
+    def commit(self):
+        self.stack.pop()
+
+    # FIXME: compatibility - remove
+
+    @property
+    def cat(self): return self.peek()[0]
+
+    @property
+    def token(self): return self.peek()[1]
 
     def advance(self):
-        token = self.token
-        try:
-            self.cat, self.token = next(self.lexer)
-            #print ("ADV", self.cat, self.token)
-        except StopIteration:
-            self.cat, self.token = 0, '<$>'
-            #print ("END OF INPUT")
-        return token
+        return next(self)
 
     def expect(self, expected):
-        if self.token.lower() != expected:
-            raise ValueError("Expected %s, got %s", expected, self.token)
-        self.advance()
+        cat, token = self.peek()
+        if token.lower() != expected:
+            raise NoMatch()
+        next(self)
 
     def expect_cat(self, expected):
-        if self.cat != expected:
-            raise ValueError("Expected cat %d, got %d", expected, self.cat)
-        self.advance()
+        cat, token = self.peek()
+        if cat != expected:
+            raise NoMatch()
+        next(self)
 
-    def marker(self, marker):
-        if self.token.lower() == marker:
-            self.advance()
+    def marker(self, expected):
+        cat, token = self.peek()
+        if token.lower() == expected:
+            next(self)
             return True
         else:
             return False
 
 
+
 class LiteralHandler:
     def __init__(self, action):
         self.action = action
-        self.glue = 100000
 
     def handle(self, tokens):
-        return self.action(tokens.advance())
+        return self.action(tokens.advance()[1])
 
 
 class PrefixHandler:
@@ -375,7 +400,7 @@ program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(.true., 1) + (/ 1,
 
     #"""
 slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(slexer)
+tokens = TokenStream(list(slexer))
 expression = ExpressionParser(DefaultActions())
 print (expression.parse(tokens))
 #parser = BlockParser(DefaultActions())
