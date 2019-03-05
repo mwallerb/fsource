@@ -37,15 +37,6 @@ class TokenStream:
 
     # FIXME: compatibility - remove
 
-    @property
-    def cat(self): return self.peek()[0]
-
-    @property
-    def token(self): return self.peek()[1]
-
-    def advance(self):
-        return next(self)
-
     def expect(self, expected):
         cat, token = self.peek()
         if token.lower() != expected:
@@ -56,7 +47,7 @@ class TokenStream:
         cat, token = self.peek()
         if cat != expected:
             raise NoMatch()
-        next(self)
+        return next(self)[1]
 
     def marker(self, expected):
         cat, token = self.peek()
@@ -67,13 +58,52 @@ class TokenStream:
             return False
 
 
+class Rule:
+    def __init__(self, stream):
+        self.stream = stream
+
+    def __enter__(self):
+        self.stream.push()
+
+    def __exit__(self, exc_type, exc_val, traceback):
+        if exc_type is None:
+            self.stream.commit()
+            return True
+        else:
+            self.stream.backtrack()
+            return False
+
+def rule(fn):
+    def rule_setup(self, tokens, *args):
+        tokens.push()
+        try:
+            value = fn(self, tokens, *args)
+        except:
+            tokens.backtrack()
+            raise
+        else:
+            tokens.commit()
+            return value
+    return rule_setup
+
+
+class LockedIn:
+    def __init__(self, tokens):
+        self.tokens = tokens
+
+    def __enter__(self): pass
+
+    def __exit__(self, exc_type, exc_val, traceback):
+        if exc_type is NoMatch:
+            raise ValueError("Parsing failure")
+
 
 class LiteralHandler:
     def __init__(self, action):
         self.action = action
 
     def handle(self, tokens):
-        return self.action(tokens.advance()[1])
+        return self.action(next(tokens)[1])
 
 
 class PrefixHandler:
@@ -84,9 +114,9 @@ class PrefixHandler:
         self.action = action
 
     def handle(self, tokens):
-        tokens.advance()
-        result = self.expression.parse(tokens, self.subglue)
-        return self.action(result)
+        next(tokens)
+        operand = self.expression.parse(tokens, self.subglue)
+        return self.action(operand)
 
 
 class InfixHandler:
@@ -100,28 +130,20 @@ class InfixHandler:
         self.subglue = glue + (0 if assoc == 'right' else 1)
         self.action = action
 
-    def handle(self, tokens, head_result):
-        tokens.advance()
-        tail_result = self.expression.parse(tokens, self.subglue)
-        return self.action(head_result, tail_result)
+    def handle(self, tokens, lhs):
+        next(tokens)
+        rhs = self.expression.parse(tokens, self.subglue)
+        return self.action(lhs, rhs)
 
 
-class ParensHandler:
-    def __init__(self, expression, parens_action, impl_do_action, do_ctrl_action):
+class DoCtrlParser:
+    def __init__(self, expression, action):
         self.expression = expression
-        self.parens_action = parens_action
-        self.impl_do_action = impl_do_action
-        self.do_ctrl_action = do_ctrl_action
+        self.action = action
 
-    def handle_implied_do(self, tokens, head_result):
-        result = head_result
-        args = []
-        while tokens.token == ',':
-            tokens.advance()
-            args.append(result)
-            result = self.expression.parse(tokens)
-
-        dovar = result
+    @rule
+    def parse(self, tokens):
+        dovar = tokens.expect_cat(lexer.CAT_WORD)
         tokens.expect('=')
         start = self.expression.parse(tokens)
         tokens.expect(',')
@@ -130,122 +152,122 @@ class ParensHandler:
             step = self.expression.parse(tokens)
         else:
             step = None
-        tokens.expect(')')
-        return self.impl_do_action(
-                        self.do_ctrl_action(dovar, start, stop, step),
-                        *args)
-
-    def handle(self, tokens):
-        tokens.advance()
-        result = self.expression.parse(tokens)
-        if tokens.token == ',':
-            return self.handle_implied_do(tokens, result)
-        tokens.expect(")")
-        return self.parens_action(result)
+        return self.action(dovar, start, stop, step)
 
 
-class SliceHandler:
-    def __init__(self, expression, glue, inner_glue, action):
+class ImpliedDoParser:
+    def __init__(self, expression, do_ctrl, action):
         self.expression = expression
-        self.glue = glue
-        self.inner_glue = inner_glue
+        self.do_ctrl = do_ctrl
         self.action = action
 
-    def handle(self, tokens, head_result):
-        slice_begin = head_result
-        tokens.advance()
+    @rule
+    def parse(self, tokens):
+        args = []
+        tokens.expect('(')
+        args.append(self.expression.parse(tokens))
+        tokens.expect(',')
+        while True:
+            try:
+                do_ctrl = self.do_ctrl.parse(tokens)
+            except NoMatch:
+                args.append(self.expression.parse(tokens))
+                tokens.expect(',')
+            else:
+                tokens.expect(')')
+                return self.action(do_ctrl, *args)
+
+
+class InplaceArrayHandler:
+    def __init__(self, expression, impl_do, action):
+        self.expression = expression
+        self.impl_do = impl_do
+        self.action = action
+
+    def handle(self, tokens):
+        next(tokens)
+        seq = []
+        if tokens.marker('/)'):
+            return self.action()
+        while True:
+            try:
+                seq.append(self.impl_do.parse(tokens))
+            except NoMatch:
+                seq.append(self.expression.parse(tokens))
+            if tokens.marker('/)'):
+                return self.action(*seq)
+            tokens.expect(',')
+
+
+class ParensHandler:
+    def __init__(self, expression, action):
+        self.expression = expression
+        self.action = action
+
+    def handle(self, tokens):
+        next(tokens)
+        expr = self.expression.parse(tokens)
+        tokens.expect(')')
+        return self.action(expr)
+
+
+class SliceParser:
+    def __init__(self, expression, action):
+        self.expression = expression
+        self.action = action
+
+    @rule
+    def parse(self, tokens):
         try:
-            slice_end = self.expression.parse(tokens, self.inner_glue)
+            slice_begin = self.expression.parse(tokens)
+        except NoMatch:
+            slice_begin = None
+        tokens.expect(':')
+        try:
+            slice_end = self.expression.parse(tokens)
         except NoMatch:
             slice_end = None
         if tokens.marker(":"):
-            slice_stride = self.expression.parse(tokens, self.inner_glue)
-            if tokens.token == ":":
-                raise ValueError("Malformed slice: Too many ::")
+            slice_stride = self.expression.parse(tokens)
         else:
             slice_stride = None
         return self.action(slice_begin, slice_end, slice_stride)
 
 
 class SubscriptHandler:
-    def __init__(self, expression, glue, seq_action, slice_action):
+    def __init__(self, expression, slice_, glue, action):
         self.expression = expression
+        self.slice_ = slice_
         self.glue = glue
-        self.slice_handler = SliceHandler(expression, -2, 0, slice_action)
-        self.action = seq_action
+        self.action = action
 
-    def handle(self, tokens, head_result):
-        tokens.advance()
+    def handle(self, tokens, lhs):
+        next(tokens)
         seq = []
-        result = None
-        while True:
-            # Expression eats comments, cont'ns, etc., so we should be OK.
-            try:
-                result = self.expression.parse(tokens)
-            except NoMatch:
-                result = None              # FIXME strange
-            token = tokens.token
-            if tokens.token == ":":
-                result = self.slice_handler.handle(tokens, result)
-                token = tokens.token
-            if token == "," or token == ")":
-                if result is None:
-                    raise ValueError("Expecting result here")
-                tokens.advance()
-                seq.append(result)
-                result = None
-                if token == ")":
-                    return self.action(head_result, *seq)
-            else:
-                raise ValueError("Unexpected token %s" % token)
-
-
-class InplaceArrayHandler:
-    def __init__(self, expression, seq_action):
-        self.expression = expression
-        self.glue = 100000
-        self.action = seq_action
-
-    def handle(self, tokens):
-        tokens.advance()
-        seq = []
-        result = None
+        if tokens.marker(')'):
+            return self.action(lhs)
         while True:
             try:
-                result = self.expression.parse(tokens, False)
+                seq.append(self.slice_.parse(tokens))
             except NoMatch:
-                result = None    # FIXME strange
-            token = tokens.token
-            if token == ",":
-                if result is None:
-                    raise ValueError("Expecting result here")
-                tokens.advance()
-                seq.append(result)
-                result = None
-            elif token == "/)":
-                if result is None:
-                    if seq: raise ValueError("Expecting expression")
-                else:
-                    seq.append(result)
-                tokens.advance()
-                return self.action(*seq)
-            else:
-                raise ValueError("Unexpected token %s" % token)
-
-
-class UnrecognizedToken(Exception):
-    pass
+                seq.append(self.expression.parse(tokens))
+            if tokens.marker(')'):
+                return self.action(lhs, *seq)
+            tokens.expect(',')
 
 
 class ExpressionParser:
     def __init__(self, actions):
+        do_ctrl_parser = DoCtrlParser(self, actions.do_ctrl)
+        impl_do_parser = ImpliedDoParser(self, do_ctrl_parser, actions.array)
+        slice_parser = SliceParser(self, actions.slice)
+
         prefix_ops = {
             ".not.":  PrefixHandler(self, ".not.",  50, actions.not_),
             "+":      PrefixHandler(self, "+",   110, actions.pos),
             "-":      PrefixHandler(self, "-",   110, actions.neg),
-            "(":      ParensHandler(self, actions.parens, actions.impl_do,
-                                    actions.do_control),
-            "(/":     InplaceArrayHandler(self, actions.array)
+            "(":      ParensHandler(self, actions.parens),
+            "(/":     InplaceArrayHandler(self, impl_do_parser, actions.array)
             }
         infix_ops = {
             ".eqv.":  InfixHandler(self, ".eqv.",  20, 'right', actions.eqv),
@@ -266,8 +288,7 @@ class ExpressionParser:
             "**":     InfixHandler(self, "**",    100, 'right', actions.pow),
             "%":      InfixHandler(self, "%",     130, 'left', actions.resolve),
             "_":      InfixHandler(self, "_",     130, 'left', actions.kind),
-            "(":      SubscriptHandler(self, 140, actions.call, actions.slice),
-            "(/":     InplaceArrayHandler(self, actions.array)
+            "(":      SubscriptHandler(self, slice_parser, 140, actions.call),
             }
 
         # Fortran 90 operator aliases
@@ -316,13 +337,13 @@ class ExpressionParser:
 
     def parse(self, tokens, min_glue=0):
         # Get prefix
-        handler = self._get_prefix_handler(tokens.cat, tokens.token)
+        handler = self._get_prefix_handler(*tokens.peek())
         result = handler.handle(tokens)
 
         # Cycle through appropriate infixes:
         while True:
             try:
-                handler = self._get_infix_handler(tokens.cat, tokens.token)
+                handler = self._get_infix_handler(*tokens.peek())
             except NoMatch:
                 return result
             else:
@@ -367,8 +388,7 @@ class DefaultActions:
     def slice(self, b, e, s): return "(: %s %s %s)" % tuple(map(_opt, (b,e,s)))
     def array(self, *args): return "(array %s)" % " ".join(args)
     def impl_do(self, c, *args): return "(implied_do %s %s)" % (c, " ".join(args))
-    def do_control(self, v, b, e, s):
-        return "(do_control %s %s %s %s)" % (v, b, e, _opt(s))
+    def do_ctrl(self, v, b, e, s): return "(do_ctrl %s %s %s %s)" % (v, b, e, _opt(s))
     def unary(self, op): return "(unary %s)" % op
     def binary(self, l, r): return "(binary %s %s)" % (l, r)
 
