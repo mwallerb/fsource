@@ -125,7 +125,10 @@ class SliceHandler:
     def handle(self, tokens, head_result):
         slice_begin = head_result
         tokens.advance()
-        slice_end = self.expression.parse(tokens, self.inner_glue, False)
+        try:
+            slice_end = self.expression.parse(tokens, self.inner_glue)
+        except NoMatch:
+            slice_end = None
         if tokens.marker(":"):
             slice_stride = self.expression.parse(tokens, self.inner_glue)
             if tokens.token == ":":
@@ -148,7 +151,10 @@ class SubscriptHandler:
         result = None
         while True:
             # Expression eats comments, cont'ns, etc., so we should be OK.
-            result = self.expression.parse(tokens, expect_result=False)
+            try:
+                result = self.expression.parse(tokens)
+            except NoMatch:
+                result = None              # FIXME strange
             token = tokens.token
             if tokens.token == ":":
                 result = self.slice_handler.handle(tokens, result)
@@ -176,7 +182,10 @@ class InplaceArrayHandler:
         seq = []
         result = None
         while True:
-            result = self.expression.parse(tokens, expect_result=False)
+            try:
+                result = self.expression.parse(tokens, False)
+            except NoMatch:
+                result = None    # FIXME strange
             token = tokens.token
             if token == ",":
                 if result is None:
@@ -195,57 +204,13 @@ class InplaceArrayHandler:
                 raise ValueError("Unexpected token %s" % token)
 
 
-def _opt(x): return "null" if x is None else x
-
-class DefaultActions:
-    # Blocks
-    def block(self, *s): return "(block %s)" % " ".join(map(_opt, s))
-    def if_(self, *b): return "(if %s)" % " ".join(map(_opt, b))
-    def arith_if(self, a, b, c): return "(arith_if %s %s %s)" % (a, b, c)
-    def where(self, *b): return "(where %s)" % " ".join(map(_opt, b))
-
-    # Expression actions
-    def eqv(self, l, r): return "(eqv %s %s)" % (l, r)
-    def neqv(self, l, r): return "(neqv %s %s)" % (l, r)
-    def or_(self, l, r): return "(or %s %s)" % (l, r)
-    def and_(self, l, r): return "(and %s %s)" % (l, r)
-    def not_(self, op): return "(not %s)" % op
-    def eq(self, l, r): return "(eq %s %s)" % (l, r)
-    def ne(self, l, r): return "(ne %s %s)" % (l, r)
-    def le(self, l, r): return "(le %s %s)" % (l, r)
-    def lt(self, l, r): return "(lt %s %s)" % (l, r)
-    def ge(self, l, r): return "(ge %s %s)" % (l, r)
-    def gt(self, l, r): return "(gt %s %s)" % (l, r)
-    def concat(self, l, r): return "(// %s %s)" % (l, r)
-    def plus(self, l, r): return "(+ %s %s)" % (l, r)
-    def pos(self, op): return "(pos %s)" % op
-    def minus(self, l, r): return "(- %s %s)" % (l, r)
-    def neg(self, op): return "(neg %s)" % op
-    def mul(self, l, r): return "(* %s %s)" % (l, r)
-    def div(self, l, r): return "(/ %s %s)" % (l, r)
-    def pow(self, l, r): return "(pow %s %s)" % (l, r)
-    def resolve(self, l, r): return "(%% %s %s)" % (l, r)
-    def kind(self, l, r): return "(_ %s %s)" % (l, r)
-    def parens(self, op): return op
-    def call(self, fn, *args): return "(() %s %s)" % (fn, " ".join(args))
-    def slice(self, b, e, s): return "(: %s %s %s)" % tuple(map(_opt, (b,e,s)))
-    def array(self, *args): return "(array %s)" % " ".join(args)
-    def impl_do(self, c, *args): return "(implied_do %s %s)" % (c, " ".join(args))
-    def do_control(self, v, b, e, s):
-        return "(do_control %s %s %s %s)" % (v, b, e, _opt(s))
-    def unary(self, op): return "(unary %s)" % op
-    def binary(self, l, r): return "(binary %s %s)" % (l, r)
-
-    # Literals actions
-    def bool(self, tok): return tok.lower()[1:-1]
-    def int(self, tok): return tok
-    def float(self, tok): return tok
-    def string(self, tok): return "(string %s)" % repr(lexer.parse_string(tok))
-    def radix(self, tok): return "(radix %s)" % tok
-    def word(self, tok): return repr(tok)
-
 class UnrecognizedToken(Exception):
     pass
+
+
+class NoMatch(Exception):
+    pass
+
 
 class ExpressionParser:
     def __init__(self, actions):
@@ -324,14 +289,12 @@ class ExpressionParser:
         except KeyError:
             raise UnrecognizedToken()
 
-    def parse(self, tokens, min_glue=0, expect_result=True):
+    def parse(self, tokens, min_glue=0):
         # Get prefix
         try:
             handler = self._get_prefix_handler(tokens.cat, tokens.token)
         except UnrecognizedToken:
-            if expect_result:
-                raise ValueError("Invalid expression")
-            return None
+            raise NoMatch()
         else:
             result = handler.handle(tokens)
 
@@ -345,6 +308,56 @@ class ExpressionParser:
                 if handler.glue < min_glue:
                     return result
                 result = handler.handle(tokens, result)
+
+
+def _opt(x): return "null" if x is None else x
+
+class DefaultActions:
+    # Blocks
+    def block(self, *s): return "(block %s)" % " ".join(map(_opt, s))
+    def if_(self, *b): return "(if %s)" % " ".join(map(_opt, b))
+    def arith_if(self, a, b, c): return "(arith_if %s %s %s)" % (a, b, c)
+    def where(self, *b): return "(where %s)" % " ".join(map(_opt, b))
+
+    # Expression actions
+    def eqv(self, l, r): return "(eqv %s %s)" % (l, r)
+    def neqv(self, l, r): return "(neqv %s %s)" % (l, r)
+    def or_(self, l, r): return "(or %s %s)" % (l, r)
+    def and_(self, l, r): return "(and %s %s)" % (l, r)
+    def not_(self, op): return "(not %s)" % op
+    def eq(self, l, r): return "(eq %s %s)" % (l, r)
+    def ne(self, l, r): return "(ne %s %s)" % (l, r)
+    def le(self, l, r): return "(le %s %s)" % (l, r)
+    def lt(self, l, r): return "(lt %s %s)" % (l, r)
+    def ge(self, l, r): return "(ge %s %s)" % (l, r)
+    def gt(self, l, r): return "(gt %s %s)" % (l, r)
+    def concat(self, l, r): return "(// %s %s)" % (l, r)
+    def plus(self, l, r): return "(+ %s %s)" % (l, r)
+    def pos(self, op): return "(pos %s)" % op
+    def minus(self, l, r): return "(- %s %s)" % (l, r)
+    def neg(self, op): return "(neg %s)" % op
+    def mul(self, l, r): return "(* %s %s)" % (l, r)
+    def div(self, l, r): return "(/ %s %s)" % (l, r)
+    def pow(self, l, r): return "(pow %s %s)" % (l, r)
+    def resolve(self, l, r): return "(%% %s %s)" % (l, r)
+    def kind(self, l, r): return "(_ %s %s)" % (l, r)
+    def parens(self, op): return op
+    def call(self, fn, *args): return "(() %s %s)" % (fn, " ".join(args))
+    def slice(self, b, e, s): return "(: %s %s %s)" % tuple(map(_opt, (b,e,s)))
+    def array(self, *args): return "(array %s)" % " ".join(args)
+    def impl_do(self, c, *args): return "(implied_do %s %s)" % (c, " ".join(args))
+    def do_control(self, v, b, e, s):
+        return "(do_control %s %s %s %s)" % (v, b, e, _opt(s))
+    def unary(self, op): return "(unary %s)" % op
+    def binary(self, l, r): return "(binary %s %s)" % (l, r)
+
+    # Literals actions
+    def bool(self, tok): return tok.lower()[1:-1]
+    def int(self, tok): return tok
+    def float(self, tok): return tok
+    def string(self, tok): return "(string %s)" % repr(lexer.parse_string(tok))
+    def radix(self, tok): return "(radix %s)" % tok
+    def word(self, tok): return repr(tok)
 
 
 lexre = lexer.LEXER_REGEX
