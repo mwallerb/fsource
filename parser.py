@@ -237,8 +237,7 @@ class DefaultActions:
     def binary(self, l, r): return "(binary %s %s)" % (l, r)
 
     # Literals actions
-    def true(self): return "true"
-    def false(self): return "false"
+    def bool(self, tok): return tok.lower()[1:-1]
     def int(self, tok): return tok
     def float(self, tok): return tok
     def string(self, tok): return "(string %s)" % repr(lexer.parse_string(tok))
@@ -278,9 +277,7 @@ class ExpressionParser:
             "%":      InfixHandler(self, "%",     130, 'left', actions.resolve),
             "_":      InfixHandler(self, "_",     130, 'left', actions.kind),
             "(":      SubscriptHandler(self, 140, actions.call, actions.slice),
-            "(/":     InplaceArrayHandler(self, actions.array),
-            ".true.": LiteralHandler(actions.true),
-            ".false.": LiteralHandler(actions.false),
+            "(/":     InplaceArrayHandler(self, actions.array)
             }
 
         # Fortran 90 operator aliases
@@ -296,6 +293,7 @@ class ExpressionParser:
             lexer.CAT_FLOAT:      LiteralHandler(actions.float),
             lexer.CAT_INT:        LiteralHandler(actions.int),
             lexer.CAT_RADIX:      LiteralHandler(actions.radix),
+            lexer.CAT_BOOLEAN:    LiteralHandler(actions.bool),
             lexer.CAT_CUSTOM_DOT: PrefixHandler(self, '.unary.', 120, actions.unary),
             lexer.CAT_WORD:       LiteralHandler(actions.word),
             }
@@ -352,7 +350,7 @@ class ExpressionParser:
 lexre = lexer.LEXER_REGEX
 #program = """x(3:1, 4, 5::2) * &   ! something
 #&  (3 + 5)"""
-program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(6, 1) + (/ 1, 2, (i, i=1,5), 3 /)"
+program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), 3 /)"
 #program = """
     #if (x == 3) then
         #call something(3)
