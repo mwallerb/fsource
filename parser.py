@@ -58,6 +58,22 @@ class TokenStream:
             return False
 
 
+class Rule:
+    def __init__(self, tokens):
+        self.tokens = tokens
+
+    def __enter__(self):
+        self.tokens.push()
+
+    def __exit__(self, exc_type, value, traceback):
+        if exc_type is not None:
+            tokens.backtrack()
+            return False
+        else:
+            tokens.commit()
+            return True
+
+
 def rule(fn):
     def rule_setup(tokens, actions, *args):
         tokens.push()
@@ -313,6 +329,94 @@ def expr(tokens, actions, min_glue=0):
                 return result
             result = handler(tokens, actions, result)
 
+# -----------
+
+@rule
+def kind_selector(tokens, actions):
+    if tokens.marker('*'):
+        kind_ = int_()
+    else:
+        tokens.expect('(')
+        if tokens.marker('kind'):
+            tokens.expect('=')
+        kind_ = int_()
+        tokens.expect(')')
+    return actions.kind_sel(kind_)
+
+@rule
+def char_selector(tokens, actions):
+    result = { "len": None, "kind": None }
+    def len_select():
+        tok = tokens.peek()[1]
+        if tok in ('*', ':'):
+            return tok
+        return expr(tokens, actions)
+
+    if tokens.marker('*'):
+        if tokens.marker('('):
+            result["len"] = len_select()
+            tokens.expect(')')
+        else:
+            result["len"] = int_()
+    else:
+        tokens.expect('(')
+        try:
+            with Rule(tokens):
+                sel = tokens.expect_cat(lexer.CAT_WORD)
+                tokens.expect('=')
+        except NoMatch:
+            sel = 'len'
+        else:
+            if sel not in result: raise NoMatch()
+            if result[sel] is not None: raise NoMatch()
+        result[sel] = expr(tokens, actions)
+
+        if tokens.marker(','):
+            try:
+                with Rule(tokens):
+                    sel = tokens.expect_cat(lexer.CAT_WORD)
+                    tokens.expect('=')
+            except NoMatch:
+                sel = 'kind' if result['kind'] is None else 'len'
+            else:
+                if sel not in result: raise NoMatch()
+                if result[sel] is not None: raise NoMatch()
+            result[sel] = expr(tokens, actions)
+
+        tokens.expect(')')
+
+    return actions.char_sel(result['len'], result['kind'])
+
+def _typename_handler(tokens, actions):
+    tokens.expect('(')
+    typename = identifier(tokens, actions)
+    tokens.expect(')')
+    return typename
+
+_TYPE_SPEC_HANDLERS = {
+    'integer':   kind_selector,
+    'real':      kind_selector,
+    'double':    lambda t, a: t.expect('precision'),
+    'complex':   kind_selector,
+    'character': char_selector,
+    'logical':   kind_selector,
+    'type':      _typename_handler
+    }
+
+@rule
+def type_spec(tokens, actions):
+    prefix = tokens.expect_cat(lexer.CAT_WORD)
+    try:
+        contd = _TYPE_SPEC_HANDLERS[prefix]
+    except KeyError:
+        raise NoMatch()
+    try:
+        arg = contd(tokens, actions)
+    except NoMatch:
+        arg = None
+    return actions.type_spec(prefix, arg)
+
+
 def _opt(x): return "null" if x is None else x
 
 class DefaultActions:
@@ -361,11 +465,25 @@ class DefaultActions:
     def radix(self, tok): return "(radix %s)" % tok
     def identifier(self, tok): return repr(tok)
 
+    # Declaractions
+    def kind_sel(self, k): return "(kind_sel %s)" % k
+    def char_sel(self, l, k): return "(char_sel %s %s)" % (l, k)
+    def type_spec(self, t, a): return "(typespec %s %s)" % (t, a)
+
 
 lexre = lexer.LEXER_REGEX
 #program = """x(3:1, 4, 5::2) * &   ! something
 #&  (3 + 5)"""
-program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), 3 /)"
+#program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), 3 /)"
+program = "character"
+
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(list(slexer))
+actions = DefaultActions()
+print (type_spec(tokens, actions))
+#parser = BlockParser(DefaultActions())
+#print (parser.block(tokens))
+
 #program = """
     #if (x == 3) then
         #call something(3)
@@ -380,9 +498,3 @@ program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(.true., 1) + (/ 1,
     #endwhere
 
     #"""
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-actions = DefaultActions()
-print (expr(tokens, actions))
-#parser = BlockParser(DefaultActions())
-#print (parser.block(tokens))
