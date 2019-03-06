@@ -58,21 +58,6 @@ class TokenStream:
             return False
 
 
-class Rule:
-    def __init__(self, stream):
-        self.stream = stream
-
-    def __enter__(self):
-        self.stream.push()
-
-    def __exit__(self, exc_type, exc_val, traceback):
-        if exc_type is None:
-            self.stream.commit()
-            return True
-        else:
-            self.stream.backtrack()
-            return False
-
 def rule(fn):
     def rule_setup(self, tokens, *args):
         tokens.push()
@@ -264,8 +249,8 @@ class ExpressionParser:
 
         prefix_ops = {
             ".not.":  PrefixHandler(self, ".not.",  50, actions.not_),
-            "+":      PrefixHandler(self, "+",   110, actions.pos),
-            "-":      PrefixHandler(self, "-",   110, actions.neg),
+            "+":      PrefixHandler(self, "+",     110, actions.pos),
+            "-":      PrefixHandler(self, "-",     110, actions.neg),
             "(":      ParensHandler(self, actions.parens),
             "(/":     InplaceArrayHandler(self, impl_do_parser, actions.array)
             }
@@ -274,20 +259,20 @@ class ExpressionParser:
             ".neqv.": InfixHandler(self, ".neqv.", 20, 'right', actions.neqv),
             ".or.":   InfixHandler(self, ".or.",   30, 'right', actions.or_),
             ".and.":  InfixHandler(self, ".and.",  40, 'right', actions.and_),
-            ".eq.":   InfixHandler(self, ".eq.",   60, 'left', actions.eq),
-            ".ne.":   InfixHandler(self, ".neq.",  60, 'left', actions.ne),
-            ".le.":   InfixHandler(self, ".le.",   60, 'left', actions.le),
-            ".lt.":   InfixHandler(self, ".lt.",   60, 'left', actions.lt),
-            ".ge.":   InfixHandler(self, ".ge.",   60, 'left', actions.ge),
-            ".gt.":   InfixHandler(self, ".gt.",   60, 'left', actions.gt),
-            "//":     InfixHandler(self, "//",     70, 'left', actions.concat),
-            "+":      InfixHandler (self, "+",    80, 'left', actions.plus),
-            "-":      InfixHandler(self, "-",    80, 'left', actions.minus),
-            "*":      InfixHandler(self, "*",      90, 'left', actions.mul),
-            "/":      InfixHandler(self, "/",      90, 'left', actions.div),
+            ".eq.":   InfixHandler(self, ".eq.",   60, 'left',  actions.eq),
+            ".ne.":   InfixHandler(self, ".neq.",  60, 'left',  actions.ne),
+            ".le.":   InfixHandler(self, ".le.",   60, 'left',  actions.le),
+            ".lt.":   InfixHandler(self, ".lt.",   60, 'left',  actions.lt),
+            ".ge.":   InfixHandler(self, ".ge.",   60, 'left',  actions.ge),
+            ".gt.":   InfixHandler(self, ".gt.",   60, 'left',  actions.gt),
+            "//":     InfixHandler(self, "//",     70, 'left',  actions.concat),
+            "+":      InfixHandler(self, "+",      80, 'left',  actions.plus),
+            "-":      InfixHandler(self, "-",      80, 'left',  actions.minus),
+            "*":      InfixHandler(self, "*",      90, 'left',  actions.mul),
+            "/":      InfixHandler(self, "/",      90, 'left',  actions.div),
             "**":     InfixHandler(self, "**",    100, 'right', actions.pow),
-            "%":      InfixHandler(self, "%",     130, 'left', actions.resolve),
-            "_":      InfixHandler(self, "_",     130, 'left', actions.kind),
+            "%":      InfixHandler(self, "%",     130, 'left',  actions.resolve),
+            "_":      InfixHandler(self, "_",     130, 'left',  actions.kind),
             "(":      SubscriptHandler(self, slice_parser, 140, actions.call),
             }
 
