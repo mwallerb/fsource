@@ -442,6 +442,49 @@ def shape(tokens, actions):
     tokens.expect(')')
     return actions.shape(*dims)
 
+_INTENT_STRINGS = {
+    'in':    (True, False),
+    'inout': (True, True),
+    'out':   (False, True),
+    }
+
+@rule
+def intent(tokens, actions):
+    tokens.expect('(')
+    string = lexer.parse_string(tokens.expect_cat(lexer.CAT_STRING)).lower()
+    try:
+        in_, out = _INTENT_STRINGS[string]
+    except KeyError:
+        raise NoMatch()
+    tokens.expect(')')
+    return actions.intent(in_, out)
+
+_ATTRIBUTE_HANDLERS = {
+    'parameter':   lambda t,a: a.parameter(),
+    'public':      lambda t,a: a.visible(True),
+    'private':     lambda t,a: a.visible(False),
+    'allocatable': lambda t,a: a.allocatable(),
+    'dimension':   lambda t,a: shape(t,a),
+    'external':    lambda t,a: a.external(),
+    'intent':      lambda t,a: intent(t,a),
+    'intrinsic':   lambda t,a: a.intrinsic(),
+    'optional':    lambda t,a: a.optional(),
+    'pointer':     lambda t,a: a.pointer(),
+    'save':        lambda t,a: a.save(),
+    'target':      lambda t,a: a.target(),
+    'value':       lambda t,a: a.value(),
+    'volatile':    lambda t,a: a.volatile(),
+    }
+
+@rule
+def attribute(tokens, actions):
+    prefix = tokens.expect_cat(lexer.CAT_WORD)
+    try:
+        handler = _ATTRIBUTE_HANDLERS[prefix]
+    except KeyError:
+        raise NoMatch()
+    else:
+        return handler(tokens, actions)
 
 
 def _opt(x): return "null" if x is None else x
@@ -476,7 +519,7 @@ class DefaultActions:
     def resolve(self, l, r): return "(%% %s %s)" % (l, r)
     def kind(self, l, r): return "(_ %s %s)" % (l, r)
     def parens(self, op): return op
-    def call(self, fn, *args): return "(() %s %s)" % (fn, " ".join(args))
+    def call(self, fn, *args): return "(call %s %s)" % (fn, " ".join(args))
     def slice(self, b, e, s): return "(: %s %s %s)" % tuple(map(_opt, (b,e,s)))
     def array(self, *args): return "(array %s)" % " ".join(args)
     def impl_do(self, c, *args): return "(implied_do %s %s)" % (c, " ".join(args))
@@ -492,12 +535,26 @@ class DefaultActions:
     def radix(self, tok): return "(radix %s)" % tok
     def identifier(self, tok): return repr(tok)
 
-    # Declaractions
+    # Type declarations
     def kind_sel(self, k): return "(kind_sel %s)" % k
     def char_sel(self, l, k): return "(char_sel %s %s)" % (l, k)
     def type_spec(self, t, a): return "(type_spec %s %s)" % (t, a)
+
+    # Entity declaractions
     def dim_spec(self, l, u): return "(dim_spec %s %s)" % (_opt(l), _opt(u))
     def shape(self, *dims): return "(shape %s)" % " ".join(dims)
+    def parameter(self): return "parameter"
+    def visible(self, v): return "(visible %d)" % v
+    def allocatable(self): return "allocatable"
+    def external(self): return "external"
+    def intent(self, i, o): return "(intent %d %d)" % (i, o)
+    def intrinsic(self): return "intrinsic"
+    def optional(self): return "optional"
+    def pointer(self): return "pointer"
+    def save(self): return "save"
+    def target(self): return "target"
+    def value(self): return "value"
+    def volatile(self): return "volatile"
 
 
 lexre = lexer.LEXER_REGEX
@@ -520,7 +577,10 @@ slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (shape(tokens, actions))
 
-
+program = "dimension (1:, :3, 1:4, 1:*)"
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(list(slexer))
+print (attribute(tokens, actions))
 
 #print (expr(tokens, actions))
 #parser = BlockParser(DefaultActions())
