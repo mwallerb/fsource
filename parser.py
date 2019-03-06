@@ -75,10 +75,10 @@ class Rule:
 
 
 def rule(fn):
-    def rule_setup(tokens, actions, *args):
+    def rule_setup(tokens, *args):
         tokens.push()
         try:
-            value = fn(tokens, actions, *args)
+            value = fn(tokens, *args)
         except:
             tokens.backtrack()
             raise
@@ -87,6 +87,12 @@ def rule(fn):
             return value
     return rule_setup
 
+
+def optional(rule, *args):
+    try:
+        return rule(*args)
+    except NoMatch:
+        return None
 
 class LockedIn:
     def __init__(self, tokens):
@@ -175,15 +181,9 @@ def parens_expr(tokens, actions):
 
 @rule
 def slice_(tokens, actions):
-    try:
-        slice_begin = expr(tokens, actions)
-    except NoMatch:
-        slice_begin = None
+    slice_begin = optional(expr, tokens, actions)
     tokens.expect(':')
-    try:
-        slice_end = expr(tokens, actions)
-    except NoMatch:
-        slice_end = None
+    slice_end = optional(expr, tokens, actions)
     if tokens.marker(":"):
         slice_stride = expr(tokens, actions)
     else:
@@ -344,48 +344,51 @@ def kind_selector(tokens, actions):
     return actions.kind_sel(kind_)
 
 @rule
+def keyword_arg(tokens, choices=None):
+    sel = tokens.expect_cat(lexer.CAT_WORD)
+    tokens.expect('=')
+    if sel not in choices:
+        raise NoMatch()
+    return sel
+
+@rule
 def char_selector(tokens, actions):
-    result = { "len": None, "kind": None }
     def len_select():
-        tok = tokens.peek()[1]
-        if tok in ('*', ':'):
-            return tok
+        if tokens.marker('*'):
+            return '*'
+        if tokens.marker(':'):
+            return ':'
         return expr(tokens, actions)
+
+    len_ = None
+    kind = None
 
     if tokens.marker('*'):
         if tokens.marker('('):
-            result["len"] = len_select()
+            len_ = len_select()
             tokens.expect(')')
         else:
-            result["len"] = int_()
+            len_ = int_()
     else:
         tokens.expect('(')
-        try:
-            with Rule(tokens):
-                sel = tokens.expect_cat(lexer.CAT_WORD)
-                tokens.expect('=')
-        except NoMatch:
-            sel = 'len'
+        sel = optional(keyword_arg, tokens, ('len', 'kind'))
+        if sel == 'len' or sel is None:
+            len_ = len_select()
         else:
-            if sel not in result: raise NoMatch()
-            if result[sel] is not None: raise NoMatch()
-        result[sel] = expr(tokens, actions)
+            kind = expr(tokens, actions)
 
         if tokens.marker(','):
-            try:
-                with Rule(tokens):
-                    sel = tokens.expect_cat(lexer.CAT_WORD)
-                    tokens.expect('=')
-            except NoMatch:
-                sel = 'kind' if result['kind'] is None else 'len'
+            sel = optional(keyword_arg, tokens, ('len', 'kind'))
+            if sel is None:
+                sel = 'kind' if kind is None else 'len'
+            if sel == 'len':
+                len_ = len_select()
             else:
-                if sel not in result: raise NoMatch()
-                if result[sel] is not None: raise NoMatch()
-            result[sel] = expr(tokens, actions)
+                kind = expr(tokens, actions)
 
         tokens.expect(')')
 
-    return actions.char_sel(result['len'], result['kind'])
+    return actions.char_sel(len_, kind)
 
 def _typename_handler(tokens, actions):
     tokens.expect('(')
@@ -472,15 +475,23 @@ class DefaultActions:
 
 
 lexre = lexer.LEXER_REGEX
+actions = DefaultActions()
+
 #program = """x(3:1, 4, 5::2) * &   ! something
 #&  (3 + 5)"""
-#program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), 3 /)"
-program = "character"
-
+program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), 3 /)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-actions = DefaultActions()
+print (expr(tokens, actions))
+
+program = "character(kind=4, :)"
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(list(slexer))
 print (type_spec(tokens, actions))
+
+
+
+#print (expr(tokens, actions))
 #parser = BlockParser(DefaultActions())
 #print (parser.block(tokens))
 
