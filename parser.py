@@ -87,7 +87,7 @@ class LiteralHandler:
     def __init__(self, action):
         self.action = action
 
-    def handle(self, tokens, actions):
+    def __call__(self, tokens, actions):
         return getattr(actions, self.action)(next(tokens)[1])
 
 
@@ -96,7 +96,7 @@ class PrefixHandler:
         self.subglue = subglue
         self.action = action
 
-    def handle(self, tokens, actions):
+    def __call__(self, tokens, actions):
         next(tokens)
         operand = expr(tokens, actions, self.subglue)
         return getattr(actions, self.action)(operand)
@@ -110,7 +110,7 @@ class InfixHandler:
         self.subglue = glue + (0 if assoc == 'right' else 1)
         self.action = action
 
-    def handle(self, tokens, actions, lhs):
+    def __call__(self, tokens, actions, lhs):
         next(tokens)
         rhs = expr(tokens, actions, self.subglue)
         return getattr(actions, self.action)(lhs, rhs)
@@ -148,7 +148,7 @@ def implied_do(tokens, actions):
 
 
 class InplaceArrayHandler:
-    def handle(self, tokens, actions):
+    def __call__(self, tokens, actions):
         next(tokens)
         seq = []
         if tokens.marker('/)'):
@@ -164,7 +164,7 @@ class InplaceArrayHandler:
 
 
 class ParensHandler:
-    def handle(self, tokens, actions):
+    def __call__(self, tokens, actions):
         next(tokens)
         inner_expr = expr(tokens, actions)
         tokens.expect(')')
@@ -193,7 +193,7 @@ class SubscriptHandler:
     def __init__(self, glue):
         self.glue = glue
 
-    def handle(self, tokens, actions, lhs):
+    def __call__(self, tokens, actions, lhs):
         next(tokens)
         seq = []
         if tokens.marker(')'):
@@ -289,7 +289,7 @@ EXPR_HANDLER = ExpressionHandler()
 def expr(tokens, actions, min_glue=0):
     # Get prefix
     handler = EXPR_HANDLER.get_prefix_handler(*tokens.peek())
-    result = handler.handle(tokens, actions)
+    result = handler(tokens, actions)
 
     # Cycle through appropriate infixes:
     while True:
@@ -300,7 +300,7 @@ def expr(tokens, actions, min_glue=0):
         else:
             if handler.glue < min_glue:
                 return result
-            result = handler.handle(tokens, actions, result)
+            result = handler(tokens, actions, result)
 
 
 def _opt(x): return "null" if x is None else x
