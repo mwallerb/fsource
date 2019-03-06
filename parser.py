@@ -419,6 +419,30 @@ def type_spec(tokens, actions):
         arg = None
     return actions.type_spec(prefix, arg)
 
+@rule
+def dim_spec(tokens, actions):
+    try:
+        lower = optional(expr, tokens, actions)
+        tokens.expect(':')
+    except NoMatch:
+        pass
+    if tokens.marker('*'):
+        upper = '*'
+    else:
+        upper = optional(expr, tokens, actions)
+    return actions.dim_spec(lower, upper)
+
+@rule
+def shape(tokens, actions):
+    dims = []
+    tokens.expect('(')
+    dims.append(dim_spec(tokens, actions))
+    while tokens.marker(','):
+        dims.append(dim_spec(tokens, actions))
+    tokens.expect(')')
+    return actions.shape(*dims)
+
+
 
 def _opt(x): return "null" if x is None else x
 
@@ -471,7 +495,9 @@ class DefaultActions:
     # Declaractions
     def kind_sel(self, k): return "(kind_sel %s)" % k
     def char_sel(self, l, k): return "(char_sel %s %s)" % (l, k)
-    def type_spec(self, t, a): return "(typespec %s %s)" % (t, a)
+    def type_spec(self, t, a): return "(type_spec %s %s)" % (t, a)
+    def dim_spec(self, l, u): return "(dim_spec %s %s)" % (_opt(l), _opt(u))
+    def shape(self, *dims): return "(shape %s)" % " ".join(dims)
 
 
 lexre = lexer.LEXER_REGEX
@@ -488,6 +514,11 @@ program = "character(kind=4, :)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (type_spec(tokens, actions))
+
+program = "(1:, :3, 1:4, 1:*)"
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(list(slexer))
+print (shape(tokens, actions))
 
 
 
