@@ -59,10 +59,10 @@ class TokenStream:
 
 
 def rule(fn):
-    def rule_setup(self, tokens, *args):
+    def rule_setup(tokens, actions, *args):
         tokens.push()
         try:
-            value = fn(self, tokens, *args)
+            value = fn(tokens, actions, *args)
         except:
             tokens.backtrack()
             raise
@@ -87,193 +87,156 @@ class LiteralHandler:
     def __init__(self, action):
         self.action = action
 
-    def handle(self, tokens):
-        return self.action(next(tokens)[1])
+    def handle(self, tokens, actions):
+        return getattr(actions, self.action)(next(tokens)[1])
 
 
 class PrefixHandler:
-    def __init__(self, expression, symbol, subglue, action):
-        self.expression = expression
-        self.symbol = symbol
+    def __init__(self, subglue, action):
         self.subglue = subglue
         self.action = action
 
-    def handle(self, tokens):
+    def handle(self, tokens, actions):
         next(tokens)
-        operand = self.expression.parse(tokens, self.subglue)
-        return self.action(operand)
+        operand = expr(tokens, actions, self.subglue)
+        return getattr(actions, self.action)(operand)
 
 
 class InfixHandler:
-    def __init__(self, expression, symbol, glue, assoc, action):
+    def __init__(self, glue, assoc, action):
         if assoc not in ('left', 'right'):
             raise ValueError("Associativity must be either left or right")
-
-        self.expression = expression
-        self.symbol = symbol
         self.glue = glue
         self.subglue = glue + (0 if assoc == 'right' else 1)
         self.action = action
 
-    def handle(self, tokens, lhs):
+    def handle(self, tokens, actions, lhs):
         next(tokens)
-        rhs = self.expression.parse(tokens, self.subglue)
-        return self.action(lhs, rhs)
+        rhs = expr(tokens, actions, self.subglue)
+        return getattr(actions, self.action)(lhs, rhs)
 
 
-class DoCtrlParser:
-    def __init__(self, expression, action):
-        self.expression = expression
-        self.action = action
+@rule
+def do_ctrl(tokens, actions):
+    dovar = tokens.expect_cat(lexer.CAT_WORD)
+    tokens.expect('=')
+    start = expr(tokens, actions)
+    tokens.expect(',')
+    stop = expr(tokens, actions)
+    if tokens.marker(','):
+        step = expr(tokens, actions)
+    else:
+        step = None
+    return actions.do_ctrl(dovar, start, stop, step)
 
-    @rule
-    def parse(self, tokens):
-        dovar = tokens.expect_cat(lexer.CAT_WORD)
-        tokens.expect('=')
-        start = self.expression.parse(tokens)
-        tokens.expect(',')
-        stop = self.expression.parse(tokens)
-        if tokens.marker(','):
-            step = self.expression.parse(tokens)
+
+@rule
+def implied_do(tokens, actions):
+    args = []
+    tokens.expect('(')
+    args.append(expr(tokens, actions))
+    tokens.expect(',')
+    while True:
+        try:
+            do_ctrl_result = do_ctrl(tokens, actions)
+        except NoMatch:
+            args.append(expr(tokens, actions))
+            tokens.expect(',')
         else:
-            step = None
-        return self.action(dovar, start, stop, step)
-
-
-class ImpliedDoParser:
-    def __init__(self, expression, do_ctrl, action):
-        self.expression = expression
-        self.do_ctrl = do_ctrl
-        self.action = action
-
-    @rule
-    def parse(self, tokens):
-        args = []
-        tokens.expect('(')
-        args.append(self.expression.parse(tokens))
-        tokens.expect(',')
-        while True:
-            try:
-                do_ctrl = self.do_ctrl.parse(tokens)
-            except NoMatch:
-                args.append(self.expression.parse(tokens))
-                tokens.expect(',')
-            else:
-                tokens.expect(')')
-                return self.action(do_ctrl, *args)
+            tokens.expect(')')
+            return actions.impl_do(do_ctrl_result, *args)
 
 
 class InplaceArrayHandler:
-    def __init__(self, expression, impl_do, action):
-        self.expression = expression
-        self.impl_do = impl_do
-        self.action = action
-
-    def handle(self, tokens):
+    def handle(self, tokens, actions):
         next(tokens)
         seq = []
         if tokens.marker('/)'):
-            return self.action()
+            return actions.array()
         while True:
             try:
-                seq.append(self.impl_do.parse(tokens))
+                seq.append(implied_do(tokens, actions))
             except NoMatch:
-                seq.append(self.expression.parse(tokens))
+                seq.append(expr(tokens, actions))
             if tokens.marker('/)'):
-                return self.action(*seq)
+                return actions.array(*seq)
             tokens.expect(',')
 
 
 class ParensHandler:
-    def __init__(self, expression, action):
-        self.expression = expression
-        self.action = action
-
-    def handle(self, tokens):
+    def handle(self, tokens, actions):
         next(tokens)
-        expr = self.expression.parse(tokens)
+        inner_expr = expr(tokens, actions)
         tokens.expect(')')
-        return self.action(expr)
+        return actions.parens(inner_expr)
 
 
-class SliceParser:
-    def __init__(self, expression, action):
-        self.expression = expression
-        self.action = action
-
-    @rule
-    def parse(self, tokens):
-        try:
-            slice_begin = self.expression.parse(tokens)
-        except NoMatch:
-            slice_begin = None
-        tokens.expect(':')
-        try:
-            slice_end = self.expression.parse(tokens)
-        except NoMatch:
-            slice_end = None
-        if tokens.marker(":"):
-            slice_stride = self.expression.parse(tokens)
-        else:
-            slice_stride = None
-        return self.action(slice_begin, slice_end, slice_stride)
+@rule
+def slice_(tokens, actions):
+    try:
+        slice_begin = expr(tokens, actions)
+    except NoMatch:
+        slice_begin = None
+    tokens.expect(':')
+    try:
+        slice_end = expr(tokens, actions)
+    except NoMatch:
+        slice_end = None
+    if tokens.marker(":"):
+        slice_stride = expr(tokens, actions)
+    else:
+        slice_stride = None
+    return actions.slice(slice_begin, slice_end, slice_stride)
 
 
 class SubscriptHandler:
-    def __init__(self, expression, slice_, glue, action):
-        self.expression = expression
-        self.slice_ = slice_
+    def __init__(self, glue):
         self.glue = glue
-        self.action = action
 
-    def handle(self, tokens, lhs):
+    def handle(self, tokens, actions, lhs):
         next(tokens)
         seq = []
         if tokens.marker(')'):
-            return self.action(lhs)
+            return actions.call(lhs)
         while True:
             try:
-                seq.append(self.slice_.parse(tokens))
+                seq.append(slice_(tokens, actions))
             except NoMatch:
-                seq.append(self.expression.parse(tokens))
+                seq.append(expr(tokens, actions))
             if tokens.marker(')'):
-                return self.action(lhs, *seq)
+                return actions.call(lhs, *seq)
             tokens.expect(',')
 
 
-class ExpressionParser:
-    def __init__(self, actions):
-        do_ctrl_parser = DoCtrlParser(self, actions.do_ctrl)
-        impl_do_parser = ImpliedDoParser(self, do_ctrl_parser, actions.array)
-        slice_parser = SliceParser(self, actions.slice)
-
+class ExpressionHandler:
+    def __init__(self):
         prefix_ops = {
-            ".not.":  PrefixHandler(self, ".not.",  50, actions.not_),
-            "+":      PrefixHandler(self, "+",     110, actions.pos),
-            "-":      PrefixHandler(self, "-",     110, actions.neg),
-            "(":      ParensHandler(self, actions.parens),
-            "(/":     InplaceArrayHandler(self, impl_do_parser, actions.array)
+            ".not.":  PrefixHandler( 50, 'not_'),
+            "+":      PrefixHandler(110, 'pos'),
+            "-":      PrefixHandler(110, 'neg'),
+            "(":      ParensHandler(),
+            "(/":     InplaceArrayHandler()
             }
         infix_ops = {
-            ".eqv.":  InfixHandler(self, ".eqv.",  20, 'right', actions.eqv),
-            ".neqv.": InfixHandler(self, ".neqv.", 20, 'right', actions.neqv),
-            ".or.":   InfixHandler(self, ".or.",   30, 'right', actions.or_),
-            ".and.":  InfixHandler(self, ".and.",  40, 'right', actions.and_),
-            ".eq.":   InfixHandler(self, ".eq.",   60, 'left',  actions.eq),
-            ".ne.":   InfixHandler(self, ".neq.",  60, 'left',  actions.ne),
-            ".le.":   InfixHandler(self, ".le.",   60, 'left',  actions.le),
-            ".lt.":   InfixHandler(self, ".lt.",   60, 'left',  actions.lt),
-            ".ge.":   InfixHandler(self, ".ge.",   60, 'left',  actions.ge),
-            ".gt.":   InfixHandler(self, ".gt.",   60, 'left',  actions.gt),
-            "//":     InfixHandler(self, "//",     70, 'left',  actions.concat),
-            "+":      InfixHandler(self, "+",      80, 'left',  actions.plus),
-            "-":      InfixHandler(self, "-",      80, 'left',  actions.minus),
-            "*":      InfixHandler(self, "*",      90, 'left',  actions.mul),
-            "/":      InfixHandler(self, "/",      90, 'left',  actions.div),
-            "**":     InfixHandler(self, "**",    100, 'right', actions.pow),
-            "%":      InfixHandler(self, "%",     130, 'left',  actions.resolve),
-            "_":      InfixHandler(self, "_",     130, 'left',  actions.kind),
-            "(":      SubscriptHandler(self, slice_parser, 140, actions.call),
+            ".eqv.":  InfixHandler( 20, 'right', 'eqv'),
+            ".neqv.": InfixHandler( 20, 'right', 'neqv'),
+            ".or.":   InfixHandler( 30, 'right', 'or_'),
+            ".and.":  InfixHandler( 40, 'right', 'and_'),
+            ".eq.":   InfixHandler( 60, 'left',  'eq'),
+            ".ne.":   InfixHandler( 60, 'left',  'ne'),
+            ".le.":   InfixHandler( 60, 'left',  'le'),
+            ".lt.":   InfixHandler( 60, 'left',  'lt'),
+            ".ge.":   InfixHandler( 60, 'left',  'ge'),
+            ".gt.":   InfixHandler( 60, 'left',  'gt'),
+            "//":     InfixHandler( 70, 'left',  'concat'),
+            "+":      InfixHandler( 80, 'left',  'plus'),
+            "-":      InfixHandler( 80, 'left',  'minus'),
+            "*":      InfixHandler( 90, 'left',  'mul'),
+            "/":      InfixHandler( 90, 'left',  'div'),
+            "**":     InfixHandler(100, 'right', 'pow'),
+            "%":      InfixHandler(130, 'left',  'resolve'),
+            "_":      InfixHandler(130, 'left',  'kind'),
+            "(":      SubscriptHandler(140),
             }
 
         # Fortran 90 operator aliases
@@ -285,16 +248,16 @@ class ExpressionParser:
         infix_ops[">"]  = infix_ops[".gt."]
 
         prefix_cats = {
-            lexer.CAT_STRING:     LiteralHandler(actions.string),
-            lexer.CAT_FLOAT:      LiteralHandler(actions.float),
-            lexer.CAT_INT:        LiteralHandler(actions.int),
-            lexer.CAT_RADIX:      LiteralHandler(actions.radix),
-            lexer.CAT_BOOLEAN:    LiteralHandler(actions.bool),
-            lexer.CAT_CUSTOM_DOT: PrefixHandler(self, '.unary.', 120, actions.unary),
-            lexer.CAT_WORD:       LiteralHandler(actions.word),
+            lexer.CAT_STRING:     LiteralHandler('string'),
+            lexer.CAT_FLOAT:      LiteralHandler('float'),
+            lexer.CAT_INT:        LiteralHandler('int'),
+            lexer.CAT_RADIX:      LiteralHandler('radix'),
+            lexer.CAT_BOOLEAN:    LiteralHandler('bool'),
+            lexer.CAT_CUSTOM_DOT: PrefixHandler(120, 'unary'),
+            lexer.CAT_WORD:       LiteralHandler('word'),
             }
         infix_cats = {
-            lexer.CAT_CUSTOM_DOT: InfixHandler(self, '.binary.', 10, 'left', actions.binary)
+            lexer.CAT_CUSTOM_DOT: InfixHandler(10, 'left', 'binary')
             }
 
         self._infix_ops = infix_ops
@@ -302,7 +265,7 @@ class ExpressionParser:
         self._prefix_ops = prefix_ops
         self._prefix_cats = prefix_cats
 
-    def _get_prefix_handler(self, cat, token):
+    def get_prefix_handler(self, cat, token):
         try:
             if cat == lexer.CAT_OP:
                 return self._prefix_ops[token.lower()]
@@ -311,7 +274,7 @@ class ExpressionParser:
         except KeyError:
             raise NoMatch()
 
-    def _get_infix_handler(self, cat, token):
+    def get_infix_handler(self, cat, token):
         try:
             if cat == lexer.CAT_OP:
                 return self._infix_ops[token.lower()]
@@ -320,21 +283,24 @@ class ExpressionParser:
         except KeyError:
             raise NoMatch()
 
-    def parse(self, tokens, min_glue=0):
-        # Get prefix
-        handler = self._get_prefix_handler(*tokens.peek())
-        result = handler.handle(tokens)
+EXPR_HANDLER = ExpressionHandler()
 
-        # Cycle through appropriate infixes:
-        while True:
-            try:
-                handler = self._get_infix_handler(*tokens.peek())
-            except NoMatch:
+@rule
+def expr(tokens, actions, min_glue=0):
+    # Get prefix
+    handler = EXPR_HANDLER.get_prefix_handler(*tokens.peek())
+    result = handler.handle(tokens, actions)
+
+    # Cycle through appropriate infixes:
+    while True:
+        try:
+            handler = EXPR_HANDLER.get_infix_handler(*tokens.peek())
+        except NoMatch:
+            return result
+        else:
+            if handler.glue < min_glue:
                 return result
-            else:
-                if handler.glue < min_glue:
-                    return result
-                result = handler.handle(tokens, result)
+            result = handler.handle(tokens, actions, result)
 
 
 def _opt(x): return "null" if x is None else x
@@ -406,7 +372,7 @@ program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(.true., 1) + (/ 1,
     #"""
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-expression = ExpressionParser(DefaultActions())
-print (expression.parse(tokens))
+actions = DefaultActions()
+print (expr(tokens, actions))
 #parser = BlockParser(DefaultActions())
 #print (parser.block(tokens))
