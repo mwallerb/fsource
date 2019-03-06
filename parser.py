@@ -384,7 +384,7 @@ def char_len_suffix(tokens, actions):
         len_ = char_len(tokens, actions)
         tokens.expect(')')
     else:
-        len_ = int_()
+        len_ = int_(tokens, actions)
     return len_
 
 @rule
@@ -705,7 +705,7 @@ slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (oper_spec(tokens, actions))
 
-program = "integer :: x\n"
+program = "character, value, intent('in') :: x*4(:,:) = 3\n"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (entity_stmt(tokens, actions))
