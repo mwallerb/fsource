@@ -559,6 +559,12 @@ def entity_stmt(tokens, actions):
     return actions.entity_stmt(type_, attrs_, *entities)
 
 @rule
+def entity_ref(tokens, actions):
+    name = identifier(tokens, actions)
+    shape_ = optional(shape(tokens, actions))
+    return actions.entity_ref(name, shape_)
+
+@rule
 def oper_spec(tokens, actions):
     if tokens.marker('assignment'):
         tokens.expect('(')
@@ -590,6 +596,44 @@ def iface_name(tokens, actions):
     except NoMatch:
         return identifier(tokens, actions)
 
+@rule
+def rename(tokens, actions):
+    alias = identifier(tokens, actions)
+    tokens.expect('=>')
+    name = identifier(tokens, actions)
+    return actions.rename(alias, name)
+
+@rule
+def only(tokens, actions):
+    try:
+        return oper_spec(tokens, actions)
+    except NoMatch:
+        name = identifier(tokens, actions)
+        if tokens.marker('=>'):
+            target = identifier(tokens, actions)
+            return actions.rename(name, target)
+        else:
+            return name
+
+@rule
+def use_stmt(tokens, actions):
+    tokens.expect('use')
+    name = identifier(tokens, actions)
+    clauses = []
+    is_only = False
+    if tokens.marker(','):
+        if tokens.marker('only'):
+            is_only = True
+            tokens.expect(':')
+            clauses.append(only(tokens, actions))
+            while tokens.marker(','):
+                clauses.append(only(tokens, actions))
+        else:
+            clauses.append(rename(tokens, actions))
+            while tokens.marker(','):
+                clauses.append(only(tokens, actions))
+    tokens.expect_cat(lexer.CAT_EOS)
+    return actions.use_stmt(name, is_only, *clauses)
 
 
 def _opt(x): return "null" if x is None else x
@@ -670,9 +714,13 @@ class DefaultActions:
         return "(entity %s %s %s %s)" % (n, _opt(l), _opt(s), _opt(i))
     def entity_stmt(self, t, a, *e):
         return "(entity_stmt %s %s %s)" % (t, a, " ".join(e))
+    def entity_ref(self, n, s): return "(entity_ref %s %s)" % (n, _opt(s))
 
     def oper_spec(self, op): return "(oper_spec %s)" % op
 
+    # Module statements
+    def rename(self, a, b): return "(rename %s %s)" % (a, b)
+    def use_stmt(self, m, r, *a): return "(use %s %d %s)" % (m, r, " ".join(a))
 
 
 lexre = lexer.LEXER_REGEX
@@ -709,6 +757,11 @@ program = "character, value, intent('in') :: x*4(:,:) = 3\n"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (entity_stmt(tokens, actions))
+
+program = "use ifort_module, only: a => b, c, operator(=)\n"
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(list(slexer))
+print (use_stmt(tokens, actions))
 
 #print (expr(tokens, actions))
 #parser = BlockParser(DefaultActions())
