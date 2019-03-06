@@ -82,40 +82,6 @@ class LockedIn:
         if exc_type is NoMatch:
             raise ValueError("Parsing failure")
 
-
-class LiteralHandler:
-    def __init__(self, action):
-        self.action = action
-
-    def __call__(self, tokens, actions):
-        return getattr(actions, self.action)(next(tokens)[1])
-
-
-class PrefixHandler:
-    def __init__(self, subglue, action):
-        self.subglue = subglue
-        self.action = action
-
-    def __call__(self, tokens, actions):
-        next(tokens)
-        operand = expr(tokens, actions, self.subglue)
-        return getattr(actions, self.action)(operand)
-
-
-class InfixHandler:
-    def __init__(self, glue, assoc, action):
-        if assoc not in ('left', 'right'):
-            raise ValueError("Associativity must be either left or right")
-        self.glue = glue
-        self.subglue = glue + (0 if assoc == 'right' else 1)
-        self.action = action
-
-    def __call__(self, tokens, actions, lhs):
-        next(tokens)
-        rhs = expr(tokens, actions, self.subglue)
-        return getattr(actions, self.action)(lhs, rhs)
-
-
 @rule
 def do_ctrl(tokens, actions):
     dovar = tokens.expect_cat(lexer.CAT_WORD)
@@ -128,7 +94,6 @@ def do_ctrl(tokens, actions):
     else:
         step = None
     return actions.do_ctrl(dovar, start, stop, step)
-
 
 @rule
 def implied_do(tokens, actions):
@@ -146,29 +111,28 @@ def implied_do(tokens, actions):
             tokens.expect(')')
             return actions.impl_do(do_ctrl_result, *args)
 
-
-class InplaceArrayHandler:
-    def __call__(self, tokens, actions):
-        next(tokens)
-        seq = []
+@rule
+def inplace_array(tokens, actions):
+    seq = []
+    tokens.expect('(/')
+    if tokens.marker('/)'):
+        return actions.array()
+    while True:
+        try:
+            seq.append(implied_do(tokens, actions))
+        except NoMatch:
+            seq.append(expr(tokens, actions))
         if tokens.marker('/)'):
-            return actions.array()
-        while True:
-            try:
-                seq.append(implied_do(tokens, actions))
-            except NoMatch:
-                seq.append(expr(tokens, actions))
-            if tokens.marker('/)'):
-                return actions.array(*seq)
-            tokens.expect(',')
+            return actions.array(*seq)
+        tokens.expect(',')
 
 
-class ParensHandler:
-    def __call__(self, tokens, actions):
-        next(tokens)
-        inner_expr = expr(tokens, actions)
-        tokens.expect(')')
-        return actions.parens(inner_expr)
+@rule
+def parens_expr(tokens, actions):
+    tokens.expect('(')
+    inner_expr = expr(tokens, actions)
+    tokens.expect(')')
+    return actions.parens(inner_expr)
 
 
 @rule
@@ -189,7 +153,40 @@ def slice_(tokens, actions):
     return actions.slice(slice_begin, slice_end, slice_stride)
 
 
-class SubscriptHandler:
+class _LiteralHandler:
+    def __init__(self, action):
+        self.action = action
+
+    def __call__(self, tokens, actions):
+        return getattr(actions, self.action)(next(tokens)[1])
+
+
+class _PrefixHandler:
+    def __init__(self, subglue, action):
+        self.subglue = subglue
+        self.action = action
+
+    def __call__(self, tokens, actions):
+        next(tokens)
+        operand = expr(tokens, actions, self.subglue)
+        return getattr(actions, self.action)(operand)
+
+
+class _InfixHandler:
+    def __init__(self, glue, assoc, action):
+        if assoc not in ('left', 'right'):
+            raise ValueError("Associativity must be either left or right")
+        self.glue = glue
+        self.subglue = glue + (0 if assoc == 'right' else 1)
+        self.action = action
+
+    def __call__(self, tokens, actions, lhs):
+        next(tokens)
+        rhs = expr(tokens, actions, self.subglue)
+        return getattr(actions, self.action)(lhs, rhs)
+
+
+class _SubscriptHandler:
     def __init__(self, glue):
         self.glue = glue
 
@@ -211,32 +208,32 @@ class SubscriptHandler:
 class ExpressionHandler:
     def __init__(self):
         prefix_ops = {
-            ".not.":  PrefixHandler( 50, 'not_'),
-            "+":      PrefixHandler(110, 'pos'),
-            "-":      PrefixHandler(110, 'neg'),
-            "(":      ParensHandler(),
-            "(/":     InplaceArrayHandler()
+            ".not.":  _PrefixHandler( 50, 'not_'),
+            "+":      _PrefixHandler(110, 'pos'),
+            "-":      _PrefixHandler(110, 'neg'),
+            "(":      parens_expr,
+            "(/":     inplace_array,
             }
         infix_ops = {
-            ".eqv.":  InfixHandler( 20, 'right', 'eqv'),
-            ".neqv.": InfixHandler( 20, 'right', 'neqv'),
-            ".or.":   InfixHandler( 30, 'right', 'or_'),
-            ".and.":  InfixHandler( 40, 'right', 'and_'),
-            ".eq.":   InfixHandler( 60, 'left',  'eq'),
-            ".ne.":   InfixHandler( 60, 'left',  'ne'),
-            ".le.":   InfixHandler( 60, 'left',  'le'),
-            ".lt.":   InfixHandler( 60, 'left',  'lt'),
-            ".ge.":   InfixHandler( 60, 'left',  'ge'),
-            ".gt.":   InfixHandler( 60, 'left',  'gt'),
-            "//":     InfixHandler( 70, 'left',  'concat'),
-            "+":      InfixHandler( 80, 'left',  'plus'),
-            "-":      InfixHandler( 80, 'left',  'minus'),
-            "*":      InfixHandler( 90, 'left',  'mul'),
-            "/":      InfixHandler( 90, 'left',  'div'),
-            "**":     InfixHandler(100, 'right', 'pow'),
-            "%":      InfixHandler(130, 'left',  'resolve'),
-            "_":      InfixHandler(130, 'left',  'kind'),
-            "(":      SubscriptHandler(140),
+            ".eqv.":  _InfixHandler( 20, 'right', 'eqv'),
+            ".neqv.": _InfixHandler( 20, 'right', 'neqv'),
+            ".or.":   _InfixHandler( 30, 'right', 'or_'),
+            ".and.":  _InfixHandler( 40, 'right', 'and_'),
+            ".eq.":   _InfixHandler( 60, 'left',  'eq'),
+            ".ne.":   _InfixHandler( 60, 'left',  'ne'),
+            ".le.":   _InfixHandler( 60, 'left',  'le'),
+            ".lt.":   _InfixHandler( 60, 'left',  'lt'),
+            ".ge.":   _InfixHandler( 60, 'left',  'ge'),
+            ".gt.":   _InfixHandler( 60, 'left',  'gt'),
+            "//":     _InfixHandler( 70, 'left',  'concat'),
+            "+":      _InfixHandler( 80, 'left',  'plus'),
+            "-":      _InfixHandler( 80, 'left',  'minus'),
+            "*":      _InfixHandler( 90, 'left',  'mul'),
+            "/":      _InfixHandler( 90, 'left',  'div'),
+            "**":     _InfixHandler(100, 'right', 'pow'),
+            "%":      _InfixHandler(130, 'left',  'resolve'),
+            "_":      _InfixHandler(130, 'left',  'kind'),
+            "(":      _SubscriptHandler(140),
             }
 
         # Fortran 90 operator aliases
@@ -248,16 +245,16 @@ class ExpressionHandler:
         infix_ops[">"]  = infix_ops[".gt."]
 
         prefix_cats = {
-            lexer.CAT_STRING:     LiteralHandler('string'),
-            lexer.CAT_FLOAT:      LiteralHandler('float'),
-            lexer.CAT_INT:        LiteralHandler('int'),
-            lexer.CAT_RADIX:      LiteralHandler('radix'),
-            lexer.CAT_BOOLEAN:    LiteralHandler('bool'),
-            lexer.CAT_CUSTOM_DOT: PrefixHandler(120, 'unary'),
-            lexer.CAT_WORD:       LiteralHandler('word'),
+            lexer.CAT_STRING:     _LiteralHandler('string'),
+            lexer.CAT_FLOAT:      _LiteralHandler('float'),
+            lexer.CAT_INT:        _LiteralHandler('int'),
+            lexer.CAT_RADIX:      _LiteralHandler('radix'),
+            lexer.CAT_BOOLEAN:    _LiteralHandler('bool'),
+            lexer.CAT_CUSTOM_DOT: _PrefixHandler(120, 'unary'),
+            lexer.CAT_WORD:       _LiteralHandler('word'),
             }
         infix_cats = {
-            lexer.CAT_CUSTOM_DOT: InfixHandler(10, 'left', 'binary')
+            lexer.CAT_CUSTOM_DOT: _InfixHandler(10, 'left', 'binary')
             }
 
         self._infix_ops = infix_ops
