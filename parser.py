@@ -129,6 +129,10 @@ def identifier(tokens, actions):
     return actions.identifier(tokens.expect_cat(lexer.CAT_WORD))
 
 @rule
+def custom_op(tokens, actions):
+    return actions.custom_op(tokens.expect_cat(lexer.CAT_CUSTOM_DOT))
+
+@rule
 def do_ctrl(tokens, actions):
     dovar = identifier(tokens, actions)
     tokens.expect('=')
@@ -202,6 +206,13 @@ class _PrefixHandler:
         return getattr(actions, self.action)(operand)
 
 
+class _CustomUnary(_PrefixHandler):
+    def __call__(self, tokens, actions):
+        operator = custom_op(tokens, actions)
+        operand = expr(tokens, actions, self.subglue)
+        return getattr(actions, self.action)(operator, operand)
+
+
 class _InfixHandler:
     def __init__(self, glue, assoc, action):
         if assoc not in ('left', 'right'):
@@ -214,6 +225,13 @@ class _InfixHandler:
         next(tokens)
         rhs = expr(tokens, actions, self.subglue)
         return getattr(actions, self.action)(lhs, rhs)
+
+
+class _CustomBinary(_InfixHandler):
+    def __call__(self, tokens, actions, lhs):
+        operator = custom_op(tokens, actions)
+        rhs = expr(tokens, actions, self.subglue)
+        return getattr(actions, self.action)(operator, lhs, rhs)
 
 
 class _SubscriptHandler:
@@ -280,11 +298,11 @@ class ExpressionHandler:
             lexer.CAT_INT:        int_,
             lexer.CAT_RADIX:      radix,
             lexer.CAT_BOOLEAN:    bool_,
-            lexer.CAT_CUSTOM_DOT: _PrefixHandler(120, 'unary'),
+            lexer.CAT_CUSTOM_DOT: _CustomUnary(120, 'unary'),
             lexer.CAT_WORD:       identifier,
             }
         infix_cats = {
-            lexer.CAT_CUSTOM_DOT: _InfixHandler(10, 'left', 'binary')
+            lexer.CAT_CUSTOM_DOT: _CustomBinary(10, 'left', 'binary')
             }
 
         self._infix_ops = infix_ops
@@ -486,6 +504,32 @@ def attribute(tokens, actions):
     else:
         return handler(tokens, actions)
 
+@rule
+def oper_spec(tokens, actions):
+    if tokens.marker('assignment'):
+        tokens.expect('(')
+        tokens.expect('=')
+        tokens.expect(')')
+        return actions.oper_spec('=')
+    else:
+        tokens.expect('operator')
+        try:
+            # It is impossible for the lexer to disambiguate between an empty
+            # in-place array (//) and bracketed slashes, so we handle it here:
+            oper = tokens.expect_cat(lexer.CAT_BRACKETED_SLASH)
+        except NoMatch:
+            tokens.expect('(')
+            cat, token = next(tokens)
+            if cat == lexer.CAT_CUSTOM_DOT:
+                oper = actions.custom_op(token)
+            elif cat == lexer.CAT_OP:
+                oper = token
+            else:
+                raise NoMatch()
+            tokens.expect(')')
+
+        return actions.oper_spec(oper)
+
 
 def _opt(x): return "null" if x is None else x
 
@@ -524,8 +568,8 @@ class DefaultActions:
     def array(self, *args): return "(array %s)" % " ".join(args)
     def impl_do(self, c, *args): return "(implied_do %s %s)" % (c, " ".join(args))
     def do_ctrl(self, v, b, e, s): return "(do_ctrl %s %s %s %s)" % (v, b, e, _opt(s))
-    def unary(self, op): return "(unary %s)" % op
-    def binary(self, l, r): return "(binary %s %s)" % (l, r)
+    def unary(self, d, op): return "(unary %s %s)" % (d, op)
+    def binary(self, d, l, r): return "(binary %s %s %s)" % (d, l, r)
 
     # Literals actions
     def bool(self, tok): return tok.lower()[1:-1]
@@ -534,13 +578,14 @@ class DefaultActions:
     def string(self, tok): return "(string %s)" % repr(lexer.parse_string(tok))
     def radix(self, tok): return "(radix %s)" % tok
     def identifier(self, tok): return repr(tok)
+    def custom_op(self, tok): return "(custom_op %s)" % tok
 
     # Type declarations
     def kind_sel(self, k): return "(kind_sel %s)" % k
     def char_sel(self, l, k): return "(char_sel %s %s)" % (l, k)
     def type_spec(self, t, a): return "(type_spec %s %s)" % (t, a)
 
-    # Entity declaractions
+    # Attribute declaractions
     def dim_spec(self, l, u): return "(dim_spec %s %s)" % (_opt(l), _opt(u))
     def shape(self, *dims): return "(shape %s)" % " ".join(dims)
     def parameter(self): return "parameter"
@@ -556,13 +601,16 @@ class DefaultActions:
     def value(self): return "value"
     def volatile(self): return "volatile"
 
+    # Entity declarations
+    def oper_spec(self, op): return "(oper_spec %s)" % op
+
 
 lexre = lexer.LEXER_REGEX
 actions = DefaultActions()
 
 #program = """x(3:1, 4, 5::2) * &   ! something
 #&  (3 + 5)"""
-program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 + 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), 3 /)"
+program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 .mybinary. 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), .myunary. 3 /)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (expr(tokens, actions))
@@ -581,6 +629,11 @@ program = "dimension (1:, :3, 1:4, 1:*)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (attribute(tokens, actions))
+
+program = "operator(.mysomething.)"
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(list(slexer))
+print (oper_spec(tokens, actions))
 
 #print (expr(tokens, actions))
 #parser = BlockParser(DefaultActions())
