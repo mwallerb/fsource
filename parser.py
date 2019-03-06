@@ -370,28 +370,35 @@ def keyword_arg(tokens, choices=None):
     return sel
 
 @rule
-def char_selector(tokens, actions):
-    def len_select():
-        if tokens.marker('*'):
-            return '*'
-        if tokens.marker(':'):
-            return ':'
-        return expr(tokens, actions)
+def char_len(tokens, actions):
+    if tokens.marker('*'):
+        return '*'
+    if tokens.marker(':'):
+        return ':'
+    return expr(tokens, actions)
 
+@rule
+def char_len_suffix(tokens, actions):
+    tokens.expect('*')
+    if tokens.marker('('):
+        len_ = char_len(tokens, actions)
+        tokens.expect(')')
+    else:
+        len_ = int_()
+    return len_
+
+@rule
+def char_selector(tokens, actions):
     len_ = None
     kind = None
 
-    if tokens.marker('*'):
-        if tokens.marker('('):
-            len_ = len_select()
-            tokens.expect(')')
-        else:
-            len_ = int_()
-    else:
+    try:
+        len_ = char_len_suffix(tokens, actions)
+    except NoMatch:
         tokens.expect('(')
         sel = optional(keyword_arg, tokens, ('len', 'kind'))
         if sel == 'len' or sel is None:
-            len_ = len_select()
+            len_ = char_len()
         else:
             kind = expr(tokens, actions)
 
@@ -400,7 +407,7 @@ def char_selector(tokens, actions):
             if sel is None:
                 sel = 'kind' if kind is None else 'len'
             if sel == 'len':
-                len_ = len_select()
+                len_ = char_len(tokens, actions)
             else:
                 kind = expr(tokens, actions)
 
@@ -505,6 +512,53 @@ def attribute(tokens, actions):
         return handler(tokens, actions)
 
 @rule
+def double_colon(tokens):
+    # FIXME this is not great
+    tokens.expect(':')
+    tokens.expect(':')
+
+@rule
+def attr_list(tokens, actions):
+    attrs = []
+    while tokens.marker(','):
+        attrs.append(attribute(tokens, actions))
+    try:
+        double_colon(tokens)
+    except NoMatch:
+        if attrs: raise NoMatch()
+    return actions.attr_list(*attrs)
+
+@rule
+def initializer(tokens, actions):
+    if tokens.marker('='):
+        init = expr(tokens, actions)
+        return actions.init_assign(init)
+    else:
+        tokens.expect('=>')
+        init = expr(tokens, actions)
+        return actions.init_point(init)
+
+@rule
+def entity(tokens, actions):
+    name = identifier(tokens, actions)
+    len_ = optional(char_len_suffix, tokens, actions)
+    shape_ = optional(shape, tokens, actions)
+    init = optional(initializer, tokens, actions)
+    return actions.entity(name, len_, shape_, init)
+
+@rule
+def entity_stmt(tokens, actions):
+    type_ = type_spec(tokens, actions)
+    attrs_ = attr_list(tokens, actions)
+    print (tokens.peek())
+    entities = []
+    entities.append(entity(tokens, actions))
+    while tokens.marker(','):
+        entities.append(entity(tokens, actions))
+    tokens.expect_cat(lexer.CAT_EOS)
+    return actions.entity_stmt(type_, attrs_, *entities)
+
+@rule
 def oper_spec(tokens, actions):
     if tokens.marker('assignment'):
         tokens.expect('(')
@@ -527,8 +581,15 @@ def oper_spec(tokens, actions):
             else:
                 raise NoMatch()
             tokens.expect(')')
-
         return actions.oper_spec(oper)
+
+@rule
+def iface_name(tokens, actions):
+    try:
+        return oper_spec(tokens, actions)
+    except NoMatch:
+        return identifier(tokens, actions)
+
 
 
 def _opt(x): return "null" if x is None else x
@@ -600,9 +661,18 @@ class DefaultActions:
     def target(self): return "target"
     def value(self): return "value"
     def volatile(self): return "volatile"
+    def attr_list(self, *a): return "(attr_list %s)" % " ".join(a)
 
     # Entity declarations
+    def init_assign(self, x): return "(init_assign %s)" % x
+    def init_point(self, x): return "(init_point %s)" % x
+    def entity(self, n, l, s, i):
+        return "(entity %s %s %s %s)" % (n, _opt(l), _opt(s), _opt(i))
+    def entity_stmt(self, t, a, *e):
+        return "(entity_stmt %s %s %s)" % (t, a, " ".join(e))
+
     def oper_spec(self, op): return "(oper_spec %s)" % op
+
 
 
 lexre = lexer.LEXER_REGEX
@@ -634,6 +704,11 @@ program = "operator(.mysomething.)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (oper_spec(tokens, actions))
+
+program = "integer :: x\n"
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(list(slexer))
+print (entity_stmt(tokens, actions))
 
 #print (expr(tokens, actions))
 #parser = BlockParser(DefaultActions())
