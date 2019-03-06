@@ -83,8 +83,32 @@ class LockedIn:
             raise ValueError("Parsing failure")
 
 @rule
+def int_(tokens, actions):
+    return actions.int(tokens.expect_cat(lexer.CAT_INT))
+
+@rule
+def float_(tokens, actions):
+    return actions.float(tokens.expect_cat(lexer.CAT_FLOAT))
+
+@rule
+def string_(tokens, actions):
+    return actions.string(tokens.expect_cat(lexer.CAT_STRING))
+
+@rule
+def bool_(tokens, actions):
+    return actions.bool(tokens.expect_cat(lexer.CAT_BOOLEAN))
+
+@rule
+def radix(tokens, actions):
+    return actions.radix(tokens.expect_cat(lexer.CAT_RADIX))
+
+@rule
+def identifier(tokens, actions):
+    return actions.identifier(tokens.expect_cat(lexer.CAT_WORD))
+
+@rule
 def do_ctrl(tokens, actions):
-    dovar = tokens.expect_cat(lexer.CAT_WORD)
+    dovar = identifier(tokens, actions)
     tokens.expect('=')
     start = expr(tokens, actions)
     tokens.expect(',')
@@ -126,14 +150,12 @@ def inplace_array(tokens, actions):
             return actions.array(*seq)
         tokens.expect(',')
 
-
 @rule
 def parens_expr(tokens, actions):
     tokens.expect('(')
     inner_expr = expr(tokens, actions)
     tokens.expect(')')
     return actions.parens(inner_expr)
-
 
 @rule
 def slice_(tokens, actions):
@@ -151,14 +173,6 @@ def slice_(tokens, actions):
     else:
         slice_stride = None
     return actions.slice(slice_begin, slice_end, slice_stride)
-
-
-class _LiteralHandler:
-    def __init__(self, action):
-        self.action = action
-
-    def __call__(self, tokens, actions):
-        return getattr(actions, self.action)(next(tokens)[1])
 
 
 class _PrefixHandler:
@@ -245,13 +259,13 @@ class ExpressionHandler:
         infix_ops[">"]  = infix_ops[".gt."]
 
         prefix_cats = {
-            lexer.CAT_STRING:     _LiteralHandler('string'),
-            lexer.CAT_FLOAT:      _LiteralHandler('float'),
-            lexer.CAT_INT:        _LiteralHandler('int'),
-            lexer.CAT_RADIX:      _LiteralHandler('radix'),
-            lexer.CAT_BOOLEAN:    _LiteralHandler('bool'),
+            lexer.CAT_STRING:     string_,
+            lexer.CAT_FLOAT:      float_,
+            lexer.CAT_INT:        int_,
+            lexer.CAT_RADIX:      radix,
+            lexer.CAT_BOOLEAN:    bool_,
             lexer.CAT_CUSTOM_DOT: _PrefixHandler(120, 'unary'),
-            lexer.CAT_WORD:       _LiteralHandler('word'),
+            lexer.CAT_WORD:       identifier,
             }
         infix_cats = {
             lexer.CAT_CUSTOM_DOT: _InfixHandler(10, 'left', 'binary')
@@ -299,7 +313,6 @@ def expr(tokens, actions, min_glue=0):
                 return result
             result = handler(tokens, actions, result)
 
-
 def _opt(x): return "null" if x is None else x
 
 class DefaultActions:
@@ -346,7 +359,7 @@ class DefaultActions:
     def float(self, tok): return tok
     def string(self, tok): return "(string %s)" % repr(lexer.parse_string(tok))
     def radix(self, tok): return "(radix %s)" % tok
-    def word(self, tok): return repr(tok)
+    def identifier(self, tok): return repr(tok)
 
 
 lexre = lexer.LEXER_REGEX
