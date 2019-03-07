@@ -657,6 +657,7 @@ def not_end_of_block(tokens):
     while True:
         cat, token = tokens.peek()
         if cat == lexer.CAT_EOS:
+            next(tokens)
             continue
         optional(lineno, tokens, actions)
         return not tokens.next_is('end')
@@ -908,6 +909,9 @@ print (implicit_stmt(tokens, actions))
 
 program = """type, public :: my_type
     sequence
+    private
+
+    integer :: x(:) = (/ 3, 5, 9 /)
 end type
 """
 slexer = lexer.tokenize_regex(lexre, program)
