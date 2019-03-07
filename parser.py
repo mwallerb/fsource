@@ -57,6 +57,9 @@ class TokenStream:
         else:
             return False
 
+def expect_eos(tokens):
+    tokens.expect_cat(lexer.CAT_EOS)
+
 
 class Rule:
     def __init__(self, tokens):
@@ -352,12 +355,12 @@ def expr(tokens, actions, min_glue=0):
 @rule
 def kind_selector(tokens, actions):
     if tokens.marker('*'):
-        kind_ = int_()
+        kind_ = int_(tokens, actions)
     else:
         tokens.expect('(')
         if tokens.marker('kind'):
             tokens.expect('=')
-        kind_ = int_()
+        kind_ = int_(tokens, actions)
         tokens.expect(')')
     return actions.kind_sel(kind_)
 
@@ -555,7 +558,7 @@ def entity_stmt(tokens, actions):
     entities.append(entity(tokens, actions))
     while tokens.marker(','):
         entities.append(entity(tokens, actions))
-    tokens.expect_cat(lexer.CAT_EOS)
+    expect_eos(tokens)
     return actions.entity_stmt(type_, attrs_, *entities)
 
 @rule
@@ -632,8 +635,48 @@ def use_stmt(tokens, actions):
             clauses.append(rename(tokens, actions))
             while tokens.marker(','):
                 clauses.append(only(tokens, actions))
-    tokens.expect_cat(lexer.CAT_EOS)
+    expect_eos(tokens)
     return actions.use_stmt(name, is_only, *clauses)
+
+_letter_re = re.compile(r'^[a-zA-Z]$')
+
+@rule
+def letter_range(tokens, actions):
+    def letter():
+        cand = next(tokens)[1]
+        if _letter_re.match(cand):
+            return cand.lower()
+        else:
+            raise NoMatch()
+
+    start = letter()
+    end = start
+    if tokens.marker('-'):
+        end = letter()
+    return actions.letter_range(start, end)
+
+@rule
+def implicit_spec(tokens, actions):
+    type_ = type_spec(tokens, actions)
+    tokens.expect('(')
+    ranges = [letter_range(tokens, actions)]
+    while tokens.marker(','):
+        ranges.append(letter_range(tokens, actions))
+    tokens.expect(')')
+    return actions.implicit_spec(type_, *ranges)
+
+@rule
+def implicit_stmt(tokens, actions):
+    tokens.expect('implicit')
+    if tokens.marker('none'):
+        expect_eos(tokens)
+        return actions.implicit_none_stmt()
+    else:
+        specs = [implicit_spec(tokens, actions)]
+        while tokens.marker(','):
+            specs.append(implicit_spec(tokens, actions))
+        expect_eos(tokens)
+        return actions.implicit_stmt(*specs)
 
 
 def _opt(x): return "null" if x is None else x
@@ -718,9 +761,13 @@ class DefaultActions:
 
     def oper_spec(self, op): return "(oper_spec %s)" % op
 
-    # Module statements
+    # Top-level statements
     def rename(self, a, b): return "(rename %s %s)" % (a, b)
     def use_stmt(self, m, r, *a): return "(use %s %d %s)" % (m, r, " ".join(a))
+    def letter_range(self, s, e): return "(letter_range %s %s)" % (s, e)
+    def implicit_spec(self, t, *r): return "(implicit_spec %s, %s)" % (t, " ".join(r))
+    def implicit_stmt(self, *i): return "(implicit_stmt %s)" % (" ".join(i))
+    def implicit_none_stmt(self): return "(implicit_none_stmt)"
 
 
 lexre = lexer.LEXER_REGEX
@@ -763,6 +810,11 @@ slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (use_stmt(tokens, actions))
 
+program = "implicit integer (a-x), real*4 (c, f)\n"
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(list(slexer))
+print (implicit_stmt(tokens, actions))
+
 #print (expr(tokens, actions))
 #parser = BlockParser(DefaultActions())
 #print (parser.block(tokens))
@@ -781,3 +833,5 @@ print (use_stmt(tokens, actions))
     #endwhere
 
     #"""
+
+# fbridge.parser.rules
