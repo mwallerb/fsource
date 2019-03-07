@@ -50,13 +50,17 @@ class TokenStream:
             raise NoMatch()
         return next(self)[1]
 
-    def marker(self, expected):
+    def next_is(self, expected):
         cat, token = self.peek()
-        if token.lower() == expected:
+        return token.lower() == expected
+
+    def marker(self, expected):
+        if self.next_is(expected):
             next(self)
             return True
         else:
             return False
+
 
 def expect_eos(tokens):
     tokens.expect_cat(lexer.CAT_EOS)
@@ -136,7 +140,7 @@ def radix(tokens, actions):
 
 @rule
 def identifier(tokens, actions):
-    return actions.identifier(tokens.expect_cat(lexer.CAT_WORD))
+    return actions.identifier(tokens.expect_cat(lexer.CAT_WORD).lower())
 
 @rule
 def custom_op(tokens, actions):
@@ -491,7 +495,7 @@ def intent(tokens, actions):
     tokens.expect(')')
     return actions.intent(in_, out)
 
-_ATTRIBUTE_HANDLERS = {
+_ENTITY_ATTR_HANDLERS = {
     'parameter':   lambda t,a: a.parameter(),
     'public':      lambda t,a: a.visible(True),
     'private':     lambda t,a: a.visible(False),
@@ -509,10 +513,10 @@ _ATTRIBUTE_HANDLERS = {
     }
 
 @rule
-def attribute(tokens, actions):
+def attribute(tokens, actions, handler_dict):
     prefix = tokens.expect_cat(lexer.CAT_WORD)
     try:
-        handler = _ATTRIBUTE_HANDLERS[prefix]
+        handler = handler_dict[prefix]
     except KeyError:
         raise NoMatch()
     else:
@@ -525,15 +529,16 @@ def double_colon(tokens):
     tokens.expect(':')
 
 @rule
-def attr_list(tokens, actions):
+def entity_attrs(tokens, actions):
+    handler_dict = _ENTITY_ATTR_HANDLERS
     attrs = []
     while tokens.marker(','):
-        attrs.append(attribute(tokens, actions))
+        attrs.append(attribute(tokens, actions, handler_dict))
     try:
         double_colon(tokens)
     except NoMatch:
         if attrs: raise NoMatch()
-    return actions.attr_list(*attrs)
+    return actions.entity_attrs(*attrs)
 
 @rule
 def initializer(tokens, actions):
@@ -556,7 +561,7 @@ def entity(tokens, actions):
 @rule
 def entity_stmt(tokens, actions):
     type_ = type_spec(tokens, actions)
-    attrs_ = attr_list(tokens, actions)
+    attrs_ = entity_attrs(tokens, actions)
     print (tokens.peek())
     entities = sequence(entity, tokens, actions)
     expect_eos(tokens)
@@ -604,7 +609,83 @@ def iface_name(tokens, actions):
 def module_proc_stmt(tokens, actions):
     tokens.expect('module')
     tokens.expect('procedure')
+    procs = sequence(identifier, tokens, actions)
+    return actions.module_proc_stmt(*procs)
 
+_TYPE_ATTR_HANDLERS = {
+    'public':      lambda t,a: a.visible(True),
+    'private':     lambda t,a: a.visible(False),
+    }
+
+@rule
+def type_attrs(tokens, actions):
+    handler_dict = _TYPE_ATTR_HANDLERS
+    attrs = []
+    while tokens.marker(','):
+        attrs.append(attribute(tokens, actions, handler_dict))
+    try:
+        double_colon(tokens)
+    except NoMatch:
+        if attrs: raise NoMatch()
+    return actions.type_attrs(*attrs)
+
+@rule
+def lineno(tokens, actions):
+    no = tokens.expect_cat(lexer.CAT_LINENO)
+    # Make sure we actually label something.
+    cat = tokens.peek()[0]
+    if cat in (lexer.CAT_EOS, lexer.CAT_DOLLAR):
+        raise NoMatch()
+    return actions.lineno(no)
+
+@rule
+def type_tags(tokens, actions):
+    private_ = False
+    sequence_ = False
+    while True:
+        optional(lineno, tokens, actions)
+        if tokens.marker('private'):
+            private_ = True
+        elif tokens.marker('sequence'):
+            sequence_ = True
+        else:
+            break
+        expect_eos(tokens)
+    return actions.type_tags(private_, sequence_)
+
+def not_end_of_block(tokens):
+    while True:
+        cat, token = tokens.peek()
+        if cat == lexer.CAT_EOS:
+            continue
+        optional(lineno, tokens, actions)
+        return not tokens.next_is('end')
+
+@rule
+def maybe_block_name(tokens, name):
+    cat, token = tokens.peek()
+    if cat == lexer.CAT_WORD:
+        if token.lower() != name:
+            raise NoMatch()
+        next(tokens)
+
+@rule
+def type_decl(tokens, actions):
+    tokens.expect('type')
+    attrs = type_attrs(tokens, actions)
+    name_raw = tokens.expect_cat(lexer.CAT_WORD).lower()
+    expect_eos(tokens)
+    tags = type_tags(tokens, actions)
+
+    decls = []
+    while not_end_of_block(tokens):
+        decls.append(entity_stmt(tokens, actions))
+
+    tokens.expect('end')
+    if tokens.marker('type'):
+        maybe_block_name(tokens, name_raw)
+    expect_eos(tokens)
+    return actions.type_decl(actions.identifier(name_raw), attrs, tags, *decls)
 
 @rule
 def rename(tokens, actions):
@@ -678,6 +759,7 @@ def implicit_stmt(tokens, actions):
         return actions.implicit_stmt(*specs)
 
 
+
 def _opt(x): return "null" if x is None else x
 
 class DefaultActions:
@@ -727,6 +809,9 @@ class DefaultActions:
     def identifier(self, tok): return repr(tok)
     def custom_op(self, tok): return "(custom_op %s)" % tok
 
+    # Line number
+    def lineno(self, tok): return "(lineno %s)" % tok
+
     # Type declarations
     def kind_sel(self, k): return "(kind_sel %s)" % k
     def char_sel(self, l, k): return "(char_sel %s %s)" % (l, k)
@@ -747,7 +832,13 @@ class DefaultActions:
     def target(self): return "target"
     def value(self): return "value"
     def volatile(self): return "volatile"
-    def attr_list(self, *a): return "(attr_list %s)" % " ".join(a)
+    def entity_attrs(self, *a): return "(entity_attrs %s)" % " ".join(a)
+
+    # Type dec
+    def type_attrs(self, *a): return "(type_attrs %s)" % " ".join(a)
+    def type_tags(self, p, s): return "(type_tags %d %d)" % (p, s)
+    def type_decl(self, n, a, t, *e):
+        return "(type_decl %s %s %s %s)" % (n, a, t, " ".join(e))
 
     # Entity declarations
     def init_assign(self, x): return "(init_assign %s)" % x
@@ -759,12 +850,13 @@ class DefaultActions:
     def entity_ref(self, n, s): return "(entity_ref %s %s)" % (n, _opt(s))
 
     def oper_spec(self, op): return "(oper_spec %s)" % op
+    def module_proc_stmt(self, *s): return "(module_proc %s)" % " ".join(s)
 
     # Top-level statements
     def rename(self, a, b): return "(rename %s %s)" % (a, b)
     def use_stmt(self, m, r, *a): return "(use %s %d %s)" % (m, r, " ".join(a))
     def letter_range(self, s, e): return "(letter_range %s %s)" % (s, e)
-    def implicit_spec(self, t, *r): return "(implicit_spec %s, %s)" % (t, " ".join(r))
+    def implicit_spec(self, t, *r): return "(implicit_spec %s %s)" % (t, " ".join(r))
     def implicit_stmt(self, *i): return "(implicit_stmt %s)" % (" ".join(i))
     def implicit_none_stmt(self): return "(implicit_none_stmt)"
 
@@ -792,7 +884,7 @@ print (shape(tokens, actions))
 program = "dimension (1:, :3, 1:4, 1:*)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (attribute(tokens, actions))
+print (attribute(tokens, actions, _ENTITY_ATTR_HANDLERS))
 
 program = "operator(.mysomething.)"
 slexer = lexer.tokenize_regex(lexre, program)
@@ -813,6 +905,14 @@ program = "implicit integer (a-x), real*4 (c, f)\n"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (implicit_stmt(tokens, actions))
+
+program = """type, public :: my_type
+    sequence
+end type
+"""
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(list(slexer))
+print (type_decl(tokens, actions))
 
 #print (expr(tokens, actions))
 #parser = BlockParser(DefaultActions())
