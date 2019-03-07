@@ -3,6 +3,7 @@ from __future__ import print_function
 import lexer
 import re
 
+
 class NoMatch(Exception):
     pass
 
@@ -60,6 +61,12 @@ class TokenStream:
 def expect_eos(tokens):
     tokens.expect_cat(lexer.CAT_EOS)
 
+def sequence(rule, tokens, actions):
+    vals = []
+    vals.append(rule(tokens, actions))
+    while tokens.marker(','):
+        vals.append(rule(tokens, actions))
+    return vals
 
 class Rule:
     def __init__(self, tokens):
@@ -462,11 +469,8 @@ def dim_spec(tokens, actions):
 
 @rule
 def shape(tokens, actions):
-    dims = []
     tokens.expect('(')
-    dims.append(dim_spec(tokens, actions))
-    while tokens.marker(','):
-        dims.append(dim_spec(tokens, actions))
+    dims = sequence(dim_spec, tokens, actions)
     tokens.expect(')')
     return actions.shape(*dims)
 
@@ -554,10 +558,7 @@ def entity_stmt(tokens, actions):
     type_ = type_spec(tokens, actions)
     attrs_ = attr_list(tokens, actions)
     print (tokens.peek())
-    entities = []
-    entities.append(entity(tokens, actions))
-    while tokens.marker(','):
-        entities.append(entity(tokens, actions))
+    entities = sequence(entity, tokens, actions)
     expect_eos(tokens)
     return actions.entity_stmt(type_, attrs_, *entities)
 
@@ -600,6 +601,12 @@ def iface_name(tokens, actions):
         return identifier(tokens, actions)
 
 @rule
+def module_proc_stmt(tokens, actions):
+    tokens.expect('module')
+    tokens.expect('procedure')
+
+
+@rule
 def rename(tokens, actions):
     alias = identifier(tokens, actions)
     tokens.expect('=>')
@@ -628,13 +635,9 @@ def use_stmt(tokens, actions):
         if tokens.marker('only'):
             is_only = True
             tokens.expect(':')
-            clauses.append(only(tokens, actions))
-            while tokens.marker(','):
-                clauses.append(only(tokens, actions))
+            clauses = sequence(only, tokens, actions)
         else:
-            clauses.append(rename(tokens, actions))
-            while tokens.marker(','):
-                clauses.append(only(tokens, actions))
+            clauses = sequence(rename, tokens, actions)
     expect_eos(tokens)
     return actions.use_stmt(name, is_only, *clauses)
 
@@ -659,9 +662,7 @@ def letter_range(tokens, actions):
 def implicit_spec(tokens, actions):
     type_ = type_spec(tokens, actions)
     tokens.expect('(')
-    ranges = [letter_range(tokens, actions)]
-    while tokens.marker(','):
-        ranges.append(letter_range(tokens, actions))
+    ranges = sequence(letter_range, tokens, actions)
     tokens.expect(')')
     return actions.implicit_spec(type_, *ranges)
 
@@ -672,9 +673,7 @@ def implicit_stmt(tokens, actions):
         expect_eos(tokens)
         return actions.implicit_none_stmt()
     else:
-        specs = [implicit_spec(tokens, actions)]
-        while tokens.marker(','):
-            specs.append(implicit_spec(tokens, actions))
+        specs = sequence(implicit_spec, tokens, actions)
         expect_eos(tokens)
         return actions.implicit_stmt(*specs)
 
