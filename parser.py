@@ -3,10 +3,10 @@ from __future__ import print_function
 import lexer
 import re
 
-
 class NoMatch(Exception):
     pass
 
+# CONTEXT
 
 class TokenStream:
     def __init__(self, tokens, pos=0):
@@ -72,6 +72,29 @@ def sequence(rule, tokens, actions):
         vals.append(rule(tokens, actions))
     return vals
 
+def direct_sequence(tokens, actions, rule):
+    items = []
+    try:
+        while True:
+            items.append(rule(tokens, actions))
+    except NoMatch:
+        return items
+
+def choice(tokens, actions, *rules):
+    for current in rules:
+        try:
+            return current(tokens, actions)
+        except NoMatch:
+            pass
+    raise NoMatch()
+
+def optional(rule, *args):
+    try:
+        return rule(*args)
+    except NoMatch:
+        return None
+
+
 class Rule:
     def __init__(self, tokens):
         self.tokens = tokens
@@ -100,13 +123,6 @@ def rule(fn):
             tokens.commit()
             return value
     return rule_setup
-
-
-def optional(rule, *args):
-    try:
-        return rule(*args)
-    except NoMatch:
-        return None
 
 class LockedIn:
     def __init__(self, tokens):
@@ -573,45 +589,6 @@ def entity_ref(tokens, actions):
     shape_ = optional(shape(tokens, actions))
     return actions.entity_ref(name, shape_)
 
-@rule
-def oper_spec(tokens, actions):
-    if tokens.marker('assignment'):
-        tokens.expect('(')
-        tokens.expect('=')
-        tokens.expect(')')
-        return actions.oper_spec('=')
-    else:
-        tokens.expect('operator')
-        try:
-            # It is impossible for the lexer to disambiguate between an empty
-            # in-place array (//) and bracketed slashes, so we handle it here:
-            oper = tokens.expect_cat(lexer.CAT_BRACKETED_SLASH)
-        except NoMatch:
-            tokens.expect('(')
-            cat, token = next(tokens)
-            if cat == lexer.CAT_CUSTOM_DOT:
-                oper = actions.custom_op(token)
-            elif cat == lexer.CAT_OP:
-                oper = token
-            else:
-                raise NoMatch()
-            tokens.expect(')')
-        return actions.oper_spec(oper)
-
-@rule
-def iface_name(tokens, actions):
-    try:
-        return oper_spec(tokens, actions)
-    except NoMatch:
-        return identifier(tokens, actions)
-
-@rule
-def module_proc_stmt(tokens, actions):
-    tokens.expect('module')
-    tokens.expect('procedure')
-    procs = sequence(identifier, tokens, actions)
-    return actions.module_proc_stmt(*procs)
-
 _TYPE_ATTR_HANDLERS = {
     'public':      lambda t,a: a.visible(True),
     'private':     lambda t,a: a.visible(False),
@@ -696,6 +673,31 @@ def rename(tokens, actions):
     return actions.rename(alias, name)
 
 @rule
+def oper_spec(tokens, actions):
+    if tokens.marker('assignment'):
+        tokens.expect('(')
+        tokens.expect('=')
+        tokens.expect(')')
+        return actions.oper_spec('=')
+    else:
+        tokens.expect('operator')
+        try:
+            # It is impossible for the lexer to disambiguate between an empty
+            # in-place array (//) and bracketed slashes, so we handle it here:
+            oper = tokens.expect_cat(lexer.CAT_BRACKETED_SLASH)
+        except NoMatch:
+            tokens.expect('(')
+            cat, token = next(tokens)
+            if cat == lexer.CAT_CUSTOM_DOT:
+                oper = actions.custom_op(token)
+            elif cat == lexer.CAT_OP:
+                oper = token
+            else:
+                raise NoMatch()
+            tokens.expect(')')
+        return actions.oper_spec(oper)
+
+@rule
 def only(tokens, actions):
     try:
         return oper_spec(tokens, actions)
@@ -759,6 +761,99 @@ def implicit_stmt(tokens, actions):
         expect_eos(tokens)
         return actions.implicit_stmt(*specs)
 
+@rule
+def dummy_arg(tokens, actions):
+    if tokens.marker('*'):
+        return '*'
+    else:
+        return identifier(tokens, actions)
+
+_SUB_PREFIX_HANDLERS = {
+    'impure':    lambda a,t: a.pure(False),
+    'pure':      lambda a,t: a.pure(True),
+    'recursive': lambda a,t: a.recursive(),
+    }
+
+@rule
+def sub_prefix(tokens, actions):
+    cat, token = next(tokens)
+    try:
+        handler = _SUB_PREFIX_HANDLERS[token.lower()]
+    except KeyError:
+        raise NoMatch()
+    else:
+        return handler(tokens, actions)
+
+@rule
+def bind_c(tokens, actions):
+    tokens.expect('bind')
+    tokens.expect('(')
+    tokens.expect('c')
+    if tokens.marker(','):
+        tokens.expect('name')
+        tokens.expect('=')
+        name = expr()
+    else:
+        name = None
+    tokens.expect(')')
+    return actions.bind_c(name)
+
+@rule
+def subroutine_decl(tokens, actions):
+    prefixes = actions.sub_prefixes(*direct_sequence(tokens, actions, sub_prefix))
+    tokens.expect('subroutine')
+    name = identifier(tokens, actions)
+    tokens.expect('(')
+    args = actions.sub_args(sequence(dummy_arg, tokens, actions))
+    tokens.expect(')')
+    bind_ = optional(bind_c(tokens, actions))
+    expect_eos(tokens)
+
+    # DECLARATION_PART
+    # EXECUTION_PART
+    # CONTAINS_PART
+    return actions.subroutine_decl(name, prefixes, args, bind_)
+
+@rule
+def function_decl(tokens, actions):
+    raise NotImplementedError()
+
+@rule
+def subprogram_decl(tokens, actions):
+    try:
+        return subroutine_decl(tokens, actions)
+    except NoMatch:
+        return function_decl(tokens, actions)
+
+@rule
+def iface_name(tokens, actions):
+    try:
+        return oper_spec(tokens, actions)
+    except NoMatch:
+        return identifier(tokens, actions)
+
+@rule
+def module_proc_stmt(tokens, actions):
+    tokens.expect('module')
+    tokens.expect('procedure')
+    procs = sequence(identifier, tokens, actions)
+    return actions.module_proc_stmt(*procs)
+
+@rule
+def interface_decl(tokens, actions):
+    tokens.expect('interface')
+    name = iface_name(tokens, actions)
+    expect_eos(tokens)
+    decls = []
+    while not_end_of_block(tokens):
+        try:
+            decls.append(module_proc_stmt(tokens, actions))
+        except NoMatch:
+            decls.append(subprogram_decl(tokens, actions))
+    tokens.expect('end')
+    if tokens.marker('interface'):
+        optional(iface_name(tokens, actions))
+    return actions.interface_decl(name, )
 
 
 def _opt(x): return "null" if x is None else x
@@ -818,7 +913,7 @@ class DefaultActions:
     def char_sel(self, l, k): return "(char_sel %s %s)" % (l, k)
     def type_spec(self, t, a): return "(type_spec %s %s)" % (t, a)
 
-    # Attribute declaractions
+    # Attributes
     def dim_spec(self, l, u): return "(dim_spec %s %s)" % (_opt(l), _opt(u))
     def shape(self, *dims): return "(shape %s)" % " ".join(dims)
     def parameter(self): return "parameter"
@@ -833,7 +928,17 @@ class DefaultActions:
     def target(self): return "target"
     def value(self): return "value"
     def volatile(self): return "volatile"
+    def pure(self, v): return "(pure %d)" % v
+    def recursive(self): return "recursive"
+
     def entity_attrs(self, *a): return "(entity_attrs %s)" % " ".join(a)
+    def sub_prefixes(self, *a): return "(sub_prefixes %s)" % " ".join(a)
+    def func_prefixes(self, *a): return "(func_prefixes %s)" % " ".join(a)
+
+    # bind c
+    def bind_c(self, name): return "(bind_c %s)" % _opt(name)
+    def sub_args(self, *a): return "(sub_args %s)" % " ".join(a)
+    def func_args(self, *a): return "(func_args %s)" % " ".join(a)
 
     # Type dec
     def type_attrs(self, *a): return "(type_attrs %s)" % " ".join(a)
@@ -912,6 +1017,7 @@ program = """type, public :: my_type
     private
 
     integer :: x(:) = (/ 3, 5, 9 /)
+
 end type
 """
 slexer = lexer.tokenize_regex(lexre, program)
