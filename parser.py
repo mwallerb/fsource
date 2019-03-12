@@ -100,16 +100,33 @@ def optional(rule, *args):
 
     return optional_rule
 
-def choice(*rules):
-    def choice_rule(tokens):
-        for current in rules:
-            try:
-                return current(tokens)
-            except NoMatch:
-                pass
-        raise NoMatch()
+def tag(expected, production_tag):
+    @rule
+    def tag_rule(tokens):
+        tokens.expect(expected)
+        return production_tag
 
-    return choice_rule
+    return tag_rule
+
+def prefix(expected, my_rule, production_tag):
+    @rule
+    def prefix_rule(tokens):
+        tokens.expect(expected)
+        value = my_rule(tokens)
+        return (production_tag, value)
+
+    return prefix_rule
+
+def prefixes(handlers):
+    def prefixes_rule(tokens):
+        cat, token = tokens.peek()
+        try:
+            handler = handlers[token.lower()]
+        except KeyError:
+            raise NoMatch()
+        return handler(tokens)
+
+    return prefixes_rule
 
 class Rule:
     def __init__(self, tokens):
@@ -467,33 +484,28 @@ def char_selector(tokens):
     return tokens.produce('char_sel', len_, kind)
 
 def _typename_handler(tokens):
+    tokens.expect('type')
     tokens.expect('(')
     typename = identifier(tokens)
     tokens.expect(')')
-    return typename
+    return ('type', typename)
+
+def double_precision(tokens):
+    tokens.expect('double')
+    tokens.expect('precision')
+    return ('double_precision',)
 
 _TYPE_SPEC_HANDLERS = {
-    'integer':   kind_selector,
-    'real':      kind_selector,
-    'double':    lambda t: t.expect('precision'),
-    'complex':   kind_selector,
-    'character': char_selector,
-    'logical':   kind_selector,
+    'integer':   prefix('integer', optional(kind_selector), 'integer_type'),
+    'real':      prefix('real', optional(kind_selector), 'real_type'),
+    'double':    double_precision,
+    'complex':   prefix('complex', optional(kind_selector), 'complex_type'),
+    'character': prefix('character', optional(char_selector), 'character_type'),
+    'logical':   prefix('logical', optional(kind_selector), 'logical_type'),
     'type':      _typename_handler
     }
 
-@rule
-def type_spec(tokens):
-    prefix = tokens.expect_cat(lexer.CAT_WORD)
-    try:
-        contd = _TYPE_SPEC_HANDLERS[prefix]
-    except KeyError:
-        raise NoMatch()
-    try:
-        arg = contd(tokens)
-    except NoMatch:
-        arg = None
-    return tokens.produce('type_spec', prefix, arg)
+type_spec = prefixes(_TYPE_SPEC_HANDLERS)
 
 @rule
 def dim_spec(tokens):
