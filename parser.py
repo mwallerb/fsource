@@ -70,34 +70,46 @@ class TokenStream:
 def expect_eos(tokens):
     tokens.expect_cat(lexer.CAT_EOS)
 
-def sequence(rule, tokens):
-    vals = []
-    vals.append(rule(tokens))
-    while tokens.marker(','):
+def comma_sequence(rule):
+    def comma_sequence_rule(tokens):
+        vals = []
         vals.append(rule(tokens))
-    return vals
+        while tokens.marker(','):
+            vals.append(rule(tokens))
+        return vals
 
-def direct_sequence(tokens, rule):
-    items = []
-    try:
-        while True:
-            items.append(rule(tokens))
-    except NoMatch:
-        return items
+    return comma_sequence_rule
 
-def choice(tokens, *rules):
-    for current in rules:
+def ws_sequence(rule):
+    def ws_sequence_rule(tokens):
+        items = []
         try:
-            return current(tokens)
+            while True:
+                items.append(rule(tokens))
         except NoMatch:
-            pass
-    raise NoMatch()
+            return items
+
+    return ws_sequence_rule
 
 def optional(rule, *args):
-    try:
-        return rule(*args)
-    except NoMatch:
-        return None
+    def optional_rule(tokens):
+        try:
+            return rule(tokens, *args)
+        except NoMatch:
+            return None
+
+    return optional_rule
+
+def choice(*rules):
+    def choice_rule(tokens):
+        for current in rules:
+            try:
+                return current(tokens)
+            except NoMatch:
+                pass
+        raise NoMatch()
+
+    return choice_rule
 
 
 class Rule:
@@ -218,11 +230,12 @@ def parens_expr(tokens):
     tokens.expect(')')
     return tokens.produce('parens', inner_expr)
 
+
 @rule
 def slice_(tokens):
-    slice_begin = optional(expr, tokens)
+    slice_begin = _optional_expr(tokens)
     tokens.expect(':')
-    slice_end = optional(expr, tokens)
+    slice_end = _optional_expr(tokens)
     if tokens.marker(":"):
         slice_stride = expr(tokens)
     else:
@@ -382,6 +395,8 @@ def expr(tokens, min_glue=0):
                 return result
             result = handler(tokens, result)
 
+_optional_expr = optional(expr)
+
 # -----------
 
 @rule
@@ -422,6 +437,8 @@ def char_len_suffix(tokens):
         len_ = int_(tokens)
     return len_
 
+_optional_len_kind_kwd = optional(keyword_arg, ('len', 'kind'))
+
 @rule
 def char_selector(tokens):
     len_ = None
@@ -431,14 +448,14 @@ def char_selector(tokens):
         len_ = char_len_suffix(tokens)
     except NoMatch:
         tokens.expect('(')
-        sel = optional(keyword_arg, tokens, ('len', 'kind'))
+        sel = _optional_len_kind_kwd(tokens)
         if sel == 'len' or sel is None:
             len_ = char_len()
         else:
             kind = expr(tokens)
 
         if tokens.marker(','):
-            sel = optional(keyword_arg, tokens, ('len', 'kind'))
+            sel = _optional_len_kind_kwd(tokens)
             if sel is None:
                 sel = 'kind' if kind is None else 'len'
             if sel == 'len':
@@ -482,20 +499,22 @@ def type_spec(tokens):
 @rule
 def dim_spec(tokens):
     try:
-        lower = optional(expr, tokens)
+        lower = _optional_expr(tokens)
         tokens.expect(':')
     except NoMatch:
         pass
     if tokens.marker('*'):
         upper = '*'
     else:
-        upper = optional(expr, tokens)
+        upper = _optional_expr(tokens)
     return tokens.produce('dim_spec', lower, upper)
+
+dimspec_sequence = comma_sequence(dim_spec)
 
 @rule
 def shape(tokens):
     tokens.expect('(')
-    dims = sequence(dim_spec, tokens)
+    dims = dimspec_sequence(tokens)
     tokens.expect(')')
     return tokens.produce('shape', *dims)
 
@@ -571,27 +590,35 @@ def initializer(tokens):
         init = expr(tokens)
         return tokens.produce('init_point', init)
 
+optional_char_len_suffix = optional(char_len_suffix)
+
+optional_shape = optional(shape)
+
+optional_initializer = optional(initializer)
+
 @rule
 def entity(tokens):
     name = identifier(tokens)
-    len_ = optional(char_len_suffix, tokens)
-    shape_ = optional(shape, tokens)
-    init = optional(initializer, tokens)
+    len_ = optional_char_len_suffix(tokens)
+    shape_ = optional_shape(tokens)
+    init = optional_initializer(tokens)
     return tokens.produce('entity', name, len_, shape_, init)
+
+entity_sequence = comma_sequence(entity)
 
 @rule
 def entity_stmt(tokens):
     type_ = type_spec(tokens)
     attrs_ = entity_attrs(tokens)
     print (tokens.peek())
-    entities = sequence(entity, tokens)
+    entities = entity_sequence(tokens)
     expect_eos(tokens)
     return tokens.produce('entity_stmt', type_, attrs_, *entities)
 
 @rule
 def entity_ref(tokens):
     name = identifier(tokens)
-    shape_ = optional(shape(tokens))
+    shape_ = optional_shape(tokens)
     return tokens.produce('entity_ref', name, shape_)
 
 _TYPE_ATTR_HANDLERS = {
@@ -620,12 +647,14 @@ def lineno(tokens):
         raise NoMatch()
     return tokens.produce('lineno', no)
 
+optional_lineno = optional(lineno)
+
 @rule
 def type_tags(tokens):
     private_ = False
     sequence_ = False
     while True:
-        optional(lineno, tokens)
+        optional_lineno(tokens)
         if tokens.marker('private'):
             private_ = True
         elif tokens.marker('sequence'):
@@ -641,7 +670,7 @@ def not_end_of_block(tokens):
         if cat == lexer.CAT_EOS:
             next(tokens)
             continue
-        optional(lineno, tokens)
+        optional_lineno(tokens)
         return not tokens.next_is('end')
 
 @rule
@@ -676,6 +705,8 @@ def rename(tokens):
     tokens.expect('=>')
     name = identifier(tokens)
     return tokens.produce('rename', alias, name)
+
+rename_sequence = comma_sequence(rename)
 
 @rule
 def oper_spec(tokens):
@@ -714,6 +745,8 @@ def only(tokens):
         else:
             return name
 
+only_sequence = comma_sequence(only)
+
 @rule
 def use_stmt(tokens):
     tokens.expect('use')
@@ -724,9 +757,9 @@ def use_stmt(tokens):
         if tokens.marker('only'):
             is_only = True
             tokens.expect(':')
-            clauses = sequence(only, tokens)
+            clauses = only_sequence(tokens)
         else:
-            clauses = sequence(rename, tokens)
+            clauses = rename_sequence(tokens)
     expect_eos(tokens)
     return tokens.produce('use_stmt', name, is_only, *clauses)
 
@@ -747,13 +780,17 @@ def letter_range(tokens):
         end = letter()
     return tokens.produce('letter_range', start, end)
 
+letter_range_sequence = comma_sequence(letter_range)
+
 @rule
 def implicit_spec(tokens):
     type_ = type_spec(tokens)
     tokens.expect('(')
-    ranges = sequence(letter_range, tokens)
+    ranges = letter_range_sequence(tokens)
     tokens.expect(')')
     return tokens.produce('implicit_spec', type_, *ranges)
+
+implicit_spec_sequence = comma_sequence(implicit_spec)
 
 @rule
 def implicit_stmt(tokens):
@@ -762,7 +799,7 @@ def implicit_stmt(tokens):
         expect_eos(tokens)
         return tokens.produce('implicit_none_stmt', )
     else:
-        specs = sequence(implicit_spec, tokens)
+        specs = implicit_spec_sequence(tokens)
         expect_eos(tokens)
         return tokens.produce('implicit_stmt', *specs)
 
@@ -772,6 +809,8 @@ def dummy_arg(tokens):
         return '*'
     else:
         return identifier(tokens)
+
+dummy_arg_sequence = comma_sequence(dummy_arg)
 
 _SUB_PREFIX_HANDLERS = {
     'impure':    lambda tokens: tokens.produce('pure', False),
@@ -789,6 +828,8 @@ def sub_prefix(tokens):
     else:
         return handler(tokens)
 
+sub_prefix_sequence = ws_sequence(sub_prefix)
+
 @rule
 def bind_c(tokens):
     tokens.expect('bind')
@@ -803,15 +844,17 @@ def bind_c(tokens):
     tokens.expect(')')
     return tokens.produce('bind_c', name)
 
+optional_bind_c = optional(bind_c)
+
 @rule
 def subroutine_decl(tokens):
-    prefixes = tokens.produce('sub_prefixes', *direct_sequence(tokens, sub_prefix))
+    prefixes = tokens.produce('sub_prefixes', sub_prefix_sequence(tokens))
     tokens.expect('subroutine')
     name = identifier(tokens)
     tokens.expect('(')
-    args = tokens.produce('sub_args', sequence(dummy_arg, tokens))
+    args = tokens.produce('sub_args', dummy_arg_sequence(tokens))
     tokens.expect(')')
-    bind_ = optional(bind_c(tokens))
+    bind_ = optional_bind_c(tokens)
     expect_eos(tokens)
 
     # DECLARATION_PART
@@ -837,11 +880,13 @@ def iface_name(tokens):
     except NoMatch:
         return identifier(tokens)
 
+identifier_sequence = comma_sequence(identifier)
+
 @rule
 def module_proc_stmt(tokens):
     tokens.expect('module')
     tokens.expect('procedure')
-    procs = sequence(identifier, tokens)
+    procs = identifier_sequence(tokens)
     return tokens.produce('module_proc_stmt', *procs)
 
 @rule
