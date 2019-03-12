@@ -664,12 +664,13 @@ def block(rule):
             elif cat == lexer.CAT_PREPROC:
                 stmts.append(preproc_stmt(tokens))
             elif token.lower() in block_delim:
-                return stmts
+                break
             else:
                 try:
                     stmts.append(rule(tokens))
                 except NoMatch:
-                    return stmts
+                    break
+        return stmts
 
     return block_rule
 
@@ -690,27 +691,21 @@ def type_tags(tokens):
         expect_eos(tokens)
     return tokens.produce('type_tags', private_, sequence_)
 
-@rule
-def maybe_block_name(tokens, name):
-    cat, token = tokens.peek()
-    if cat == lexer.CAT_WORD:
-        if token.lower() != name:
-            raise NoMatch()
-        next(tokens)
+optional_identifier = optional(identifier)
 
 @rule
 def type_decl(tokens):
     tokens.expect('type')
     attrs = type_attrs(tokens)
-    name_raw = tokens.expect_cat(lexer.CAT_WORD).lower()
+    name = identifier(tokens)
     expect_eos(tokens)
     tags = type_tags(tokens)
     decls = entity_block(tokens)
     tokens.expect('end')
     if tokens.marker('type'):
-        maybe_block_name(tokens, name_raw)
+        optional_identifier(tokens)
     expect_eos(tokens)
-    return tokens.produce('type_decl', tokens.produce('identifier', name_raw), attrs, tags, *decls)
+    return tokens.produce('type_decl', name, attrs, tags, *decls)
 
 @rule
 def rename(tokens):
@@ -864,11 +859,14 @@ def contained_part(tokens):
     # contains statement
     tokens.expect('contains')
     expect_eos(tokens)
+    vals = subprogram_block(tokens)
+    return tokens.produce('contains', *vals)
 
-
+optional_contained_part = optional(contained_part)
 
 @rule
 def subroutine_decl(tokens):
+    # Header
     prefixes = tokens.produce('sub_prefixes', sub_prefix_sequence(tokens))
     tokens.expect('subroutine')
     name = identifier(tokens)
@@ -878,9 +876,15 @@ def subroutine_decl(tokens):
     bind_ = optional_bind_c(tokens)
     expect_eos(tokens)
 
+    # Body
     # DECLARATION_PART
     # EXECUTION_PART
-    # CONTAINS_PART
+    contained_ = optional_contained_part(tokens)
+
+    # Footer
+    tokens.expect('end')
+    if tokens.marker('subroutine'):
+        optional_identifier(tokens)
     return tokens.produce('subroutine_decl', name, prefixes, args, bind_)
 
 @rule
@@ -894,12 +898,16 @@ def subprogram_decl(tokens):
     except NoMatch:
         return function_decl(tokens)
 
+subprogram_block = block(subprogram_decl)
+
 @rule
 def iface_name(tokens):
     try:
         return oper_spec(tokens)
     except NoMatch:
         return identifier(tokens)
+
+optional_iface_name = optional(iface_name)
 
 identifier_sequence = comma_sequence(identifier)
 
@@ -926,7 +934,7 @@ def interface_decl(tokens):
     decls = interface_body_block(tokens)
     tokens.expect('end')
     if tokens.marker('interface'):
-        optional(iface_name(tokens))
+        optional_iface_name(tokens)
     return tokens.produce('interface_decl', name)
 
 
@@ -985,6 +993,14 @@ end type
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (type_decl(tokens))
+
+program = """pure subroutine abc(x, y, *)
+contains
+end subroutine
+"""
+slexer = lexer.tokenize_regex(lexre, program)
+tokens = TokenStream(list(slexer))
+print (subroutine_decl(tokens))
 
 #print (expr(tokens))
 #parser = BlockParser(DefaultActions())
