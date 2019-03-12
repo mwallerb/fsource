@@ -877,15 +877,16 @@ def subroutine_decl(tokens):
     expect_eos(tokens)
 
     # Body
-    # DECLARATION_PART
-    # EXECUTION_PART
+    declarations_ = declaration_part(tokens)
+    execs_ = execution_part(tokens)
     contained_ = optional_contained_part(tokens)
 
     # Footer
     tokens.expect('end')
     if tokens.marker('subroutine'):
         optional_identifier(tokens)
-    return tokens.produce('subroutine_decl', name, prefixes, args, bind_)
+    return tokens.produce('subroutine_decl', name, prefixes, args, bind_,
+                          declarations_, execs_, contained_)
 
 @rule
 def function_decl(tokens):
@@ -937,6 +938,31 @@ def interface_decl(tokens):
         optional_iface_name(tokens)
     return tokens.produce('interface_decl', name)
 
+@rule
+def declaration_stmt(tokens):
+    try:
+        return use_stmt(tokens)
+    except NoMatch: pass
+    try:
+        return implicit_stmt(tokens)
+    except NoMatch: pass
+    try:
+        return type_decl(tokens)
+    except NoMatch: pass
+    try:
+        return entity_stmt(tokens)
+    except NoMatch: pass
+    # TODO: imbue statements are missing
+    # TODO: make this faster
+
+declaration_part = block(declaration_stmt)
+
+@rule
+def execution_stmt(tokens):
+    # FIXME
+    raise NoMatch()
+
+execution_part = block(execution_stmt)
 
 lexre = lexer.LEXER_REGEX
 
@@ -995,6 +1021,9 @@ tokens = TokenStream(list(slexer))
 print (type_decl(tokens))
 
 program = """pure subroutine abc(x, y, *)
+    use something
+    implicit none
+    integer :: x
 contains
 end subroutine
 """
