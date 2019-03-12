@@ -1058,7 +1058,13 @@ def program_unit(tokens):
     # TODO: block_data
     # TODO: make this faster
 
-compilation_unit = block(program_unit)
+program_unit_sequence = block(program_unit)
+
+@rule
+def compilation_unit(tokens):
+    units = program_unit_sequence(tokens)
+    tokens.expect_cat(lexer.CAT_DOLLAR)
+    return units
 
 lexre = lexer.LEXER_REGEX
 
