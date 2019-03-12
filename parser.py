@@ -537,6 +537,7 @@ _INTENT_STRINGS = {
 
 @rule
 def intent(tokens):
+    tokens.expect('intent')
     tokens.expect('(')
     string = lexer.parse_string(tokens.expect_cat(lexer.CAT_STRING)).lower()
     try:
@@ -547,31 +548,23 @@ def intent(tokens):
     return tokens.produce('intent', in_, out)
 
 _ENTITY_ATTR_HANDLERS = {
-    'parameter':   lambda tokens: ('parameter'),
-    'public':      lambda tokens: tokens.produce('visible', True),
-    'private':     lambda tokens: tokens.produce('visible', False),
-    'allocatable': lambda tokens: tokens.produce('allocatable'),
-    'dimension':   lambda tokens: shape(tokens),
-    'external':    lambda tokens: tokens.produce('external'),
-    'intent':      lambda tokens: intent(tokens),
-    'intrinsic':   lambda tokens: tokens.produce('intrinsic'),
-    'optional':    lambda tokens: tokens.produce('optional'),
-    'pointer':     lambda tokens: tokens.produce('pointer'),
-    'save':        lambda tokens: tokens.produce('save'),
-    'target':      lambda tokens: tokens.produce('target'),
-    'value':       lambda tokens: tokens.produce('value'),
-    'volatile':    lambda tokens: tokens.produce('volatile'),
+    'parameter':   tag('parameter', 'parameter'),
+    'public':      tag('public', 'public'),
+    'private':     tag('private', 'private'),
+    'allocatable': tag('allocatable', 'allocatable'),
+    'dimension':   prefix('dimension', shape, 'dimension'),
+    'external':    tag('external', 'external'),
+    'intent':      intent,
+    'intrinsic':   tag('intrinsic', 'intrinsic'),
+    'optional':    tag('optional', 'optional'),
+    'pointer':     tag('pointer', 'pointer'),
+    'save':        tag('save', 'save'),
+    'target':      tag('target', 'target'),
+    'value':       tag('value', 'value'),
+    'volatile':    tag('volatile', 'volatile'),
     }
 
-@rule
-def attribute(tokens, handler_dict):
-    prefix = tokens.expect_cat(lexer.CAT_WORD)
-    try:
-        handler = handler_dict[prefix]
-    except KeyError:
-        raise NoMatch()
-    else:
-        return handler(tokens)
+entity_attr = prefixes(_ENTITY_ATTR_HANDLERS)
 
 @rule
 def double_colon(tokens):
@@ -584,7 +577,7 @@ def entity_attrs(tokens):
     handler_dict = _ENTITY_ATTR_HANDLERS
     attrs = []
     while tokens.marker(','):
-        attrs.append(attribute(tokens, handler_dict))
+        attrs.append(entity_attr(tokens))
     try:
         double_colon(tokens)
     except NoMatch:
@@ -632,16 +625,17 @@ def entity_ref(tokens):
     return tokens.produce('entity_ref', name, shape_)
 
 _TYPE_ATTR_HANDLERS = {
-    'public':      lambda tokens: tokens.produce('visible', True),
-    'private':     lambda tokens: tokens.produce('visible', False),
+    'public':      tag('public', 'public'),
+    'private':     tag('private', 'private'),
     }
+
+type_attr = prefixes(_TYPE_ATTR_HANDLERS)
 
 @rule
 def type_attrs(tokens):
-    handler_dict = _TYPE_ATTR_HANDLERS
     attrs = []
     while tokens.marker(','):
-        attrs.append(attribute(tokens, handler_dict))
+        attrs.append(type_attr(tokens))
     try:
         double_colon(tokens)
     except NoMatch:
@@ -832,20 +826,12 @@ def dummy_arg(tokens):
 dummy_arg_sequence = optional(comma_sequence(dummy_arg))
 
 _SUB_PREFIX_HANDLERS = {
-    'impure':    lambda tokens: tokens.produce('pure', False),
-    'pure':      lambda tokens: tokens.produce('pure', True),
-    'recursive': lambda tokens: tokens.produce('recursive'),
+    'impure':    tag('impure', 'impure'),
+    'pure':      tag('pure', 'pure'),
+    'recursive': tag('recursive', 'recursive'),
     }
 
-@rule
-def sub_prefix(tokens):
-    cat, token = next(tokens)
-    try:
-        handler = _SUB_PREFIX_HANDLERS[token.lower()]
-    except KeyError:
-        raise NoMatch()
-    else:
-        return handler(tokens)
+sub_prefix = prefixes(_SUB_PREFIX_HANDLERS)
 
 sub_prefix_sequence = ws_sequence(sub_prefix)
 
@@ -901,22 +887,13 @@ def subroutine_decl(tokens):
 
 
 _FUNC_PREFIX_HANDLERS = {
-    'elemental': lambda tokens: tokens.produce('elemental'),
-    'impure':    lambda tokens: tokens.produce('pure', False),
-    'pure':      lambda tokens: tokens.produce('pure', True),
-    'recursive': lambda tokens: tokens.produce('recursive'),
+    'elemental': tag('elemental', 'elemental'),
+    'impure':    tag('impure', 'impure'),
+    'pure':      tag('pure', 'pure'),
+    'recursive': tag('recursive', 'recursive'),
     }
 
-@rule
-def func_prefix(tokens):
-    cat, token = next(tokens)
-    try:
-        handler = _FUNC_PREFIX_HANDLERS[token.lower()]
-    except KeyError:
-        # FIXME PROBLEM with next() above
-        return type_spec(tokens)
-    else:
-        return handler(tokens)
+func_prefix = prefixes(_FUNC_PREFIX_HANDLERS)
 
 func_prefix_sequence = ws_sequence(func_prefix)
 
@@ -1100,7 +1077,7 @@ print (shape(tokens))
 program = "dimension (1:, :3, 1:4, 1:*)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (attribute(tokens, _ENTITY_ATTR_HANDLERS))
+print (entity_attr(tokens))
 
 program = "operator(.mysomething.)"
 slexer = lexer.tokenize_regex(lexre, program)
