@@ -27,6 +27,8 @@ class TokenStream:
         self.pos += 1
         return value
 
+    next = __next__       # Python 2
+
     def push(self):
         self.stack.append(self.pos)
 
@@ -35,6 +37,9 @@ class TokenStream:
 
     def commit(self):
         self.stack.pop()
+
+    def produce(self, rule, *args):
+        return (rule,) + args
 
     # FIXME: compatibility - remove
 
@@ -65,25 +70,25 @@ class TokenStream:
 def expect_eos(tokens):
     tokens.expect_cat(lexer.CAT_EOS)
 
-def sequence(rule, tokens, actions):
+def sequence(rule, tokens):
     vals = []
-    vals.append(rule(tokens, actions))
+    vals.append(rule(tokens))
     while tokens.marker(','):
-        vals.append(rule(tokens, actions))
+        vals.append(rule(tokens))
     return vals
 
-def direct_sequence(tokens, actions, rule):
+def direct_sequence(tokens, rule):
     items = []
     try:
         while True:
-            items.append(rule(tokens, actions))
+            items.append(rule(tokens))
     except NoMatch:
         return items
 
-def choice(tokens, actions, *rules):
+def choice(tokens, *rules):
     for current in rules:
         try:
-            return current(tokens, actions)
+            return current(tokens)
         except NoMatch:
             pass
     raise NoMatch()
@@ -135,94 +140,94 @@ class LockedIn:
             raise ValueError("Parsing failure")
 
 @rule
-def int_(tokens, actions):
-    return actions.int(tokens.expect_cat(lexer.CAT_INT))
+def int_(tokens):
+    return tokens.produce('int', tokens.expect_cat(lexer.CAT_INT))
 
 @rule
-def float_(tokens, actions):
-    return actions.float(tokens.expect_cat(lexer.CAT_FLOAT))
+def float_(tokens):
+    return tokens.produce('float', tokens.expect_cat(lexer.CAT_FLOAT))
 
 @rule
-def string_(tokens, actions):
-    return actions.string(tokens.expect_cat(lexer.CAT_STRING))
+def string_(tokens):
+    return tokens.produce('string', tokens.expect_cat(lexer.CAT_STRING))
 
 @rule
-def bool_(tokens, actions):
-    return actions.bool(tokens.expect_cat(lexer.CAT_BOOLEAN))
+def bool_(tokens):
+    return tokens.produce('bool', tokens.expect_cat(lexer.CAT_BOOLEAN))
 
 @rule
-def radix(tokens, actions):
-    return actions.radix(tokens.expect_cat(lexer.CAT_RADIX))
+def radix(tokens):
+    return tokens.produce('radix', tokens.expect_cat(lexer.CAT_RADIX))
 
 @rule
-def identifier(tokens, actions):
-    return actions.identifier(tokens.expect_cat(lexer.CAT_WORD).lower())
+def identifier(tokens):
+    return tokens.produce('identifier', tokens.expect_cat(lexer.CAT_WORD).lower())
 
 @rule
-def custom_op(tokens, actions):
-    return actions.custom_op(tokens.expect_cat(lexer.CAT_CUSTOM_DOT))
+def custom_op(tokens):
+    return tokens.produce('custom_op', tokens.expect_cat(lexer.CAT_CUSTOM_DOT))
 
 @rule
-def do_ctrl(tokens, actions):
-    dovar = identifier(tokens, actions)
+def do_ctrl(tokens):
+    dovar = identifier(tokens)
     tokens.expect('=')
-    start = expr(tokens, actions)
+    start = expr(tokens)
     tokens.expect(',')
-    stop = expr(tokens, actions)
+    stop = expr(tokens)
     if tokens.marker(','):
-        step = expr(tokens, actions)
+        step = expr(tokens)
     else:
         step = None
-    return actions.do_ctrl(dovar, start, stop, step)
+    return tokens.produce('do_ctrl', dovar, start, stop, step)
 
 @rule
-def implied_do(tokens, actions):
+def implied_do(tokens):
     args = []
     tokens.expect('(')
-    args.append(expr(tokens, actions))
+    args.append(expr(tokens))
     tokens.expect(',')
     while True:
         try:
-            do_ctrl_result = do_ctrl(tokens, actions)
+            do_ctrl_result = do_ctrl(tokens)
         except NoMatch:
-            args.append(expr(tokens, actions))
+            args.append(expr(tokens))
             tokens.expect(',')
         else:
             tokens.expect(')')
-            return actions.impl_do(do_ctrl_result, *args)
+            return tokens.produce('impl_do', do_ctrl_result, *args)
 
 @rule
-def inplace_array(tokens, actions):
+def inplace_array(tokens):
     seq = []
     tokens.expect('(/')
     if tokens.marker('/)'):
-        return actions.array()
+        return tokens.produce('array')
     while True:
         try:
-            seq.append(implied_do(tokens, actions))
+            seq.append(implied_do(tokens))
         except NoMatch:
-            seq.append(expr(tokens, actions))
+            seq.append(expr(tokens))
         if tokens.marker('/)'):
-            return actions.array(*seq)
+            return tokens.produce('array', *seq)
         tokens.expect(',')
 
 @rule
-def parens_expr(tokens, actions):
+def parens_expr(tokens):
     tokens.expect('(')
-    inner_expr = expr(tokens, actions)
+    inner_expr = expr(tokens)
     tokens.expect(')')
-    return actions.parens(inner_expr)
+    return tokens.produce('parens', inner_expr)
 
 @rule
-def slice_(tokens, actions):
-    slice_begin = optional(expr, tokens, actions)
+def slice_(tokens):
+    slice_begin = optional(expr, tokens)
     tokens.expect(':')
-    slice_end = optional(expr, tokens, actions)
+    slice_end = optional(expr, tokens)
     if tokens.marker(":"):
-        slice_stride = expr(tokens, actions)
+        slice_stride = expr(tokens)
     else:
         slice_stride = None
-    return actions.slice(slice_begin, slice_end, slice_stride)
+    return tokens.produce('slice', slice_begin, slice_end, slice_stride)
 
 
 class _PrefixHandler:
@@ -230,17 +235,17 @@ class _PrefixHandler:
         self.subglue = subglue
         self.action = action
 
-    def __call__(self, tokens, actions):
+    def __call__(self, tokens):
         next(tokens)
-        operand = expr(tokens, actions, self.subglue)
-        return getattr(actions, self.action)(operand)
+        operand = expr(tokens, self.subglue)
+        return (self.action, operand)
 
 
 class _CustomUnary(_PrefixHandler):
-    def __call__(self, tokens, actions):
-        operator = custom_op(tokens, actions)
-        operand = expr(tokens, actions, self.subglue)
-        return getattr(actions, self.action)(operator, operand)
+    def __call__(self, tokens):
+        operator = custom_op(tokens)
+        operand = expr(tokens, self.subglue)
+        return (self.action, operator, operand)
 
 
 class _InfixHandler:
@@ -251,35 +256,35 @@ class _InfixHandler:
         self.subglue = glue + (0 if assoc == 'right' else 1)
         self.action = action
 
-    def __call__(self, tokens, actions, lhs):
+    def __call__(self, tokens, lhs):
         next(tokens)
-        rhs = expr(tokens, actions, self.subglue)
-        return getattr(actions, self.action)(lhs, rhs)
+        rhs = expr(tokens, self.subglue)
+        return (self.action, lhs, rhs)
 
 
 class _CustomBinary(_InfixHandler):
-    def __call__(self, tokens, actions, lhs):
-        operator = custom_op(tokens, actions)
-        rhs = expr(tokens, actions, self.subglue)
-        return getattr(actions, self.action)(operator, lhs, rhs)
+    def __call__(self, tokens, lhs):
+        operator = custom_op(tokens)
+        rhs = expr(tokens, self.subglue)
+        return (self.action, operator, lhs, rhs)
 
 
 class _SubscriptHandler:
     def __init__(self, glue):
         self.glue = glue
 
-    def __call__(self, tokens, actions, lhs):
+    def __call__(self, tokens, lhs):
         next(tokens)
         seq = []
         if tokens.marker(')'):
-            return actions.call(lhs)
+            return tokens.produce('call', lhs)
         while True:
             try:
-                seq.append(slice_(tokens, actions))
+                seq.append(slice_(tokens))
             except NoMatch:
-                seq.append(expr(tokens, actions))
+                seq.append(expr(tokens))
             if tokens.marker(')'):
-                return actions.call(lhs, *seq)
+                return tokens.produce('call', lhs, *seq)
             tokens.expect(',')
 
 
@@ -361,10 +366,10 @@ class ExpressionHandler:
 EXPR_HANDLER = ExpressionHandler()
 
 @rule
-def expr(tokens, actions, min_glue=0):
+def expr(tokens, min_glue=0):
     # Get prefix
     handler = EXPR_HANDLER.get_prefix_handler(*tokens.peek())
-    result = handler(tokens, actions)
+    result = handler(tokens)
 
     # Cycle through appropriate infixes:
     while True:
@@ -375,21 +380,21 @@ def expr(tokens, actions, min_glue=0):
         else:
             if handler.glue < min_glue:
                 return result
-            result = handler(tokens, actions, result)
+            result = handler(tokens, result)
 
 # -----------
 
 @rule
-def kind_selector(tokens, actions):
+def kind_selector(tokens):
     if tokens.marker('*'):
-        kind_ = int_(tokens, actions)
+        kind_ = int_(tokens)
     else:
         tokens.expect('(')
         if tokens.marker('kind'):
             tokens.expect('=')
-        kind_ = int_(tokens, actions)
+        kind_ = int_(tokens)
         tokens.expect(')')
-    return actions.kind_sel(kind_)
+    return tokens.produce('kind_sel', kind_)
 
 @rule
 def keyword_arg(tokens, choices=None):
@@ -400,61 +405,61 @@ def keyword_arg(tokens, choices=None):
     return sel
 
 @rule
-def char_len(tokens, actions):
+def char_len(tokens):
     if tokens.marker('*'):
         return '*'
     if tokens.marker(':'):
         return ':'
-    return expr(tokens, actions)
+    return expr(tokens)
 
 @rule
-def char_len_suffix(tokens, actions):
+def char_len_suffix(tokens):
     tokens.expect('*')
     if tokens.marker('('):
-        len_ = char_len(tokens, actions)
+        len_ = char_len(tokens)
         tokens.expect(')')
     else:
-        len_ = int_(tokens, actions)
+        len_ = int_(tokens)
     return len_
 
 @rule
-def char_selector(tokens, actions):
+def char_selector(tokens):
     len_ = None
     kind = None
 
     try:
-        len_ = char_len_suffix(tokens, actions)
+        len_ = char_len_suffix(tokens)
     except NoMatch:
         tokens.expect('(')
         sel = optional(keyword_arg, tokens, ('len', 'kind'))
         if sel == 'len' or sel is None:
             len_ = char_len()
         else:
-            kind = expr(tokens, actions)
+            kind = expr(tokens)
 
         if tokens.marker(','):
             sel = optional(keyword_arg, tokens, ('len', 'kind'))
             if sel is None:
                 sel = 'kind' if kind is None else 'len'
             if sel == 'len':
-                len_ = char_len(tokens, actions)
+                len_ = char_len(tokens)
             else:
-                kind = expr(tokens, actions)
+                kind = expr(tokens)
 
         tokens.expect(')')
 
-    return actions.char_sel(len_, kind)
+    return tokens.produce('char_sel', len_, kind)
 
-def _typename_handler(tokens, actions):
+def _typename_handler(tokens):
     tokens.expect('(')
-    typename = identifier(tokens, actions)
+    typename = identifier(tokens)
     tokens.expect(')')
     return typename
 
 _TYPE_SPEC_HANDLERS = {
     'integer':   kind_selector,
     'real':      kind_selector,
-    'double':    lambda t, a: t.expect('precision'),
+    'double':    lambda t: t.expect('precision'),
     'complex':   kind_selector,
     'character': char_selector,
     'logical':   kind_selector,
@@ -462,37 +467,37 @@ _TYPE_SPEC_HANDLERS = {
     }
 
 @rule
-def type_spec(tokens, actions):
+def type_spec(tokens):
     prefix = tokens.expect_cat(lexer.CAT_WORD)
     try:
         contd = _TYPE_SPEC_HANDLERS[prefix]
     except KeyError:
         raise NoMatch()
     try:
-        arg = contd(tokens, actions)
+        arg = contd(tokens)
     except NoMatch:
         arg = None
-    return actions.type_spec(prefix, arg)
+    return tokens.produce('type_spec', prefix, arg)
 
 @rule
-def dim_spec(tokens, actions):
+def dim_spec(tokens):
     try:
-        lower = optional(expr, tokens, actions)
+        lower = optional(expr, tokens)
         tokens.expect(':')
     except NoMatch:
         pass
     if tokens.marker('*'):
         upper = '*'
     else:
-        upper = optional(expr, tokens, actions)
-    return actions.dim_spec(lower, upper)
+        upper = optional(expr, tokens)
+    return tokens.produce('dim_spec', lower, upper)
 
 @rule
-def shape(tokens, actions):
+def shape(tokens):
     tokens.expect('(')
-    dims = sequence(dim_spec, tokens, actions)
+    dims = sequence(dim_spec, tokens)
     tokens.expect(')')
-    return actions.shape(*dims)
+    return tokens.produce('shape', *dims)
 
 _INTENT_STRINGS = {
     'in':    (True, False),
@@ -501,7 +506,7 @@ _INTENT_STRINGS = {
     }
 
 @rule
-def intent(tokens, actions):
+def intent(tokens):
     tokens.expect('(')
     string = lexer.parse_string(tokens.expect_cat(lexer.CAT_STRING)).lower()
     try:
@@ -509,34 +514,34 @@ def intent(tokens, actions):
     except KeyError:
         raise NoMatch()
     tokens.expect(')')
-    return actions.intent(in_, out)
+    return tokens.produce('intent', in_, out)
 
 _ENTITY_ATTR_HANDLERS = {
-    'parameter':   lambda t,a: a.parameter(),
-    'public':      lambda t,a: a.visible(True),
-    'private':     lambda t,a: a.visible(False),
-    'allocatable': lambda t,a: a.allocatable(),
-    'dimension':   lambda t,a: shape(t,a),
-    'external':    lambda t,a: a.external(),
-    'intent':      lambda t,a: intent(t,a),
-    'intrinsic':   lambda t,a: a.intrinsic(),
-    'optional':    lambda t,a: a.optional(),
-    'pointer':     lambda t,a: a.pointer(),
-    'save':        lambda t,a: a.save(),
-    'target':      lambda t,a: a.target(),
-    'value':       lambda t,a: a.value(),
-    'volatile':    lambda t,a: a.volatile(),
+    'parameter':   lambda tokens: ('parameter'),
+    'public':      lambda tokens: tokens.produce('visible', True),
+    'private':     lambda tokens: tokens.produce('visible', False),
+    'allocatable': lambda tokens: tokens.produce('allocatable'),
+    'dimension':   lambda tokens: shape(tokens),
+    'external':    lambda tokens: tokens.produce('external'),
+    'intent':      lambda tokens: intent(tokens),
+    'intrinsic':   lambda tokens: tokens.produce('intrinsic'),
+    'optional':    lambda tokens: tokens.produce('optional'),
+    'pointer':     lambda tokens: tokens.produce('pointer'),
+    'save':        lambda tokens: tokens.produce('save'),
+    'target':      lambda tokens: tokens.produce('target'),
+    'value':       lambda tokens: tokens.produce('value'),
+    'volatile':    lambda tokens: tokens.produce('volatile'),
     }
 
 @rule
-def attribute(tokens, actions, handler_dict):
+def attribute(tokens, handler_dict):
     prefix = tokens.expect_cat(lexer.CAT_WORD)
     try:
         handler = handler_dict[prefix]
     except KeyError:
         raise NoMatch()
     else:
-        return handler(tokens, actions)
+        return handler(tokens)
 
 @rule
 def double_colon(tokens):
@@ -545,82 +550,82 @@ def double_colon(tokens):
     tokens.expect(':')
 
 @rule
-def entity_attrs(tokens, actions):
+def entity_attrs(tokens):
     handler_dict = _ENTITY_ATTR_HANDLERS
     attrs = []
     while tokens.marker(','):
-        attrs.append(attribute(tokens, actions, handler_dict))
+        attrs.append(attribute(tokens, handler_dict))
     try:
         double_colon(tokens)
     except NoMatch:
         if attrs: raise NoMatch()
-    return actions.entity_attrs(*attrs)
+    return tokens.produce('entity_attrs', *attrs)
 
 @rule
-def initializer(tokens, actions):
+def initializer(tokens):
     if tokens.marker('='):
-        init = expr(tokens, actions)
-        return actions.init_assign(init)
+        init = expr(tokens)
+        return tokens.produce('init_assign', init)
     else:
         tokens.expect('=>')
-        init = expr(tokens, actions)
-        return actions.init_point(init)
+        init = expr(tokens)
+        return tokens.produce('init_point', init)
 
 @rule
-def entity(tokens, actions):
-    name = identifier(tokens, actions)
-    len_ = optional(char_len_suffix, tokens, actions)
-    shape_ = optional(shape, tokens, actions)
-    init = optional(initializer, tokens, actions)
-    return actions.entity(name, len_, shape_, init)
+def entity(tokens):
+    name = identifier(tokens)
+    len_ = optional(char_len_suffix, tokens)
+    shape_ = optional(shape, tokens)
+    init = optional(initializer, tokens)
+    return tokens.produce('entity', name, len_, shape_, init)
 
 @rule
-def entity_stmt(tokens, actions):
-    type_ = type_spec(tokens, actions)
-    attrs_ = entity_attrs(tokens, actions)
+def entity_stmt(tokens):
+    type_ = type_spec(tokens)
+    attrs_ = entity_attrs(tokens)
     print (tokens.peek())
-    entities = sequence(entity, tokens, actions)
+    entities = sequence(entity, tokens)
     expect_eos(tokens)
-    return actions.entity_stmt(type_, attrs_, *entities)
+    return tokens.produce('entity_stmt', type_, attrs_, *entities)
 
 @rule
-def entity_ref(tokens, actions):
-    name = identifier(tokens, actions)
-    shape_ = optional(shape(tokens, actions))
-    return actions.entity_ref(name, shape_)
+def entity_ref(tokens):
+    name = identifier(tokens)
+    shape_ = optional(shape(tokens))
+    return tokens.produce('entity_ref', name, shape_)
 
 _TYPE_ATTR_HANDLERS = {
-    'public':      lambda t,a: a.visible(True),
-    'private':     lambda t,a: a.visible(False),
+    'public':      lambda tokens: tokens.produce('visible', True),
+    'private':     lambda tokens: tokens.produce('visible', False),
     }
 
 @rule
-def type_attrs(tokens, actions):
+def type_attrs(tokens):
     handler_dict = _TYPE_ATTR_HANDLERS
     attrs = []
     while tokens.marker(','):
-        attrs.append(attribute(tokens, actions, handler_dict))
+        attrs.append(attribute(tokens, handler_dict))
     try:
         double_colon(tokens)
     except NoMatch:
         if attrs: raise NoMatch()
-    return actions.type_attrs(*attrs)
+    return tokens.produce('type_attrs', *attrs)
 
 @rule
-def lineno(tokens, actions):
+def lineno(tokens):
     no = tokens.expect_cat(lexer.CAT_LINENO)
     # Make sure we actually label something.
     cat = tokens.peek()[0]
     if cat in (lexer.CAT_EOS, lexer.CAT_DOLLAR):
         raise NoMatch()
-    return actions.lineno(no)
+    return tokens.produce('lineno', no)
 
 @rule
-def type_tags(tokens, actions):
+def type_tags(tokens):
     private_ = False
     sequence_ = False
     while True:
-        optional(lineno, tokens, actions)
+        optional(lineno, tokens)
         if tokens.marker('private'):
             private_ = True
         elif tokens.marker('sequence'):
@@ -628,7 +633,7 @@ def type_tags(tokens, actions):
         else:
             break
         expect_eos(tokens)
-    return actions.type_tags(private_, sequence_)
+    return tokens.produce('type_tags', private_, sequence_)
 
 def not_end_of_block(tokens):
     while True:
@@ -636,7 +641,7 @@ def not_end_of_block(tokens):
         if cat == lexer.CAT_EOS:
             next(tokens)
             continue
-        optional(lineno, tokens, actions)
+        optional(lineno, tokens)
         return not tokens.next_is('end')
 
 @rule
@@ -648,37 +653,37 @@ def maybe_block_name(tokens, name):
         next(tokens)
 
 @rule
-def type_decl(tokens, actions):
+def type_decl(tokens):
     tokens.expect('type')
-    attrs = type_attrs(tokens, actions)
+    attrs = type_attrs(tokens)
     name_raw = tokens.expect_cat(lexer.CAT_WORD).lower()
     expect_eos(tokens)
-    tags = type_tags(tokens, actions)
+    tags = type_tags(tokens)
 
     decls = []
     while not_end_of_block(tokens):
-        decls.append(entity_stmt(tokens, actions))
+        decls.append(entity_stmt(tokens))
 
     tokens.expect('end')
     if tokens.marker('type'):
         maybe_block_name(tokens, name_raw)
     expect_eos(tokens)
-    return actions.type_decl(actions.identifier(name_raw), attrs, tags, *decls)
+    return tokens.produce('type_decl', tokens.produce('identifier', name_raw), attrs, tags, *decls)
 
 @rule
-def rename(tokens, actions):
-    alias = identifier(tokens, actions)
+def rename(tokens):
+    alias = identifier(tokens)
     tokens.expect('=>')
-    name = identifier(tokens, actions)
-    return actions.rename(alias, name)
+    name = identifier(tokens)
+    return tokens.produce('rename', alias, name)
 
 @rule
-def oper_spec(tokens, actions):
+def oper_spec(tokens):
     if tokens.marker('assignment'):
         tokens.expect('(')
         tokens.expect('=')
         tokens.expect(')')
-        return actions.oper_spec('=')
+        return tokens.produce('oper_spec', '=')
     else:
         tokens.expect('operator')
         try:
@@ -689,46 +694,46 @@ def oper_spec(tokens, actions):
             tokens.expect('(')
             cat, token = next(tokens)
             if cat == lexer.CAT_CUSTOM_DOT:
-                oper = actions.custom_op(token)
+                oper = tokens.produce('custom_op', token)
             elif cat == lexer.CAT_OP:
                 oper = token
             else:
                 raise NoMatch()
             tokens.expect(')')
-        return actions.oper_spec(oper)
+        return tokens.produce('oper_spec', oper)
 
 @rule
-def only(tokens, actions):
+def only(tokens):
     try:
-        return oper_spec(tokens, actions)
+        return oper_spec(tokens)
     except NoMatch:
-        name = identifier(tokens, actions)
+        name = identifier(tokens)
         if tokens.marker('=>'):
-            target = identifier(tokens, actions)
-            return actions.rename(name, target)
+            target = identifier(tokens)
+            return tokens.produce('rename', name, target)
         else:
             return name
 
 @rule
-def use_stmt(tokens, actions):
+def use_stmt(tokens):
     tokens.expect('use')
-    name = identifier(tokens, actions)
+    name = identifier(tokens)
     clauses = []
     is_only = False
     if tokens.marker(','):
         if tokens.marker('only'):
             is_only = True
             tokens.expect(':')
-            clauses = sequence(only, tokens, actions)
+            clauses = sequence(only, tokens)
         else:
-            clauses = sequence(rename, tokens, actions)
+            clauses = sequence(rename, tokens)
     expect_eos(tokens)
-    return actions.use_stmt(name, is_only, *clauses)
+    return tokens.produce('use_stmt', name, is_only, *clauses)
 
 _letter_re = re.compile(r'^[a-zA-Z]$')
 
 @rule
-def letter_range(tokens, actions):
+def letter_range(tokens):
     def letter():
         cand = next(tokens)[1]
         if _letter_re.match(cand):
@@ -740,52 +745,52 @@ def letter_range(tokens, actions):
     end = start
     if tokens.marker('-'):
         end = letter()
-    return actions.letter_range(start, end)
+    return tokens.produce('letter_range', start, end)
 
 @rule
-def implicit_spec(tokens, actions):
-    type_ = type_spec(tokens, actions)
+def implicit_spec(tokens):
+    type_ = type_spec(tokens)
     tokens.expect('(')
-    ranges = sequence(letter_range, tokens, actions)
+    ranges = sequence(letter_range, tokens)
     tokens.expect(')')
-    return actions.implicit_spec(type_, *ranges)
+    return tokens.produce('implicit_spec', type_, *ranges)
 
 @rule
-def implicit_stmt(tokens, actions):
+def implicit_stmt(tokens):
     tokens.expect('implicit')
     if tokens.marker('none'):
         expect_eos(tokens)
-        return actions.implicit_none_stmt()
+        return tokens.produce('implicit_none_stmt', )
     else:
-        specs = sequence(implicit_spec, tokens, actions)
+        specs = sequence(implicit_spec, tokens)
         expect_eos(tokens)
-        return actions.implicit_stmt(*specs)
+        return tokens.produce('implicit_stmt', *specs)
 
 @rule
-def dummy_arg(tokens, actions):
+def dummy_arg(tokens):
     if tokens.marker('*'):
         return '*'
     else:
-        return identifier(tokens, actions)
+        return identifier(tokens)
 
 _SUB_PREFIX_HANDLERS = {
-    'impure':    lambda a,t: a.pure(False),
-    'pure':      lambda a,t: a.pure(True),
-    'recursive': lambda a,t: a.recursive(),
+    'impure':    lambda tokens: tokens.produce('pure', False),
+    'pure':      lambda tokens: tokens.produce('pure', True),
+    'recursive': lambda tokens: tokens.produce('recursive'),
     }
 
 @rule
-def sub_prefix(tokens, actions):
+def sub_prefix(tokens):
     cat, token = next(tokens)
     try:
         handler = _SUB_PREFIX_HANDLERS[token.lower()]
     except KeyError:
         raise NoMatch()
     else:
-        return handler(tokens, actions)
+        return handler(tokens)
 
 @rule
-def bind_c(tokens, actions):
+def bind_c(tokens):
     tokens.expect('bind')
     tokens.expect('(')
     tokens.expect('c')
@@ -796,221 +801,109 @@ def bind_c(tokens, actions):
     else:
         name = None
     tokens.expect(')')
-    return actions.bind_c(name)
+    return tokens.produce('bind_c', name)
 
 @rule
-def subroutine_decl(tokens, actions):
-    prefixes = actions.sub_prefixes(*direct_sequence(tokens, actions, sub_prefix))
+def subroutine_decl(tokens):
+    prefixes = tokens.produce('sub_prefixes', *direct_sequence(tokens, sub_prefix))
     tokens.expect('subroutine')
-    name = identifier(tokens, actions)
+    name = identifier(tokens)
     tokens.expect('(')
-    args = actions.sub_args(sequence(dummy_arg, tokens, actions))
+    args = tokens.produce('sub_args', sequence(dummy_arg, tokens))
     tokens.expect(')')
-    bind_ = optional(bind_c(tokens, actions))
+    bind_ = optional(bind_c(tokens))
     expect_eos(tokens)
 
     # DECLARATION_PART
     # EXECUTION_PART
     # CONTAINS_PART
-    return actions.subroutine_decl(name, prefixes, args, bind_)
+    return tokens.produce('subroutine_decl', name, prefixes, args, bind_)
 
 @rule
-def function_decl(tokens, actions):
+def function_decl(tokens):
     raise NotImplementedError()
 
 @rule
-def subprogram_decl(tokens, actions):
+def subprogram_decl(tokens):
     try:
-        return subroutine_decl(tokens, actions)
+        return subroutine_decl(tokens)
     except NoMatch:
-        return function_decl(tokens, actions)
+        return function_decl(tokens)
 
 @rule
-def iface_name(tokens, actions):
+def iface_name(tokens):
     try:
-        return oper_spec(tokens, actions)
+        return oper_spec(tokens)
     except NoMatch:
-        return identifier(tokens, actions)
+        return identifier(tokens)
 
 @rule
-def module_proc_stmt(tokens, actions):
+def module_proc_stmt(tokens):
     tokens.expect('module')
     tokens.expect('procedure')
-    procs = sequence(identifier, tokens, actions)
-    return actions.module_proc_stmt(*procs)
+    procs = sequence(identifier, tokens)
+    return tokens.produce('module_proc_stmt', *procs)
 
 @rule
-def interface_decl(tokens, actions):
+def interface_decl(tokens):
     tokens.expect('interface')
-    name = iface_name(tokens, actions)
+    name = iface_name(tokens)
     expect_eos(tokens)
     decls = []
     while not_end_of_block(tokens):
         try:
-            decls.append(module_proc_stmt(tokens, actions))
+            decls.append(module_proc_stmt(tokens))
         except NoMatch:
-            decls.append(subprogram_decl(tokens, actions))
+            decls.append(subprogram_decl(tokens))
     tokens.expect('end')
     if tokens.marker('interface'):
-        optional(iface_name(tokens, actions))
-    return actions.interface_decl(name, )
-
-
-def _opt(x): return "null" if x is None else x
-
-class DefaultActions:
-    # Blocks
-    def block(self, *s): return "(block %s)" % " ".join(map(_opt, s))
-    def if_(self, *b): return "(if %s)" % " ".join(map(_opt, b))
-    def arith_if(self, a, b, c): return "(arith_if %s %s %s)" % (a, b, c)
-    def where(self, *b): return "(where %s)" % " ".join(map(_opt, b))
-
-    # Expression actions
-    def eqv(self, l, r): return "(eqv %s %s)" % (l, r)
-    def neqv(self, l, r): return "(neqv %s %s)" % (l, r)
-    def or_(self, l, r): return "(or %s %s)" % (l, r)
-    def and_(self, l, r): return "(and %s %s)" % (l, r)
-    def not_(self, op): return "(not %s)" % op
-    def eq(self, l, r): return "(eq %s %s)" % (l, r)
-    def ne(self, l, r): return "(ne %s %s)" % (l, r)
-    def le(self, l, r): return "(le %s %s)" % (l, r)
-    def lt(self, l, r): return "(lt %s %s)" % (l, r)
-    def ge(self, l, r): return "(ge %s %s)" % (l, r)
-    def gt(self, l, r): return "(gt %s %s)" % (l, r)
-    def concat(self, l, r): return "(// %s %s)" % (l, r)
-    def plus(self, l, r): return "(+ %s %s)" % (l, r)
-    def pos(self, op): return "(pos %s)" % op
-    def minus(self, l, r): return "(- %s %s)" % (l, r)
-    def neg(self, op): return "(neg %s)" % op
-    def mul(self, l, r): return "(* %s %s)" % (l, r)
-    def div(self, l, r): return "(/ %s %s)" % (l, r)
-    def pow(self, l, r): return "(pow %s %s)" % (l, r)
-    def resolve(self, l, r): return "(%% %s %s)" % (l, r)
-    def kind(self, l, r): return "(_ %s %s)" % (l, r)
-    def parens(self, op): return op
-    def call(self, fn, *args): return "(call %s %s)" % (fn, " ".join(args))
-    def slice(self, b, e, s): return "(: %s %s %s)" % tuple(map(_opt, (b,e,s)))
-    def array(self, *args): return "(array %s)" % " ".join(args)
-    def impl_do(self, c, *args): return "(implied_do %s %s)" % (c, " ".join(args))
-    def do_ctrl(self, v, b, e, s): return "(do_ctrl %s %s %s %s)" % (v, b, e, _opt(s))
-    def unary(self, d, op): return "(unary %s %s)" % (d, op)
-    def binary(self, d, l, r): return "(binary %s %s %s)" % (d, l, r)
-
-    # Literals actions
-    def bool(self, tok): return tok.lower()[1:-1]
-    def int(self, tok): return tok
-    def float(self, tok): return tok
-    def string(self, tok): return "(string %s)" % repr(lexer.parse_string(tok))
-    def radix(self, tok): return "(radix %s)" % tok
-    def identifier(self, tok): return repr(tok)
-    def custom_op(self, tok): return "(custom_op %s)" % tok
-
-    # Line number
-    def lineno(self, tok): return "(lineno %s)" % tok
-
-    # Type declarations
-    def kind_sel(self, k): return "(kind_sel %s)" % k
-    def char_sel(self, l, k): return "(char_sel %s %s)" % (l, k)
-    def type_spec(self, t, a): return "(type_spec %s %s)" % (t, a)
-
-    # Attributes
-    def dim_spec(self, l, u): return "(dim_spec %s %s)" % (_opt(l), _opt(u))
-    def shape(self, *dims): return "(shape %s)" % " ".join(dims)
-    def parameter(self): return "parameter"
-    def visible(self, v): return "(visible %d)" % v
-    def allocatable(self): return "allocatable"
-    def external(self): return "external"
-    def intent(self, i, o): return "(intent %d %d)" % (i, o)
-    def intrinsic(self): return "intrinsic"
-    def optional(self): return "optional"
-    def pointer(self): return "pointer"
-    def save(self): return "save"
-    def target(self): return "target"
-    def value(self): return "value"
-    def volatile(self): return "volatile"
-    def pure(self, v): return "(pure %d)" % v
-    def recursive(self): return "recursive"
-
-    def entity_attrs(self, *a): return "(entity_attrs %s)" % " ".join(a)
-    def sub_prefixes(self, *a): return "(sub_prefixes %s)" % " ".join(a)
-    def func_prefixes(self, *a): return "(func_prefixes %s)" % " ".join(a)
-
-    # bind c
-    def bind_c(self, name): return "(bind_c %s)" % _opt(name)
-    def sub_args(self, *a): return "(sub_args %s)" % " ".join(a)
-    def func_args(self, *a): return "(func_args %s)" % " ".join(a)
-
-    # Type dec
-    def type_attrs(self, *a): return "(type_attrs %s)" % " ".join(a)
-    def type_tags(self, p, s): return "(type_tags %d %d)" % (p, s)
-    def type_decl(self, n, a, t, *e):
-        return "(type_decl %s %s %s %s)" % (n, a, t, " ".join(e))
-
-    # Entity declarations
-    def init_assign(self, x): return "(init_assign %s)" % x
-    def init_point(self, x): return "(init_point %s)" % x
-    def entity(self, n, l, s, i):
-        return "(entity %s %s %s %s)" % (n, _opt(l), _opt(s), _opt(i))
-    def entity_stmt(self, t, a, *e):
-        return "(entity_stmt %s %s %s)" % (t, a, " ".join(e))
-    def entity_ref(self, n, s): return "(entity_ref %s %s)" % (n, _opt(s))
-
-    def oper_spec(self, op): return "(oper_spec %s)" % op
-    def module_proc_stmt(self, *s): return "(module_proc %s)" % " ".join(s)
-
-    # Top-level statements
-    def rename(self, a, b): return "(rename %s %s)" % (a, b)
-    def use_stmt(self, m, r, *a): return "(use %s %d %s)" % (m, r, " ".join(a))
-    def letter_range(self, s, e): return "(letter_range %s %s)" % (s, e)
-    def implicit_spec(self, t, *r): return "(implicit_spec %s %s)" % (t, " ".join(r))
-    def implicit_stmt(self, *i): return "(implicit_stmt %s)" % (" ".join(i))
-    def implicit_none_stmt(self): return "(implicit_none_stmt)"
+        optional(iface_name(tokens))
+    return tokens.produce('interface_decl', name)
 
 
 lexre = lexer.LEXER_REGEX
-actions = DefaultActions()
 
 #program = """x(3:1, 4, 5::2) * &   ! something
 #&  (3 + 5)"""
 program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 .mybinary. 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), .myunary. 3 /)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (expr(tokens, actions))
+print (expr(tokens))
 
 program = "character(kind=4, :)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (type_spec(tokens, actions))
+print (type_spec(tokens))
 
 program = "(1:, :3, 1:4, 1:*)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (shape(tokens, actions))
+print (shape(tokens))
 
 program = "dimension (1:, :3, 1:4, 1:*)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (attribute(tokens, actions, _ENTITY_ATTR_HANDLERS))
+print (attribute(tokens, _ENTITY_ATTR_HANDLERS))
 
 program = "operator(.mysomething.)"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (oper_spec(tokens, actions))
+print (oper_spec(tokens))
 
 program = "character, value, intent('in') :: x*4(:,:) = 3\n"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (entity_stmt(tokens, actions))
+print (entity_stmt(tokens))
 
 program = "use ifort_module, only: a => b, c, operator(=)\n"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (use_stmt(tokens, actions))
+print (use_stmt(tokens))
 
 program = "implicit integer (a-x), real*4 (c, f)\n"
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (implicit_stmt(tokens, actions))
+print (implicit_stmt(tokens))
 
 program = """type, public :: my_type
     sequence
@@ -1022,9 +915,9 @@ end type
 """
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (type_decl(tokens, actions))
+print (type_decl(tokens))
 
-#print (expr(tokens, actions))
+#print (expr(tokens))
 #parser = BlockParser(DefaultActions())
 #print (parser.block(tokens))
 
