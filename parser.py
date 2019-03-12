@@ -18,7 +18,7 @@ class TokenStream:
         try:
             return self.tokens[self.pos]
         except IndexError:
-            if self.pos > len(self.tokens):
+            if self.pos > len(self.tokens) + 1:  # TODO
                 raise StopIteration()
             return lexer.CAT_DOLLAR, '<$>'
 
@@ -901,6 +901,7 @@ def func_prefix(tokens):
     try:
         handler = _FUNC_PREFIX_HANDLERS[token.lower()]
     except KeyError:
+        # FIXME PROBLEM with next() above
         return type_spec(tokens)
     else:
         return handler(tokens)
@@ -953,10 +954,8 @@ def function_decl(tokens):
 @rule
 def subprogram_decl(tokens):
     try:
-        print("(SUB)")
         return subroutine_decl(tokens)
     except NoMatch:
-        print("(FN)")
         return function_decl(tokens)
 
 subprogram_block = block(subprogram_decl)
@@ -1008,10 +1007,8 @@ def declaration_stmt(tokens):
     except NoMatch: pass
     try:
         return type_decl(tokens)
-    except NoMatch: pass
-    try:
+    except NoMatch:
         return entity_stmt(tokens)
-    except NoMatch: pass
     # TODO: imbue statements are missing
     # TODO: make this faster
 
@@ -1023,6 +1020,45 @@ def execution_stmt(tokens):
     raise NoMatch()
 
 execution_part = block(execution_stmt)
+
+@rule
+def module_decl(tokens):
+    tokens.expect('module')
+    name = identifier(tokens)
+    expect_eos(tokens)
+    decls = declaration_part(tokens)
+    cont = optional_contained_part(tokens)
+    tokens.expect('end')
+    if tokens.marker('module'):
+        optional_identifier(tokens)
+    return tokens.produce('module_decl', name, decls, cont)
+
+@rule
+def program_decl(tokens):
+    tokens.expect('program')
+    name = identifier(tokens)
+    expect_eos(tokens)
+    decls = declaration_part(tokens)
+    exec_ = execution_part(tokens)
+    cont = optional_contained_part(tokens)
+    tokens.expect('end')
+    if tokens.marker('program'):
+        optional_identifier(tokens)
+    return tokens.produce('program_decl', name, decls, exec_, cont)
+
+@rule
+def program_unit(tokens):
+    try:
+        return program_decl(tokens)
+    except NoMatch: pass
+    try:
+        return module_decl(tokens)
+    except NoMatch:
+        return subprogram_decl(tokens)
+    # TODO: block_data
+    # TODO: make this faster
+
+compilation_unit = block(program_unit)
 
 lexre = lexer.LEXER_REGEX
 
@@ -1088,10 +1124,14 @@ contains
     pure function b() result(gaga)
     end function
 end subroutine
+
+function x(r) result(a)
+    integer, dimension(:,:) :: r
+end function
 """
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
-print (subroutine_decl(tokens))
+print (compilation_unit(tokens))
 
 
 #print (expr(tokens))
