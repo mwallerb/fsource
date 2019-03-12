@@ -111,7 +111,6 @@ def choice(*rules):
 
     return choice_rule
 
-
 class Rule:
     def __init__(self, tokens):
         self.tokens = tokens
@@ -649,6 +648,33 @@ def lineno(tokens):
 
 optional_lineno = optional(lineno)
 
+def preproc_stmt(tokens):
+    return ('preproc_stmt', tokens.expect_cat(lexer.CAT_PREPROC))
+
+def block(rule):
+    # Fortran blocks are delimited by one of these words, so we can use
+    # them in failing fast
+    block_delim = { 'end', 'else', 'elsewhere', 'contains' }
+    def block_rule(tokens):
+        stmts = []
+        while True:
+            cat, token = tokens.peek()
+            if cat == lexer.CAT_EOS:
+                next(tokens)
+            elif cat == lexer.CAT_PREPROC:
+                stmts.append(preproc_stmt(tokens))
+            elif token.lower() in block_delim:
+                return stmts
+            else:
+                try:
+                    stmts.append(rule(tokens))
+                except NoMatch:
+                    return stmts
+
+    return block_rule
+
+entity_block = block(entity_stmt)
+
 @rule
 def type_tags(tokens):
     private_ = False
@@ -663,15 +689,6 @@ def type_tags(tokens):
             break
         expect_eos(tokens)
     return tokens.produce('type_tags', private_, sequence_)
-
-def not_end_of_block(tokens):
-    while True:
-        cat, token = tokens.peek()
-        if cat == lexer.CAT_EOS:
-            next(tokens)
-            continue
-        optional_lineno(tokens)
-        return not tokens.next_is('end')
 
 @rule
 def maybe_block_name(tokens, name):
@@ -688,11 +705,7 @@ def type_decl(tokens):
     name_raw = tokens.expect_cat(lexer.CAT_WORD).lower()
     expect_eos(tokens)
     tags = type_tags(tokens)
-
-    decls = []
-    while not_end_of_block(tokens):
-        decls.append(entity_stmt(tokens))
-
+    decls = entity_block(tokens)
     tokens.expect('end')
     if tokens.marker('type'):
         maybe_block_name(tokens, name_raw)
@@ -847,6 +860,14 @@ def bind_c(tokens):
 optional_bind_c = optional(bind_c)
 
 @rule
+def contained_part(tokens):
+    # contains statement
+    tokens.expect('contains')
+    expect_eos(tokens)
+
+
+
+@rule
 def subroutine_decl(tokens):
     prefixes = tokens.produce('sub_prefixes', sub_prefix_sequence(tokens))
     tokens.expect('subroutine')
@@ -889,17 +910,20 @@ def module_proc_stmt(tokens):
     procs = identifier_sequence(tokens)
     return tokens.produce('module_proc_stmt', *procs)
 
+def interface_body_stmt(tokens):
+    try:
+        return module_proc_stmt(tokens)
+    except NoMatch:
+        return subprogram_decl(tokens)
+
+interface_body_block = block(interface_body_stmt)
+
 @rule
 def interface_decl(tokens):
     tokens.expect('interface')
     name = iface_name(tokens)
     expect_eos(tokens)
-    decls = []
-    while not_end_of_block(tokens):
-        try:
-            decls.append(module_proc_stmt(tokens))
-        except NoMatch:
-            decls.append(subprogram_decl(tokens))
+    decls = interface_body_block(tokens)
     tokens.expect('end')
     if tokens.marker('interface'):
         optional(iface_name(tokens))
