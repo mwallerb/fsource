@@ -609,7 +609,6 @@ entity_sequence = comma_sequence(entity)
 def entity_stmt(tokens):
     type_ = type_spec(tokens)
     attrs_ = entity_attrs(tokens)
-    print (tokens.peek())
     entities = entity_sequence(tokens)
     expect_eos(tokens)
     return tokens.produce('entity_stmt', type_, attrs_, *entities)
@@ -818,7 +817,7 @@ def dummy_arg(tokens):
     else:
         return identifier(tokens)
 
-dummy_arg_sequence = comma_sequence(dummy_arg)
+dummy_arg_sequence = optional(comma_sequence(dummy_arg))
 
 _SUB_PREFIX_HANDLERS = {
     'impure':    lambda tokens: tokens.produce('pure', False),
@@ -888,15 +887,76 @@ def subroutine_decl(tokens):
     return tokens.produce('subroutine_decl', name, prefixes, args, bind_,
                           declarations_, execs_, contained_)
 
+
+_FUNC_PREFIX_HANDLERS = {
+    'elemental': lambda tokens: tokens.produce('elemental'),
+    'impure':    lambda tokens: tokens.produce('pure', False),
+    'pure':      lambda tokens: tokens.produce('pure', True),
+    'recursive': lambda tokens: tokens.produce('recursive'),
+    }
+
+@rule
+def func_prefix(tokens):
+    cat, token = next(tokens)
+    try:
+        handler = _FUNC_PREFIX_HANDLERS[token.lower()]
+    except KeyError:
+        return type_spec(tokens)
+    else:
+        return handler(tokens)
+
+func_prefix_sequence = ws_sequence(func_prefix)
+
+@rule
+def result(tokens):
+    tokens.expect('result')
+    tokens.expect('(')
+    res = identifier(tokens)
+    tokens.expect(')')
+    return ('result', res)
+
+@rule
+def func_suffix(tokens):
+    try:
+        return result(tokens)
+    except NoMatch:
+        return bind_c(tokens)
+
+func_suffix_sequence = ws_sequence(func_suffix)
+
+func_arg_sequence = optional(comma_sequence(identifier))
+
 @rule
 def function_decl(tokens):
-    raise NotImplementedError()
+    # Header
+    prefixes = tokens.produce('func_prefixes', func_prefix_sequence(tokens))
+    tokens.expect('function')
+    name = identifier(tokens)
+    tokens.expect('(')
+    args = tokens.produce('func_args', func_arg_sequence(tokens))
+    tokens.expect(')')
+    suffixes = tokens.produce('func_suffixes', func_suffix_sequence(tokens))
+    expect_eos(tokens)
+
+    # Body
+    declarations_ = declaration_part(tokens)
+    execs_ = execution_part(tokens)
+    contained_ = optional_contained_part(tokens)
+
+    # Footer
+    tokens.expect('end')
+    if tokens.marker('function'):
+        optional_identifier(tokens)
+    return tokens.produce('function_decl', name, prefixes, args, suffixes,
+                          declarations_, execs_, contained_)
 
 @rule
 def subprogram_decl(tokens):
     try:
+        print("(SUB)")
         return subroutine_decl(tokens)
     except NoMatch:
+        print("(FN)")
         return function_decl(tokens)
 
 subprogram_block = block(subprogram_decl)
@@ -916,7 +976,7 @@ identifier_sequence = comma_sequence(identifier)
 def module_proc_stmt(tokens):
     tokens.expect('module')
     tokens.expect('procedure')
-    procs = identifier_sequence(tokens)
+    procs = func_arg_sequence(tokens)
     return tokens.produce('module_proc_stmt', *procs)
 
 def interface_body_stmt(tokens):
@@ -1025,11 +1085,14 @@ program = """pure subroutine abc(x, y, *)
     implicit none
     integer :: x
 contains
+    pure function b() result(gaga)
+    end function
 end subroutine
 """
 slexer = lexer.tokenize_regex(lexre, program)
 tokens = TokenStream(list(slexer))
 print (subroutine_decl(tokens))
+
 
 #print (expr(tokens))
 #parser = BlockParser(DefaultActions())
