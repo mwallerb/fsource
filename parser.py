@@ -164,6 +164,7 @@ class LockedIn:
     def __enter__(self): pass
 
     def __exit__(self, exc_type, exc_val, traceback):
+        print ("TYPE", exc_type)
         if exc_type is NoMatch:
             raise ValueError("Parsing failure")
 
@@ -1004,9 +1005,134 @@ def declaration_stmt(tokens):
 declaration_part = block(declaration_stmt)
 
 @rule
+def construct_tag(tokens):
+    tokens.expect_cat(lexer.CAT_WORD)
+    tokens.expect(':')
+
+optional_construct_tag = optional(construct_tag)
+
+@rule
+def if_clause(tokens):
+    tokens.expect('if')
+    tokens.expect('(')
+    cond = expr(tokens)
+    tokens.expect(')')
+
+@rule
+def else_if_block(tokens):
+    tokens.expect('else')
+    if_clause(tokens)
+    tokens.expect('then')
+    optional_identifier(tokens)
+    expect_eos(tokens)
+    execution_part(tokens)
+
+else_if_block_sequence = ws_sequence(else_if_block)
+
+@rule
+def else_block(tokens):
+    tokens.expect('else')
+    optional_identifier(tokens)
+    expect_eos(tokens)
+    execution_part(tokens)
+
+optional_else_block = optional(else_block)
+
+def ignore_stmt(tokens):
+    while True:
+        cat, token = next(tokens)
+        if cat == lexer.CAT_EOS or cat == lexer.CAT_DOLLAR:
+            return
+
+@rule
+def if_construct(tokens):
+    optional_construct_tag(tokens)
+    if_clause(tokens)
+    if tokens.marker('then'):
+        expect_eos(tokens)
+        execution_part(tokens)
+        else_if_block_sequence(tokens)
+        optional_else_block(tokens)
+        tokens.expect('end')
+        if tokens.marker('if'):
+            optional_identifier(tokens)
+        expect_eos(tokens)
+    else:
+        ignore_stmt(tokens)
+
+@rule
+def while_ctrl(tokens):
+    tokens.expect('while')
+    tokens.expect('(')
+    expr(tokens)
+    tokens.expect(')')
+
+def loop_ctrl(tokens):
+    try:
+        while_ctrl(tokens)
+    except NoMatch:
+        do_ctrl(tokens)
+
+@rule
+def do_construct(tokens):
+    optional_construct_tag(tokens)
+    tokens.expect('do')
+    # TODO: non-block do
+    loop_ctrl(tokens)
+    expect_eos(tokens)
+    execution_part(tokens)
+    tokens.expect('end')
+    if tokens.marker('do'):
+        optional_identifier(tokens)
+    expect_eos(tokens)
+
+@rule
+def case_slice(tokens):
+    _optional_expr(tokens)
+    tokens.expect(':')
+    _optional_expr(tokens)
+
+def case_range(tokens):
+    try:
+        case_slice(tokens)
+    except NoMatch:
+        expr(tokens)
+
+case_range_sequence = comma_sequence(case_range)
+
+@rule
+def select_case(tokens):
+    tokens.expect('case')
+    if tokens.marker('default'):
+        pass
+    else:
+        tokens.expect('(')
+        case_range_sequence(tokens)
+        tokens.expect(')')
+    expect_eos(tokens)
+    execution_part(tokens)
+
+select_case_sequence = ws_sequence(select_case)
+
+@rule
+def select_case_construct(tokens):
+    optional_construct_tag(tokens)
+    tokens.expect('select')
+    tokens.expect('case')
+    tokens.expect('(')
+    expr(tokens)
+    tokens.expect(')')
+    expect_eos(tokens)
+    select_case_sequence(tokens)
+    tokens.expect('end')
+    if tokens.marker('select'):
+        optional_identifier(tokens)
+    expect_eos(tokens)
+
+@rule
 def execution_stmt(tokens):
     # FIXME
-    raise NoMatch()
+    if_construct(tokens)
 
 execution_part = block(execution_stmt)
 
@@ -1122,6 +1248,10 @@ end subroutine
 
 function x(r) result(a)
     integer, dimension(:,:) :: r
+
+    if (something) then
+    else if (something == 3) then
+    end if
 end function
 """
 slexer = lexer.tokenize_regex(lexre, program)
