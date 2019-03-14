@@ -265,6 +265,19 @@ def slice_(tokens):
             slice_stride = None
         return tokens.produce('slice', slice_begin, slice_end, slice_stride)
 
+@rule
+def key_prefix(tokens):
+    key = identifier(tokens)
+    tokens.expect('=')
+    return key
+
+optional_key_prefix = optional(key_prefix)
+
+@rule
+def argument(tokens):
+    key = optional_key_prefix(tokens)
+    value = expr(tokens)
+    return tokens.produce('arg', key, value)
 
 class _PrefixHandler:
     def __init__(self, subglue, action):
@@ -311,17 +324,18 @@ class _SubscriptHandler:
 
     def __call__(self, tokens, lhs):
         next(tokens)
-        seq = []
-        if tokens.marker(')'):
-            return tokens.produce('call', lhs)
-        while True:
-            try:
-                seq.append(slice_(tokens))
-            except NoMatch:
-                seq.append(expr(tokens))
+        with LockedIn(tokens):
+            seq = []
             if tokens.marker(')'):
-                return tokens.produce('call', lhs, *seq)
-            tokens.expect(',')
+                return tokens.produce('call', lhs)
+            while True:
+                try:
+                    seq.append(slice_(tokens))
+                except NoMatch:
+                    seq.append(argument(tokens))
+                if tokens.marker(')'):
+                    return tokens.produce('call', lhs, *seq)
+                tokens.expect(',')
 
 
 class ExpressionHandler:
@@ -623,7 +637,7 @@ def entity(tokens):
 entity_sequence = comma_sequence(entity)
 
 @rule
-def entity_stmt(tokens):
+def entity_decl(tokens):
     type_ = type_spec(tokens)
     attrs_ = entity_attrs(tokens)
     entities = entity_sequence(tokens)
@@ -697,7 +711,7 @@ def block(rule, fenced=True):
 
     return block_rule
 
-entity_block = block(entity_stmt)
+entity_block = block(entity_decl)
 
 @rule
 def type_tags(tokens):
@@ -900,7 +914,7 @@ def subroutine_decl(tokens):
 
         # Body
         declarations_ = declaration_part(tokens)
-        execs_ = execution_part(tokens)
+        execution_part(tokens)
         contained_ = optional_contained_part(tokens)
 
         # Footer
@@ -909,7 +923,7 @@ def subroutine_decl(tokens):
             optional_identifier(tokens)
         expect_eos(tokens)
         return tokens.produce('subroutine_decl', name, prefixes, args, bind_,
-                            declarations_, execs_, contained_)
+                              declarations_, contained_)
 
 
 _FUNC_PREFIX_HANDLERS = {
@@ -964,7 +978,7 @@ def function_decl(tokens):
 
         # Body
         declarations_ = declaration_part(tokens)
-        execs_ = execution_part(tokens)
+        execution_part(tokens)
         contained_ = optional_contained_part(tokens)
 
         # Footer
@@ -973,7 +987,7 @@ def function_decl(tokens):
             optional_identifier(tokens)
         expect_eos(tokens)
         return tokens.produce('function_decl', name, prefixes, args, suffixes,
-                            declarations_, execs_, contained_)
+                              declarations_, contained_)
 
 @rule
 def subprogram_decl(tokens):
@@ -1039,7 +1053,7 @@ def declaration_stmt(tokens):
     try:
         return type_decl(tokens)
     except NoMatch:
-        return entity_stmt(tokens)
+        return entity_decl(tokens)
     # TODO: imbue statements are missing
     # TODO: make this faster
 
