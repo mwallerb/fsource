@@ -650,9 +650,26 @@ def entity_ref(tokens):
     shape_ = optional_shape(tokens)
     return tokens.produce('entity_ref', name, shape_)
 
+@rule
+def bind_c(tokens):
+    tokens.expect('bind')
+    tokens.expect('(')
+    tokens.expect('c')
+    if tokens.marker(','):
+        tokens.expect('name')
+        tokens.expect('=')
+        name = expr(tokens)
+    else:
+        name = None
+    tokens.expect(')')
+    return tokens.produce('bind_c', name)
+
+optional_bind_c = optional(bind_c)
+
 _TYPE_ATTR_HANDLERS = {
     'public':      tag('public', 'public'),
     'private':     tag('private', 'private'),
+    'bind':        bind_c,
     }
 
 type_attr = prefixes(_TYPE_ATTR_HANDLERS)
@@ -707,7 +724,7 @@ def block(rule, fenced=True):
                         print(tokens.tokens[tokens.pos:tokens.pos+10])
                         raise ValueError("Expecting item.")
                     break
-        return stmts
+        return tokens.produce('block', *stmts)
 
     return block_rule
 
@@ -869,22 +886,6 @@ _SUB_PREFIX_HANDLERS = {
 sub_prefix = prefixes(_SUB_PREFIX_HANDLERS)
 
 sub_prefix_sequence = ws_sequence(sub_prefix)
-
-@rule
-def bind_c(tokens):
-    tokens.expect('bind')
-    tokens.expect('(')
-    tokens.expect('c')
-    if tokens.marker(','):
-        tokens.expect('name')
-        tokens.expect('=')
-        name = expr(tokens)
-    else:
-        name = None
-    tokens.expect(')')
-    return tokens.produce('bind_c', name)
-
-optional_bind_c = optional(bind_c)
 
 @rule
 def contained_part(tokens):
@@ -1343,12 +1344,12 @@ def program_decl(tokens):
         name = identifier(tokens)
         expect_eos(tokens)
         decls = declaration_part(tokens)
-        exec_ = execution_part(tokens)
+        execution_part(tokens)
         cont = optional_contained_part(tokens)
         tokens.expect('end')
         if tokens.marker('program'):
             optional_identifier(tokens)
-        return tokens.produce('program_decl', name, decls, exec_, cont)
+        return tokens.produce('program_decl', name, decls, cont)
 
 @rule
 def program_unit(tokens):
@@ -1373,12 +1374,14 @@ def compilation_unit(tokens):
 
 if __name__ == '__main__':
     import sys
+    import json
     lexre = lexer.LEXER_REGEX
     for fname in sys.argv[1:]:
         program = open(fname).read()
         slexer = lexer.tokenize_regex(lexre, program)
         tokens = TokenStream(list(slexer))
-        print (compilation_unit(tokens))
+        ast = compilation_unit(tokens)
+        print(json.dumps(ast, indent=4))
 
 
 #lexre = lexer.LEXER_REGEX
