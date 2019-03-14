@@ -670,7 +670,7 @@ def preproc_stmt(tokens):
 
 _BLOCK_DELIM = { 'end', 'else', 'elsewhere', 'contains', 'case' }
 
-def block(rule):
+def block(rule, fenced=True):
     # Fortran blocks are delimited by one of these words, so we can use
     # them in failing fast
     def block_rule(tokens):
@@ -687,6 +687,9 @@ def block(rule):
                 try:
                     stmts.append(rule(tokens))
                 except NoMatch:
+                    if fenced:
+                        print(tokens.tokens[tokens.pos:tokens.pos+10])
+                        raise ValueError("Expecting item.")
                     break
             print (stmts[-1:])
         return stmts
@@ -886,9 +889,11 @@ def subroutine_decl(tokens):
     tokens.expect('subroutine')
     with LockedIn(tokens):
         name = identifier(tokens)
-        tokens.expect('(')
-        args = tokens.produce('sub_args', dummy_arg_sequence(tokens))
-        tokens.expect(')')
+        if tokens.marker('('):
+            args = tokens.produce('sub_args', dummy_arg_sequence(tokens))
+            tokens.expect(')')
+        else:
+            args = tokens.produce('sub_args')
         bind_ = optional_bind_c(tokens)
         expect_eos(tokens)
 
@@ -914,7 +919,14 @@ _FUNC_PREFIX_HANDLERS = {
     'recursive': tag('recursive', 'recursive'),
     }
 
-func_prefix = prefixes(_FUNC_PREFIX_HANDLERS)
+func_modifier = prefixes(_FUNC_PREFIX_HANDLERS)
+
+@rule
+def func_prefix(tokens):
+    try:
+        return func_modifier(tokens)
+    except NoMatch:
+        return type_spec(tokens)
 
 func_prefix_sequence = ws_sequence(func_prefix)
 
@@ -1031,7 +1043,9 @@ def declaration_stmt(tokens):
     # TODO: imbue statements are missing
     # TODO: make this faster
 
-declaration_part = block(declaration_stmt)
+declaration_part = block(declaration_stmt, fenced=False)
+
+fenced_declaration_part = block(declaration_stmt, fenced=True)
 
 @rule
 def construct_tag(tokens):
@@ -1299,7 +1313,7 @@ def module_decl(tokens):
     with LockedIn(tokens):
         name = identifier(tokens)
         expect_eos(tokens)
-        decls = declaration_part(tokens)
+        decls = fenced_declaration_part(tokens)
         cont = optional_contained_part(tokens)
         tokens.expect('end')
         if tokens.marker('module'):
@@ -1332,7 +1346,7 @@ def program_unit(tokens):
     # TODO: block_data
     # TODO: make this faster
 
-program_unit_sequence = block(program_unit)
+program_unit_sequence = block(program_unit, fenced=False)
 
 @rule
 def compilation_unit(tokens):
