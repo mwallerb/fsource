@@ -657,10 +657,11 @@ optional_lineno = optional(lineno)
 def preproc_stmt(tokens):
     return ('preproc_stmt', tokens.expect_cat(lexer.CAT_PREPROC))
 
+_BLOCK_DELIM = { 'end', 'else', 'elsewhere', 'contains', 'case' }
+
 def block(rule):
     # Fortran blocks are delimited by one of these words, so we can use
     # them in failing fast
-    block_delim = { 'end', 'else', 'elsewhere', 'contains' }
     def block_rule(tokens):
         stmts = []
         while True:
@@ -669,7 +670,7 @@ def block(rule):
                 next(tokens)
             elif cat == lexer.CAT_PREPROC:
                 stmts.append(preproc_stmt(tokens))
-            elif token.lower() in block_delim:
+            elif token.lower() in _BLOCK_DELIM:
                 break
             else:
                 try:
@@ -1134,7 +1135,7 @@ def select_case_construct(tokens):
 @rule
 def type_prefix(tokens):
     type_spec(tokens)
-    tokens.expect('(')
+    double_colon(tokens)
 
 optional_type_prefix = optional(type_prefix)
 
@@ -1253,6 +1254,8 @@ def execution_stmt(tokens):
         prefixed_stmt(tokens)
     except NoMatch:
         ident = tokens.expect_cat(lexer.CAT_WORD)
+        if ident in _BLOCK_DELIM:
+            raise NoMatch()
         ignore_stmt(tokens)
 
 execution_part = block(execution_stmt)
