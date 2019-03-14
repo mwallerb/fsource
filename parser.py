@@ -1023,23 +1023,24 @@ def interface_decl(tokens):
         eos(tokens)
         return tokens.produce('interface_decl', name, decls)
 
+# TODO: imbue statements are missing
+_DECLARATION_HANDLERS = {
+    'use':       use_stmt,
+    'implicit':  implicit_stmt,
+    'interface': interface_decl
+    }
+
+prefixed_declaration_stmt = prefixes(_DECLARATION_HANDLERS)
+
 @rule
 def declaration_stmt(tokens):
     try:
-        return use_stmt(tokens)
-    except NoMatch: pass
-    try:
-        return implicit_stmt(tokens)
-    except NoMatch: pass
-    try:
-        return interface_decl(tokens)
-    except NoMatch: pass
-    try:
-        return type_decl(tokens)
+        return prefixed_declaration_stmt(tokens)
     except NoMatch:
-        return entity_decl(tokens)
-    # TODO: imbue statements are missing
-    # TODO: make this faster
+        try:
+            return type_decl(tokens)
+        except NoMatch:
+            return entity_decl(tokens)
 
 declaration_part = block(declaration_stmt, fenced=False)
 
@@ -1362,6 +1363,7 @@ def pprint(ast, out, level=0):
         'function_decl',
         'interface_decl',
         'type_decl',
+        'contains',
         'block'
         }
     repl = {
