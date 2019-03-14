@@ -164,8 +164,8 @@ class LockedIn:
     def __enter__(self): pass
 
     def __exit__(self, exc_type, exc_val, traceback):
-        print ("TYPE", exc_type)
         if exc_type is NoMatch:
+            print(self.tokens.tokens[self.tokens.pos:self.tokens.pos+10])
             raise ValueError("Parsing failure")
 
 @rule
@@ -215,30 +215,32 @@ def implied_do(tokens):
     tokens.expect('(')
     args.append(expr(tokens))
     tokens.expect(',')
-    while True:
-        try:
-            do_ctrl_result = do_ctrl(tokens)
-        except NoMatch:
-            args.append(expr(tokens))
-            tokens.expect(',')
-        else:
-            tokens.expect(')')
-            return tokens.produce('impl_do', do_ctrl_result, *args)
+    with LockedIn(tokens):
+        while True:
+            try:
+                do_ctrl_result = do_ctrl(tokens)
+            except NoMatch:
+                args.append(expr(tokens))
+                tokens.expect(',')
+            else:
+                tokens.expect(')')
+                return tokens.produce('impl_do', do_ctrl_result, *args)
 
 @rule
 def inplace_array(tokens):
     seq = []
     tokens.expect('(/')
-    if tokens.marker('/)'):
-        return tokens.produce('array')
-    while True:
-        try:
-            seq.append(implied_do(tokens))
-        except NoMatch:
-            seq.append(expr(tokens))
+    with LockedIn(tokens):
         if tokens.marker('/)'):
-            return tokens.produce('array', *seq)
-        tokens.expect(',')
+            return tokens.produce('array')
+        while True:
+            try:
+                seq.append(implied_do(tokens))
+            except NoMatch:
+                seq.append(expr(tokens))
+            if tokens.marker('/)'):
+                return tokens.produce('array', *seq)
+            tokens.expect(',')
 
 @rule
 def parens_expr(tokens):
@@ -252,12 +254,13 @@ def parens_expr(tokens):
 def slice_(tokens):
     slice_begin = _optional_expr(tokens)
     tokens.expect(':')
-    slice_end = _optional_expr(tokens)
-    if tokens.marker(":"):
-        slice_stride = expr(tokens)
-    else:
-        slice_stride = None
-    return tokens.produce('slice', slice_begin, slice_end, slice_stride)
+    with LockedIn(tokens):
+        slice_end = _optional_expr(tokens)
+        if tokens.marker(":"):
+            slice_stride = expr(tokens)
+        else:
+            slice_stride = None
+        return tokens.produce('slice', slice_begin, slice_end, slice_stride)
 
 
 class _PrefixHandler:
@@ -419,13 +422,15 @@ _optional_expr = optional(expr)
 @rule
 def kind_selector(tokens):
     if tokens.marker('*'):
-        kind_ = int_(tokens)
+        with LockedIn(tokens):
+            kind_ = int_(tokens)
     else:
         tokens.expect('(')
-        if tokens.marker('kind'):
-            tokens.expect('=')
-        kind_ = int_(tokens)
-        tokens.expect(')')
+        with LockedIn(tokens):
+            if tokens.marker('kind'):
+                tokens.expect('=')
+            kind_ = expr(tokens)
+            tokens.expect(')')
     return tokens.produce('kind_sel', kind_)
 
 @rule
@@ -447,12 +452,13 @@ def char_len(tokens):
 @rule
 def char_len_suffix(tokens):
     tokens.expect('*')
-    if tokens.marker('('):
-        len_ = char_len(tokens)
-        tokens.expect(')')
-    else:
-        len_ = int_(tokens)
-    return len_
+    with LockedIn(tokens):
+        if tokens.marker('('):
+            len_ = char_len(tokens)
+            tokens.expect(')')
+        else:
+            len_ = int_(tokens)
+        return len_
 
 _optional_len_kind_kwd = optional(keyword_arg, ('len', 'kind'))
 
@@ -467,7 +473,7 @@ def char_selector(tokens):
         tokens.expect('(')
         sel = _optional_len_kind_kwd(tokens)
         if sel == 'len' or sel is None:
-            len_ = char_len()
+            len_ = char_len(tokens)
         else:
             kind = expr(tokens)
 
@@ -487,9 +493,10 @@ def char_selector(tokens):
 def _typename_handler(tokens):
     tokens.expect('type')
     tokens.expect('(')
-    typename = identifier(tokens)
-    tokens.expect(')')
-    return ('type', typename)
+    with LockedIn(tokens):
+        typename = identifier(tokens)
+        tokens.expect(')')
+        return ('type', typename)
 
 def double_precision(tokens):
     tokens.expect('double')
@@ -539,14 +546,15 @@ _INTENT_STRINGS = {
 @rule
 def intent(tokens):
     tokens.expect('intent')
-    tokens.expect('(')
-    string = lexer.parse_string(tokens.expect_cat(lexer.CAT_STRING)).lower()
-    try:
-        in_, out = _INTENT_STRINGS[string]
-    except KeyError:
-        raise NoMatch()
-    tokens.expect(')')
-    return tokens.produce('intent', in_, out)
+    with LockedIn(tokens):
+        tokens.expect('(')
+        string = tokens.expect_cat(lexer.CAT_WORD).lower()
+        try:
+            in_, out = _INTENT_STRINGS[string]
+        except KeyError:
+            raise NoMatch()
+        tokens.expect(')')
+        return tokens.produce('intent', in_, out)
 
 _ENTITY_ATTR_HANDLERS = {
     'parameter':   tag('parameter', 'parameter'),
@@ -640,7 +648,7 @@ def type_attrs(tokens):
     try:
         double_colon(tokens)
     except NoMatch:
-        if attrs: raise NoMatch()
+        if attrs: raise ValueError("Expecting ::")
     return tokens.produce('type_attrs', *attrs)
 
 @rule
@@ -677,6 +685,7 @@ def block(rule):
                     stmts.append(rule(tokens))
                 except NoMatch:
                     break
+            print (stmts[-1:])
         return stmts
 
     return block_rule
@@ -705,14 +714,15 @@ def type_decl(tokens):
     tokens.expect('type')
     attrs = type_attrs(tokens)
     name = identifier(tokens)
-    expect_eos(tokens)
-    tags = type_tags(tokens)
-    decls = entity_block(tokens)
-    tokens.expect('end')
-    if tokens.marker('type'):
-        optional_identifier(tokens)
-    expect_eos(tokens)
-    return tokens.produce('type_decl', name, attrs, tags, *decls)
+    with LockedIn(tokens):
+        expect_eos(tokens)
+        tags = type_tags(tokens)
+        decls = entity_block(tokens)
+        tokens.expect('end')
+        if tokens.marker('type'):
+            optional_identifier(tokens)
+        expect_eos(tokens)
+        return tokens.produce('type_decl', name, attrs, tags, *decls)
 
 @rule
 def rename(tokens):
@@ -765,18 +775,19 @@ only_sequence = comma_sequence(only)
 @rule
 def use_stmt(tokens):
     tokens.expect('use')
-    name = identifier(tokens)
-    clauses = []
-    is_only = False
-    if tokens.marker(','):
-        if tokens.marker('only'):
-            is_only = True
-            tokens.expect(':')
-            clauses = only_sequence(tokens)
-        else:
-            clauses = rename_sequence(tokens)
-    expect_eos(tokens)
-    return tokens.produce('use_stmt', name, is_only, *clauses)
+    with LockedIn(tokens):
+        name = identifier(tokens)
+        clauses = []
+        is_only = False
+        if tokens.marker(','):
+            if tokens.marker('only'):
+                is_only = True
+                tokens.expect(':')
+                clauses = only_sequence(tokens)
+            else:
+                clauses = rename_sequence(tokens)
+        expect_eos(tokens)
+        return tokens.produce('use_stmt', name, is_only, *clauses)
 
 _letter_re = re.compile(r'^[a-zA-Z]$')
 
@@ -810,13 +821,14 @@ implicit_spec_sequence = comma_sequence(implicit_spec)
 @rule
 def implicit_stmt(tokens):
     tokens.expect('implicit')
-    if tokens.marker('none'):
-        expect_eos(tokens)
-        return tokens.produce('implicit_none_stmt', )
-    else:
-        specs = implicit_spec_sequence(tokens)
-        expect_eos(tokens)
-        return tokens.produce('implicit_stmt', *specs)
+    with LockedIn(tokens):
+        if tokens.marker('none'):
+            expect_eos(tokens)
+            return tokens.produce('implicit_none_stmt', )
+        else:
+            specs = implicit_spec_sequence(tokens)
+            expect_eos(tokens)
+            return tokens.produce('implicit_stmt', *specs)
 
 @rule
 def dummy_arg(tokens):
@@ -857,9 +869,10 @@ optional_bind_c = optional(bind_c)
 def contained_part(tokens):
     # contains statement
     tokens.expect('contains')
-    expect_eos(tokens)
-    vals = subprogram_block(tokens)
-    return tokens.produce('contains', *vals)
+    with LockedIn(tokens):
+        expect_eos(tokens)
+        vals = subprogram_block(tokens)
+        return tokens.produce('contains', *vals)
 
 optional_contained_part = optional(contained_part)
 
@@ -868,24 +881,27 @@ def subroutine_decl(tokens):
     # Header
     prefixes = tokens.produce('sub_prefixes', sub_prefix_sequence(tokens))
     tokens.expect('subroutine')
-    name = identifier(tokens)
-    tokens.expect('(')
-    args = tokens.produce('sub_args', dummy_arg_sequence(tokens))
-    tokens.expect(')')
-    bind_ = optional_bind_c(tokens)
-    expect_eos(tokens)
+    with LockedIn(tokens):
+        name = identifier(tokens)
+        tokens.expect('(')
+        args = tokens.produce('sub_args', dummy_arg_sequence(tokens))
+        tokens.expect(')')
+        bind_ = optional_bind_c(tokens)
+        expect_eos(tokens)
 
-    # Body
-    declarations_ = declaration_part(tokens)
-    execs_ = execution_part(tokens)
-    contained_ = optional_contained_part(tokens)
+        # Body
+        declarations_ = declaration_part(tokens)
+        execs_ = execution_part(tokens)
+        contained_ = optional_contained_part(tokens)
+        print ("DECLARATIONS:", declarations_)
 
-    # Footer
-    tokens.expect('end')
-    if tokens.marker('subroutine'):
-        optional_identifier(tokens)
-    return tokens.produce('subroutine_decl', name, prefixes, args, bind_,
-                          declarations_, execs_, contained_)
+        # Footer
+        tokens.expect('end')
+        if tokens.marker('subroutine'):
+            optional_identifier(tokens)
+        expect_eos(tokens)
+        return tokens.produce('subroutine_decl', name, prefixes, args, bind_,
+                            declarations_, execs_, contained_)
 
 
 _FUNC_PREFIX_HANDLERS = {
@@ -923,24 +939,26 @@ def function_decl(tokens):
     # Header
     prefixes = tokens.produce('func_prefixes', func_prefix_sequence(tokens))
     tokens.expect('function')
-    name = identifier(tokens)
-    tokens.expect('(')
-    args = tokens.produce('func_args', func_arg_sequence(tokens))
-    tokens.expect(')')
-    suffixes = tokens.produce('func_suffixes', func_suffix_sequence(tokens))
-    expect_eos(tokens)
+    with LockedIn(tokens):
+        name = identifier(tokens)
+        tokens.expect('(')
+        args = tokens.produce('func_args', func_arg_sequence(tokens))
+        tokens.expect(')')
+        suffixes = tokens.produce('func_suffixes', func_suffix_sequence(tokens))
+        expect_eos(tokens)
 
-    # Body
-    declarations_ = declaration_part(tokens)
-    execs_ = execution_part(tokens)
-    contained_ = optional_contained_part(tokens)
+        # Body
+        declarations_ = declaration_part(tokens)
+        execs_ = execution_part(tokens)
+        contained_ = optional_contained_part(tokens)
 
-    # Footer
-    tokens.expect('end')
-    if tokens.marker('function'):
-        optional_identifier(tokens)
-    return tokens.produce('function_decl', name, prefixes, args, suffixes,
-                          declarations_, execs_, contained_)
+        # Footer
+        tokens.expect('end')
+        if tokens.marker('function'):
+            optional_identifier(tokens)
+        expect_eos(tokens)
+        return tokens.produce('function_decl', name, prefixes, args, suffixes,
+                            declarations_, execs_, contained_)
 
 @rule
 def subprogram_decl(tokens):
@@ -966,8 +984,10 @@ identifier_sequence = comma_sequence(identifier)
 def module_proc_stmt(tokens):
     tokens.expect('module')
     tokens.expect('procedure')
-    procs = func_arg_sequence(tokens)
-    return tokens.produce('module_proc_stmt', *procs)
+    with LockedIn(tokens):
+        procs = func_arg_sequence(tokens)
+        expect_eos(tokens)
+        return tokens.produce('module_proc_stmt', *procs)
 
 def interface_body_stmt(tokens):
     try:
@@ -980,13 +1000,15 @@ interface_body_block = block(interface_body_stmt)
 @rule
 def interface_decl(tokens):
     tokens.expect('interface')
-    name = iface_name(tokens)
-    expect_eos(tokens)
-    decls = interface_body_block(tokens)
-    tokens.expect('end')
-    if tokens.marker('interface'):
-        optional_iface_name(tokens)
-    return tokens.produce('interface_decl', name)
+    with LockedIn(tokens):
+        name = optional_iface_name(tokens)
+        expect_eos(tokens)
+        decls = interface_body_block(tokens)
+        tokens.expect('end')
+        if tokens.marker('interface'):
+            optional_iface_name(tokens)
+        expect_eos(tokens)
+        return tokens.produce('interface_decl', name)
 
 @rule
 def declaration_stmt(tokens):
@@ -995,6 +1017,9 @@ def declaration_stmt(tokens):
     except NoMatch: pass
     try:
         return implicit_stmt(tokens)
+    except NoMatch: pass
+    try:
+        return interface_decl(tokens)
     except NoMatch: pass
     try:
         return type_decl(tokens)
@@ -1010,7 +1035,7 @@ def construct_tag(tokens):
     tokens.expect_cat(lexer.CAT_WORD)
     tokens.expect(':')
     cat, token = tokens.peek()
-    return tokens[1].lower()
+    return token.lower()
 
 optional_construct_tag = optional(construct_tag)
 
@@ -1051,17 +1076,18 @@ def ignore_stmt(tokens):
 def if_construct(tokens):
     optional_construct_tag(tokens)
     if_clause(tokens)
-    if tokens.marker('then'):
-        expect_eos(tokens)
-        execution_part(tokens)
-        else_if_block_sequence(tokens)
-        optional_else_block(tokens)
-        tokens.expect('end')
-        if tokens.marker('if'):
-            optional_identifier(tokens)
-        expect_eos(tokens)
-    else:
-        ignore_stmt(tokens)
+    with LockedIn(tokens):
+        if tokens.marker('then'):
+            expect_eos(tokens)
+            execution_part(tokens)
+            else_if_block_sequence(tokens)
+            optional_else_block(tokens)
+            tokens.expect('end')
+            if tokens.marker('if'):
+                optional_identifier(tokens)
+            expect_eos(tokens)
+        else:
+            ignore_stmt(tokens)
 
 @rule
 def while_ctrl(tokens):
@@ -1080,14 +1106,15 @@ def loop_ctrl(tokens):
 def do_construct(tokens):
     optional_construct_tag(tokens)
     tokens.expect('do')
-    # TODO: non-block do
-    loop_ctrl(tokens)
-    expect_eos(tokens)
-    execution_part(tokens)
-    tokens.expect('end')
-    if tokens.marker('do'):
-        optional_identifier(tokens)
-    expect_eos(tokens)
+    with LockedIn(tokens):
+        # TODO: non-block do
+        loop_ctrl(tokens)
+        expect_eos(tokens)
+        execution_part(tokens)
+        tokens.expect('end')
+        if tokens.marker('do'):
+            optional_identifier(tokens)
+        expect_eos(tokens)
 
 @rule
 def case_slice(tokens):
@@ -1121,16 +1148,17 @@ select_case_sequence = ws_sequence(select_case)
 def select_case_construct(tokens):
     optional_construct_tag(tokens)
     tokens.expect('select')
-    tokens.expect('case')
-    tokens.expect('(')
-    expr(tokens)
-    tokens.expect(')')
-    expect_eos(tokens)
-    select_case_sequence(tokens)
-    tokens.expect('end')
-    if tokens.marker('select'):
-        optional_identifier(tokens)
-    expect_eos(tokens)
+    with LockedIn(tokens):
+        tokens.expect('case')
+        tokens.expect('(')
+        expr(tokens)
+        tokens.expect(')')
+        expect_eos(tokens)
+        select_case_sequence(tokens)
+        tokens.expect('end')
+        if tokens.marker('select'):
+            optional_identifier(tokens)
+        expect_eos(tokens)
 
 @rule
 def type_prefix(tokens):
@@ -1152,16 +1180,17 @@ def forall_select(tokens):
 @rule
 def forall_clause(tokens):
     tokens.expect('forall')
-    tokens.expect('(')
-    optional_type_prefix(tokens)
-    forall_select(tokens)
-    while tokens.marker(','):
-        try:
-            forall_select(tokens)
-        except NoMatch:
-            expr(tokens)
-            break
-    tokens.expect(')')
+    with LockedIn(tokens):
+        tokens.expect('(')
+        optional_type_prefix(tokens)
+        forall_select(tokens)
+        while tokens.marker(','):
+            try:
+                forall_select(tokens)
+            except NoMatch:
+                expr(tokens)
+                break
+        tokens.expect(')')
 
 @rule
 def forall_construct(tokens):
@@ -1191,24 +1220,25 @@ def where_clause(tokens):
 def where_construct(tokens):
     optional_construct_tag(tokens)
     where_clause(tokens)
-    try:
-        expect_eos(tokens)
-    except NoMatch:
-        # WHERE STMT
-        ignore_stmt(tokens)
-    else:
-        # WHERE BLOCK
-        execution_part(tokens)
-        while tokens.marker('elsewhere'):
-            if tokens.marker('('):
-                expr(tokens)
-                tokens.expect(')')
-            optional_identifier(tokens)
+    with LockedIn(tokens):
+        try:
+            expect_eos(tokens)
+        except NoMatch:
+            # WHERE STMT
+            ignore_stmt(tokens)
+        else:
+            # WHERE BLOCK
             execution_part(tokens)
-        tokens.expect('end')
-        if tokens.marker('where'):
-            optional_identifier(tokens)
-        expect_eos(tokens)
+            while tokens.marker('elsewhere'):
+                if tokens.marker('('):
+                    expr(tokens)
+                    tokens.expect(')')
+                optional_identifier(tokens)
+                execution_part(tokens)
+            tokens.expect('end')
+            if tokens.marker('where'):
+                optional_identifier(tokens)
+            expect_eos(tokens)
 
 CONSTRUCT_HANDLERS = {
     'if':         if_construct,
@@ -1263,27 +1293,29 @@ execution_part = block(execution_stmt)
 @rule
 def module_decl(tokens):
     tokens.expect('module')
-    name = identifier(tokens)
-    expect_eos(tokens)
-    decls = declaration_part(tokens)
-    cont = optional_contained_part(tokens)
-    tokens.expect('end')
-    if tokens.marker('module'):
-        optional_identifier(tokens)
-    return tokens.produce('module_decl', name, decls, cont)
+    with LockedIn(tokens):
+        name = identifier(tokens)
+        expect_eos(tokens)
+        decls = declaration_part(tokens)
+        cont = optional_contained_part(tokens)
+        tokens.expect('end')
+        if tokens.marker('module'):
+            optional_identifier(tokens)
+        return tokens.produce('module_decl', name, decls, cont)
 
 @rule
 def program_decl(tokens):
     tokens.expect('program')
-    name = identifier(tokens)
-    expect_eos(tokens)
-    decls = declaration_part(tokens)
-    exec_ = execution_part(tokens)
-    cont = optional_contained_part(tokens)
-    tokens.expect('end')
-    if tokens.marker('program'):
-        optional_identifier(tokens)
-    return tokens.produce('program_decl', name, decls, exec_, cont)
+    with LockedIn(tokens):
+        name = identifier(tokens)
+        expect_eos(tokens)
+        decls = declaration_part(tokens)
+        exec_ = execution_part(tokens)
+        cont = optional_contained_part(tokens)
+        tokens.expect('end')
+        if tokens.marker('program'):
+            optional_identifier(tokens)
+        return tokens.produce('program_decl', name, decls, exec_, cont)
 
 @rule
 def program_unit(tokens):
@@ -1305,84 +1337,95 @@ def compilation_unit(tokens):
     tokens.expect_cat(lexer.CAT_DOLLAR)
     return units
 
-lexre = lexer.LEXER_REGEX
 
-#program = """x(3:1, 4, 5::2) * &   ! something
-#&  (3 + 5)"""
-program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 .mybinary. 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), .myunary. 3 /)"
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-print (expr(tokens))
+if __name__ == '__main__':
+    import sys
+    lexre = lexer.LEXER_REGEX
+    for fname in sys.argv[1:]:
+        program = open(fname).read()
+        slexer = lexer.tokenize_regex(lexre, program)
+        tokens = TokenStream(list(slexer))
+        print (compilation_unit(tokens))
 
-program = "character(kind=4, :)"
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-print (type_spec(tokens))
 
-program = "(1:, :3, 1:4, 1:*)"
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-print (shape(tokens))
+#lexre = lexer.LEXER_REGEX
 
-program = "dimension (1:, :3, 1:4, 1:*)"
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-print (entity_attr(tokens))
+##program = """x(3:1, 4, 5::2) * &   ! something
+##&  (3 + 5)"""
+#program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 .mybinary. 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), .myunary. 3 /)"
+#slexer = lexer.tokenize_regex(lexre, program)
+#tokens = TokenStream(list(slexer))
+#print (expr(tokens))
 
-program = "operator(.mysomething.)"
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-print (oper_spec(tokens))
+#program = "character(kind=4, :)"
+#slexer = lexer.tokenize_regex(lexre, program)
+#tokens = TokenStream(list(slexer))
+#print (type_spec(tokens))
 
-program = "character, value, intent('in') :: x*4(:,:) = 3\n"
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-print (entity_stmt(tokens))
+#program = "(1:, :3, 1:4, 1:*)"
+#slexer = lexer.tokenize_regex(lexre, program)
+#tokens = TokenStream(list(slexer))
+#print (shape(tokens))
 
-program = "use ifort_module, only: a => b, c, operator(=)\n"
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-print (use_stmt(tokens))
+#program = "dimension (1:, :3, 1:4, 1:*)"
+#slexer = lexer.tokenize_regex(lexre, program)
+#tokens = TokenStream(list(slexer))
+#print (entity_attr(tokens))
 
-program = "implicit integer (a-x), real*4 (c, f)\n"
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-print (implicit_stmt(tokens))
+#program = "operator(.mysomething.)"
+#slexer = lexer.tokenize_regex(lexre, program)
+#tokens = TokenStream(list(slexer))
+#print (oper_spec(tokens))
 
-program = """type, public :: my_type
-    sequence
-    private
+#program = "character, value, intent('in') :: x*4(:,:) = 3\n"
+#slexer = lexer.tokenize_regex(lexre, program)
+#tokens = TokenStream(list(slexer))
+#print (entity_stmt(tokens))
 
-    integer :: x(:) = (/ 3, 5, 9 /)
+#program = "use ifort_module, only: a => b, c, operator(=)\n"
+#slexer = lexer.tokenize_regex(lexre, program)
+#tokens = TokenStream(list(slexer))
+#print (use_stmt(tokens))
 
-end type
-"""
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-print (type_decl(tokens))
+#program = "implicit integer (a-x), real*4 (c, f)\n"
+#slexer = lexer.tokenize_regex(lexre, program)
+#tokens = TokenStream(list(slexer))
+#print (implicit_stmt(tokens))
 
-program = """pure subroutine abc(x, y, *)
-    use something
-    implicit none
-    integer :: x
-contains
-    pure function b() result(gaga)
-    end function
-end subroutine
+#program = """type, public :: my_type
+    #sequence
+    #private
 
-function x(r) result(a)
-    integer, dimension(:,:) :: r
+    #integer :: x(:) = (/ 3, 5, 9 /)
 
-    if (something) then
-        call something_else(a, b, c)
-        m = n
-    else if (something == 3) then
-    end if
-end function
-"""
-slexer = lexer.tokenize_regex(lexre, program)
-tokens = TokenStream(list(slexer))
-print (compilation_unit(tokens))
+#end type
+#"""
+#slexer = lexer.tokenize_regex(lexre, program)
+#tokens = TokenStream(list(slexer))
+#print (type_decl(tokens))
+
+#program = """pure subroutine abc(x, y, *)
+    #use something
+    #implicit none
+    #integer :: x
+#contains
+    #pure function b() result(gaga)
+    #end function
+#end subroutine
+
+#function x(r) result(a)
+    #integer, dimension(:,:) :: r
+
+    #if (something) then
+        #call something_else(a, b, c)
+        #m = n
+    #else if (something == 3) then
+    #end if
+#end function
+#"""
+#slexer = lexer.tokenize_regex(lexre, program)
+#tokens = TokenStream(list(slexer))
+#print (compilation_unit(tokens))
 
 
 #print (expr(tokens))
