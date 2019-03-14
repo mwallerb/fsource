@@ -677,7 +677,9 @@ def block(rule, fenced=True):
         stmts = []
         while True:
             cat, token = tokens.peek()
-            if cat == lexer.CAT_EOS:
+            if cat == lexer.CAT_LINENO:
+                next(tokens)
+            elif cat == lexer.CAT_EOS:
                 next(tokens)
             elif cat == lexer.CAT_PREPROC:
                 stmts.append(preproc_stmt(tokens))
@@ -691,7 +693,6 @@ def block(rule, fenced=True):
                         print(tokens.tokens[tokens.pos:tokens.pos+10])
                         raise ValueError("Expecting item.")
                     break
-            print (stmts[-1:])
         return stmts
 
     return block_rule
@@ -901,7 +902,6 @@ def subroutine_decl(tokens):
         declarations_ = declaration_part(tokens)
         execs_ = execution_part(tokens)
         contained_ = optional_contained_part(tokens)
-        print ("DECLARATIONS:", declarations_)
 
         # Footer
         tokens.expect('end')
@@ -1119,13 +1119,15 @@ def loop_ctrl(tokens):
     except NoMatch:
         do_ctrl(tokens)
 
+optional_loop_ctrl = optional(loop_ctrl)
+
 @rule
 def do_construct(tokens):
     optional_construct_tag(tokens)
     tokens.expect('do')
     with LockedIn(tokens):
         # TODO: non-block do
-        loop_ctrl(tokens)
+        optional_loop_ctrl(tokens)
         expect_eos(tokens)
         execution_part(tokens)
         tokens.expect('end')
