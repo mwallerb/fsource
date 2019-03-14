@@ -66,9 +66,12 @@ class TokenStream:
         else:
             return False
 
-
 def expect_eos(tokens):
-    tokens.expect_cat(lexer.CAT_EOS)
+    # TODO rewrite as rule?
+    cat, token = tokens.peek()
+    if cat != lexer.CAT_EOS and cat != lexer.CAT_DOLLAR and token != ';':
+        raise NoMatch()
+    return next(tokens)
 
 def comma_sequence(rule):
     def comma_sequence_rule(tokens):
@@ -1008,7 +1011,7 @@ def interface_decl(tokens):
         if tokens.marker('interface'):
             optional_iface_name(tokens)
         expect_eos(tokens)
-        return tokens.produce('interface_decl', name)
+        return tokens.produce('interface_decl', name, decls)
 
 @rule
 def declaration_stmt(tokens):
