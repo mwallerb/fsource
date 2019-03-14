@@ -1008,6 +1008,8 @@ declaration_part = block(declaration_stmt)
 def construct_tag(tokens):
     tokens.expect_cat(lexer.CAT_WORD)
     tokens.expect(':')
+    cat, token = tokens.peek()
+    return tokens[1].lower()
 
 optional_construct_tag = optional(construct_tag)
 
@@ -1130,9 +1132,128 @@ def select_case_construct(tokens):
     expect_eos(tokens)
 
 @rule
+def type_prefix(tokens):
+    type_spec(tokens)
+    tokens.expect('(')
+
+optional_type_prefix = optional(type_prefix)
+
+@rule
+def forall_select(tokens):
+    identifier(tokens)
+    tokens.expect('=')
+    expr(tokens)
+    tokens.expect(':')
+    expr(tokens)
+    if tokens.marker(':'):
+        expr(tokens)
+
+@rule
+def forall_clause(tokens):
+    tokens.expect('forall')
+    tokens.expect('(')
+    optional_type_prefix(tokens)
+    forall_select(tokens)
+    while tokens.marker(','):
+        try:
+            forall_select(tokens)
+        except NoMatch:
+            expr(tokens)
+            break
+    tokens.expect(')')
+
+@rule
+def forall_construct(tokens):
+    optional_construct_tag(tokens)
+    forall_clause(tokens)
+    try:
+        expect_eos(tokens)
+    except NoMatch:
+        # FORALL STMT
+        ignore_stmt(tokens)
+    else:
+        # FORALL BLOCK
+        execution_part(tokens)
+        tokens.expect('end')
+        if tokens.marker('forall'):
+            optional_identifier(tokens)
+        expect_eos(tokens)
+
+@rule
+def where_clause(tokens):
+    tokens.expect('where')
+    tokens.expect('(')
+    expr(tokens)
+    tokens.expect(')')
+
+@rule
+def where_construct(tokens):
+    optional_construct_tag(tokens)
+    where_clause(tokens)
+    try:
+        expect_eos(tokens)
+    except NoMatch:
+        # WHERE STMT
+        ignore_stmt(tokens)
+    else:
+        # WHERE BLOCK
+        execution_part(tokens)
+        while tokens.marker('elsewhere'):
+            if tokens.marker('('):
+                expr(tokens)
+                tokens.expect(')')
+            optional_identifier(tokens)
+            execution_part(tokens)
+        tokens.expect('end')
+        if tokens.marker('where'):
+            optional_identifier(tokens)
+        expect_eos(tokens)
+
+CONSTRUCT_HANDLERS = {
+    'if':         if_construct,
+    'do':         do_construct,
+    'select':     select_case_construct,
+    'forall':     forall_construct,
+    'where':      where_construct
+    }
+STMT_HANDLERS = {
+    'allocate':   ignore_stmt,
+    'assign':     ignore_stmt,
+    'backspace':  ignore_stmt,
+    'call':       ignore_stmt,
+    'continue':   ignore_stmt,
+    'cycle':      ignore_stmt,
+    'close':      ignore_stmt,
+    'data':       ignore_stmt,
+    'deallocate': ignore_stmt,
+    'endfile':    ignore_stmt,
+    'entry':      ignore_stmt,
+    'exit':       ignore_stmt,
+    'format':     ignore_stmt,
+    'go':         ignore_stmt,
+    'inquire':    ignore_stmt,
+    'nullify':    ignore_stmt,
+    'open':       ignore_stmt,
+    'pause':      ignore_stmt,
+    'print':      ignore_stmt,
+    'return':     ignore_stmt,
+    'stop':       ignore_stmt,
+    'read':       ignore_stmt,
+    'rewind':     ignore_stmt,
+    'write':      ignore_stmt,
+    }
+STMT_HANDLERS.update(CONSTRUCT_HANDLERS)
+
+prefixed_stmt = prefixes(STMT_HANDLERS)
+
+@rule
 def execution_stmt(tokens):
-    # FIXME
-    if_construct(tokens)
+    optional_construct_tag(tokens)
+    try:
+        prefixed_stmt(tokens)
+    except NoMatch:
+        ident = tokens.expect_cat(lexer.CAT_WORD)
+        ignore_stmt(tokens)
 
 execution_part = block(execution_stmt)
 
@@ -1250,6 +1371,8 @@ function x(r) result(a)
     integer, dimension(:,:) :: r
 
     if (something) then
+        call something_else(a, b, c)
+        m = n
     else if (something == 3) then
     end if
 end function
