@@ -1375,13 +1375,23 @@ def compilation_unit(tokens):
 if __name__ == '__main__':
     import sys
     import json
+    import argparse
+
+    parser = argparse.ArgumentParser(description='AST for free-form Fortran')
+    parser.add_argument('files', metavar='FILE', type=str, nargs='+',
+                        help='files to parse')
+    parser.add_argument('--json', dest='dump', action='store_true', default=False,
+                        help='dump the tokens to stdout')
+    args = parser.parse_args()
+
     lexre = lexer.LEXER_REGEX
-    for fname in sys.argv[1:]:
+    for fname in args.files:
         program = open(fname).read()
         slexer = lexer.tokenize_regex(lexre, program)
         tokens = TokenStream(list(slexer))
         ast = compilation_unit(tokens)
-        print(json.dumps(ast, indent=4))
+        if args.dump:
+            print(json.dumps(ast, indent=4))
 
 
 #lexre = lexer.LEXER_REGEX
