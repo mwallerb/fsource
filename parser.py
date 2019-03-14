@@ -66,13 +66,6 @@ class TokenStream:
         else:
             return False
 
-def expect_eos(tokens):
-    # TODO rewrite as rule?
-    cat, token = tokens.peek()
-    if cat != lexer.CAT_EOS and cat != lexer.CAT_DOLLAR and token != ';':
-        raise NoMatch()
-    return next(tokens)
-
 def comma_sequence(rule):
     def comma_sequence_rule(tokens):
         vals = []
@@ -131,22 +124,6 @@ def prefixes(handlers):
 
     return prefixes_rule
 
-class Rule:
-    def __init__(self, tokens):
-        self.tokens = tokens
-
-    def __enter__(self):
-        self.tokens.push()
-
-    def __exit__(self, exc_type, value, traceback):
-        if exc_type is not None:
-            tokens.backtrack()
-            return False
-        else:
-            tokens.commit()
-            return True
-
-
 def rule(fn):
     def rule_setup(tokens, *args):
         tokens.push()
@@ -159,6 +136,12 @@ def rule(fn):
             tokens.commit()
             return value
     return rule_setup
+
+@rule
+def eos(tokens):
+    cat, token = next(tokens)
+    if cat != lexer.CAT_EOS and cat != lexer.CAT_DOLLAR and token != ';':
+        raise NoMatch()
 
 class LockedIn:
     def __init__(self, tokens):
@@ -641,7 +624,7 @@ def entity_decl(tokens):
     type_ = type_spec(tokens)
     attrs_ = entity_attrs(tokens)
     entities = entity_sequence(tokens)
-    expect_eos(tokens)
+    eos(tokens)
     return tokens.produce('entity_stmt', type_, attrs_, *entities)
 
 @rule
@@ -742,7 +725,7 @@ def type_tags(tokens):
             sequence_ = True
         else:
             break
-        expect_eos(tokens)
+        eos(tokens)
     return tokens.produce('type_tags', private_, sequence_)
 
 optional_identifier = optional(identifier)
@@ -753,13 +736,13 @@ def type_decl(tokens):
     attrs = type_attrs(tokens)
     name = identifier(tokens)
     with LockedIn(tokens):
-        expect_eos(tokens)
+        eos(tokens)
         tags = type_tags(tokens)
         decls = entity_block(tokens)
         tokens.expect('end')
         if tokens.marker('type'):
             optional_identifier(tokens)
-        expect_eos(tokens)
+        eos(tokens)
         return tokens.produce('type_decl', name, attrs, tags, *decls)
 
 @rule
@@ -824,7 +807,7 @@ def use_stmt(tokens):
                 clauses = only_sequence(tokens)
             else:
                 clauses = rename_sequence(tokens)
-        expect_eos(tokens)
+        eos(tokens)
         return tokens.produce('use_stmt', name, is_only, *clauses)
 
 _letter_re = re.compile(r'^[a-zA-Z]$')
@@ -861,11 +844,11 @@ def implicit_stmt(tokens):
     tokens.expect('implicit')
     with LockedIn(tokens):
         if tokens.marker('none'):
-            expect_eos(tokens)
+            eos(tokens)
             return tokens.produce('implicit_none_stmt', )
         else:
             specs = implicit_spec_sequence(tokens)
-            expect_eos(tokens)
+            eos(tokens)
             return tokens.produce('implicit_stmt', *specs)
 
 @rule
@@ -892,7 +875,7 @@ def contained_part(tokens):
     # contains statement
     tokens.expect('contains')
     with LockedIn(tokens):
-        expect_eos(tokens)
+        eos(tokens)
         vals = subprogram_block(tokens)
         return tokens.produce('contains', *vals)
 
@@ -911,7 +894,7 @@ def subroutine_decl(tokens):
         else:
             args = tokens.produce('sub_args')
         bind_ = optional_bind_c(tokens)
-        expect_eos(tokens)
+        eos(tokens)
 
         # Body
         declarations_ = declaration_part(tokens)
@@ -922,7 +905,7 @@ def subroutine_decl(tokens):
         tokens.expect('end')
         if tokens.marker('subroutine'):
             optional_identifier(tokens)
-        expect_eos(tokens)
+        eos(tokens)
         return tokens.produce('subroutine_decl', name, prefixes, args, bind_,
                               declarations_, contained_)
 
@@ -975,7 +958,7 @@ def function_decl(tokens):
         args = tokens.produce('func_args', func_arg_sequence(tokens))
         tokens.expect(')')
         suffixes = tokens.produce('func_suffixes', func_suffix_sequence(tokens))
-        expect_eos(tokens)
+        eos(tokens)
 
         # Body
         declarations_ = declaration_part(tokens)
@@ -986,7 +969,7 @@ def function_decl(tokens):
         tokens.expect('end')
         if tokens.marker('function'):
             optional_identifier(tokens)
-        expect_eos(tokens)
+        eos(tokens)
         return tokens.produce('function_decl', name, prefixes, args, suffixes,
                               declarations_, contained_)
 
@@ -1016,7 +999,7 @@ def module_proc_stmt(tokens):
     tokens.expect('procedure')
     with LockedIn(tokens):
         procs = func_arg_sequence(tokens)
-        expect_eos(tokens)
+        eos(tokens)
         return tokens.produce('module_proc_stmt', *procs)
 
 def interface_body_stmt(tokens):
@@ -1032,12 +1015,12 @@ def interface_decl(tokens):
     tokens.expect('interface')
     with LockedIn(tokens):
         name = optional_iface_name(tokens)
-        expect_eos(tokens)
+        eos(tokens)
         decls = interface_body_block(tokens)
         tokens.expect('end')
         if tokens.marker('interface'):
             optional_iface_name(tokens)
-        expect_eos(tokens)
+        eos(tokens)
         return tokens.produce('interface_decl', name, decls)
 
 @rule
@@ -1084,7 +1067,7 @@ def else_if_block(tokens):
     if_clause(tokens)
     tokens.expect('then')
     optional_identifier(tokens)
-    expect_eos(tokens)
+    eos(tokens)
     execution_part(tokens)
 
 else_if_block_sequence = ws_sequence(else_if_block)
@@ -1093,7 +1076,7 @@ else_if_block_sequence = ws_sequence(else_if_block)
 def else_block(tokens):
     tokens.expect('else')
     optional_identifier(tokens)
-    expect_eos(tokens)
+    eos(tokens)
     execution_part(tokens)
 
 optional_else_block = optional(else_block)
@@ -1110,14 +1093,14 @@ def if_construct(tokens):
     if_clause(tokens)
     with LockedIn(tokens):
         if tokens.marker('then'):
-            expect_eos(tokens)
+            eos(tokens)
             execution_part(tokens)
             else_if_block_sequence(tokens)
             optional_else_block(tokens)
             tokens.expect('end')
             if tokens.marker('if'):
                 optional_identifier(tokens)
-            expect_eos(tokens)
+            eos(tokens)
         else:
             ignore_stmt(tokens)
 
@@ -1143,12 +1126,12 @@ def do_construct(tokens):
     with LockedIn(tokens):
         # TODO: non-block do
         optional_loop_ctrl(tokens)
-        expect_eos(tokens)
+        eos(tokens)
         execution_part(tokens)
         tokens.expect('end')
         if tokens.marker('do'):
             optional_identifier(tokens)
-        expect_eos(tokens)
+        eos(tokens)
 
 @rule
 def case_slice(tokens):
@@ -1173,7 +1156,7 @@ def select_case(tokens):
         tokens.expect('(')
         case_range_sequence(tokens)
         tokens.expect(')')
-    expect_eos(tokens)
+    eos(tokens)
     execution_part(tokens)
 
 select_case_sequence = ws_sequence(select_case)
@@ -1187,12 +1170,12 @@ def select_case_construct(tokens):
         tokens.expect('(')
         expr(tokens)
         tokens.expect(')')
-        expect_eos(tokens)
+        eos(tokens)
         select_case_sequence(tokens)
         tokens.expect('end')
         if tokens.marker('select'):
             optional_identifier(tokens)
-        expect_eos(tokens)
+        eos(tokens)
 
 @rule
 def type_prefix(tokens):
@@ -1231,7 +1214,7 @@ def forall_construct(tokens):
     optional_construct_tag(tokens)
     forall_clause(tokens)
     try:
-        expect_eos(tokens)
+        eos(tokens)
     except NoMatch:
         # FORALL STMT
         ignore_stmt(tokens)
@@ -1241,7 +1224,7 @@ def forall_construct(tokens):
         tokens.expect('end')
         if tokens.marker('forall'):
             optional_identifier(tokens)
-        expect_eos(tokens)
+        eos(tokens)
 
 @rule
 def where_clause(tokens):
@@ -1256,7 +1239,7 @@ def where_construct(tokens):
     where_clause(tokens)
     with LockedIn(tokens):
         try:
-            expect_eos(tokens)
+            eos(tokens)
         except NoMatch:
             # WHERE STMT
             ignore_stmt(tokens)
@@ -1272,7 +1255,7 @@ def where_construct(tokens):
             tokens.expect('end')
             if tokens.marker('where'):
                 optional_identifier(tokens)
-            expect_eos(tokens)
+            eos(tokens)
 
 CONSTRUCT_HANDLERS = {
     'if':         if_construct,
@@ -1329,7 +1312,7 @@ def module_decl(tokens):
     tokens.expect('module')
     with LockedIn(tokens):
         name = identifier(tokens)
-        expect_eos(tokens)
+        eos(tokens)
         decls = fenced_declaration_part(tokens)
         cont = optional_contained_part(tokens)
         tokens.expect('end')
@@ -1342,7 +1325,7 @@ def program_decl(tokens):
     tokens.expect('program')
     with LockedIn(tokens):
         name = identifier(tokens)
-        expect_eos(tokens)
+        eos(tokens)
         decls = declaration_part(tokens)
         execution_part(tokens)
         cont = optional_contained_part(tokens)
@@ -1371,6 +1354,42 @@ def compilation_unit(tokens):
     tokens.expect_cat(lexer.CAT_DOLLAR)
     return units
 
+def pprint(ast, out, level=0):
+    block_elems = {
+        'program_decl',
+        'module_decl',
+        'subroutine_decl',
+        'function_decl',
+        'interface_decl',
+        'type_decl',
+        'block'
+        }
+    repl = {
+        True: 'true',
+        False: 'false',
+        None: 'null'
+    }
+
+    if isinstance(ast, tuple):
+        out.write("[" + repr(ast[0]))
+        if ast[0] in block_elems:
+            for elem in ast[1:]:
+                out.write(",\n" + "    " * level)
+                pprint(elem, out, level + 1)
+            out.write("\n" + "    " * level + "]")
+        else:
+            for elem in ast[1:]:
+                out.write(", ")
+                pprint(elem, out, level)
+            out.write("]")
+    elif isinstance(ast, list):
+        pprint(('list',) + tuple(ast), out, level)
+    else:
+        try:
+            val = repl[ast]
+        except KeyError:
+            val = repr(ast)
+        out.write(val)
 
 if __name__ == '__main__':
     import sys
@@ -1391,106 +1410,4 @@ if __name__ == '__main__':
         tokens = TokenStream(list(slexer))
         ast = compilation_unit(tokens)
         if args.dump:
-            print(json.dumps(ast, indent=4))
-
-
-#lexre = lexer.LEXER_REGEX
-
-##program = """x(3:1, 4, 5::2) * &   ! something
-##&  (3 + 5)"""
-#program = "+1 + 3 * x(::1, 2:3) * (/ /) * 4 ** (5 .mybinary. 1) ** sin(.true., 1) + (/ 1, 2, (i, i=1,5), .myunary. 3 /)"
-#slexer = lexer.tokenize_regex(lexre, program)
-#tokens = TokenStream(list(slexer))
-#print (expr(tokens))
-
-#program = "character(kind=4, :)"
-#slexer = lexer.tokenize_regex(lexre, program)
-#tokens = TokenStream(list(slexer))
-#print (type_spec(tokens))
-
-#program = "(1:, :3, 1:4, 1:*)"
-#slexer = lexer.tokenize_regex(lexre, program)
-#tokens = TokenStream(list(slexer))
-#print (shape(tokens))
-
-#program = "dimension (1:, :3, 1:4, 1:*)"
-#slexer = lexer.tokenize_regex(lexre, program)
-#tokens = TokenStream(list(slexer))
-#print (entity_attr(tokens))
-
-#program = "operator(.mysomething.)"
-#slexer = lexer.tokenize_regex(lexre, program)
-#tokens = TokenStream(list(slexer))
-#print (oper_spec(tokens))
-
-#program = "character, value, intent('in') :: x*4(:,:) = 3\n"
-#slexer = lexer.tokenize_regex(lexre, program)
-#tokens = TokenStream(list(slexer))
-#print (entity_stmt(tokens))
-
-#program = "use ifort_module, only: a => b, c, operator(=)\n"
-#slexer = lexer.tokenize_regex(lexre, program)
-#tokens = TokenStream(list(slexer))
-#print (use_stmt(tokens))
-
-#program = "implicit integer (a-x), real*4 (c, f)\n"
-#slexer = lexer.tokenize_regex(lexre, program)
-#tokens = TokenStream(list(slexer))
-#print (implicit_stmt(tokens))
-
-#program = """type, public :: my_type
-    #sequence
-    #private
-
-    #integer :: x(:) = (/ 3, 5, 9 /)
-
-#end type
-#"""
-#slexer = lexer.tokenize_regex(lexre, program)
-#tokens = TokenStream(list(slexer))
-#print (type_decl(tokens))
-
-#program = """pure subroutine abc(x, y, *)
-    #use something
-    #implicit none
-    #integer :: x
-#contains
-    #pure function b() result(gaga)
-    #end function
-#end subroutine
-
-#function x(r) result(a)
-    #integer, dimension(:,:) :: r
-
-    #if (something) then
-        #call something_else(a, b, c)
-        #m = n
-    #else if (something == 3) then
-    #end if
-#end function
-#"""
-#slexer = lexer.tokenize_regex(lexre, program)
-#tokens = TokenStream(list(slexer))
-#print (compilation_unit(tokens))
-
-
-#print (expr(tokens))
-#parser = BlockParser(DefaultActions())
-#print (parser.block(tokens))
-
-#program = """
-    #if (x == 3) then
-        #call something(3)
-        #return
-    #else if (x == 5) then
-        #call something(4)
-    #else
-        #call something(5)
-    #end
-    #where (a == 3)
-        #return
-    #endwhere
-
-    #"""
-
-# fbridge.parser.rules
+            pprint(ast, sys.stdout)
