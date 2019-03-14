@@ -864,7 +864,7 @@ def bind_c(tokens):
     if tokens.marker(','):
         tokens.expect('name')
         tokens.expect('=')
-        name = expr()
+        name = expr(tokens)
     else:
         name = None
     tokens.expect(')')
