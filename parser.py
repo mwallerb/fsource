@@ -274,6 +274,22 @@ def subscript_arg(tokens):
 
 subscript_sequence = comma_sequence(subscript_arg, 'sub_list', allow_empty=True)
 
+def lvalue(tokens):
+    # lvalue candidate, really
+    result = identifier(tokens)
+    with LockedIn(tokens):
+        while True:
+            if tokens.marker('('):
+                seq = subscript_sequence(tokens)
+                tokens.expect(')')
+                result = tokens.produce('call', result, *seq[1:])
+            if tokens.marker('%'):
+                dependant = identifier(tokens)
+                result = tokens.produce('resolve', result, dependant)
+            else:
+                break
+        return result
+
 class _PrefixHandler:
     def __init__(self, subglue, action):
         self.subglue = subglue
@@ -349,9 +365,7 @@ class ExpressionHandler:
             "*":      _InfixHandler( 90, 'left',  'mul'),
             "/":      _InfixHandler( 90, 'left',  'div'),
             "**":     _InfixHandler(100, 'right', 'pow'),
-            "%":      _InfixHandler(130, 'left',  'resolve'),
             "_":      _InfixHandler(130, 'left',  'kind'),
-            "(":      _SubscriptHandler(140),
             }
 
         # Fortran 90 operator aliases
@@ -369,7 +383,7 @@ class ExpressionHandler:
             lexer.CAT_RADIX:      radix,
             lexer.CAT_BOOLEAN:    bool_,
             lexer.CAT_CUSTOM_DOT: _CustomUnary(120, 'unary'),
-            lexer.CAT_WORD:       identifier,
+            lexer.CAT_WORD:       lvalue,
             }
         infix_cats = {
             lexer.CAT_CUSTOM_DOT: _CustomBinary(10, 'left', 'binary')
@@ -418,6 +432,8 @@ def expr(tokens, min_glue=0):
             result = handler(tokens, result)
 
 _optional_expr = optional(expr)
+
+
 
 # -----------
 
