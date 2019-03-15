@@ -719,7 +719,7 @@ def block(rule, production_tag='block', fenced=True):
                 next(tokens)
             elif cat == lexer.CAT_PREPROC:
                 stmts.append(preproc_stmt(tokens))
-            elif token.lower() in _BLOCK_DELIM:
+            elif fenced and token.lower() in _BLOCK_DELIM:
                 break
             else:
                 try:
@@ -1354,7 +1354,10 @@ def execution_stmt(tokens):
     except NoMatch:
         assignment_stmt(tokens)
 
-execution_part = block(execution_stmt, 'execution_block')
+# FIXME: even though this incurs a runtime penalty, we cannot use a simple
+#        fence here, since it is technically allowed to cause maximum confusion
+#        by naming a variable 'end'.
+execution_part = block(execution_stmt, 'execution_block', fenced=False)
 
 @rule
 def module_decl(tokens):
