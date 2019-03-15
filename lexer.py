@@ -23,7 +23,7 @@ def tokenize_regex(regex, text, actions=None):
             for match in regex.finditer(text):
                 category = match.lastindex
                 yield actions[category](match.group(category))
-    except TypeError:
+    except (TypeError, IndexError) as e:
         raise LexerError(
             "Lexer error at character %d:\n%s" %
             (match.start(), text[match.start():match.start()+100]))

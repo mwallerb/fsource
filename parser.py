@@ -601,6 +601,8 @@ def double_colon(tokens):
     tokens.expect(':')
     tokens.expect(':')
 
+optional_double_colon = optional(double_colon)
+
 @rule
 def entity_attrs(tokens):
     handler_dict = _ENTITY_ATTR_HANDLERS
@@ -1043,11 +1045,29 @@ def interface_decl(tokens):
         eos(tokens)
         return tokens.produce('interface_decl', name, decls)
 
-# TODO: imbue statements are missing
+def imbue_stmt(prefix_rule, object_rule):
+    object_sequence = comma_sequence(object_rule, None)
+    def imbue_stmt_rule(tokens):
+        prefix = prefix_rule(tokens)
+        with LockedIn(tokens):
+            optional_double_colon(tokens)
+            vars = object_sequence(tokens)
+            eos(tokens)
+            return tokens.produce('imbue', prefix, *vars[1:])
+    return imbue_stmt_rule
+
+# TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
     'use':       use_stmt,
     'implicit':  implicit_stmt,
-    'interface': interface_decl
+    'interface': interface_decl,
+
+    'public':      imbue_stmt(tag('public', 'public'), iface_name),
+    'private':     imbue_stmt(tag('private', 'private'), iface_name),
+    'external':    imbue_stmt(tag('external', 'external'), identifier),
+    'intent':      imbue_stmt(intent, identifier),
+    'intrinsic':   imbue_stmt(tag('intrinsic', 'intrinsic'), identifier),
+    'optional':    imbue_stmt(tag('optional', 'optional'), identifier),
     }
 
 prefixed_declaration_stmt = prefixes(_DECLARATION_HANDLERS)
