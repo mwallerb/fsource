@@ -1,10 +1,45 @@
 #!/usr/bin/env python
+"""
+Parser and abstract syntax tree generator for free-form Fortran.
+
+Takes a stream of tokens from a lexer and parses it, creating an
+abstract syntax tree (AST) with the following structure: each node is
+either a terminal or non-terminal node.  A terminal node can either be
+None, True, False, or any string. A non-terminal node is a tuple, where
+the first item is a string describing the type of node and subsequent
+items (if any) are (child) nodes.
+
+The parser is basically a recursive descent parser [1], with a couple of
+improvements to speed it up:
+
+ 1. the Fortran grammar is extremely prefix-heavy, so where applicable
+    we dispatch rules based on the first token using `prefixes()`
+    instead of trying them in order and then backtracking if they
+    don't match.
+
+ 2. the expression parser `expr()` uses top-down operator precedence
+    parsing [2], which dispatches based on the token type (also for
+    infix operators). This does away with backtracking and is therefore
+    guaranteed linear runtime.
+
+[1]: https://en.wikipedia.org/wiki/Recursive_descent_parser
+[2]: https://doi.org/10.1145/512927.512931
+
+Author: Markus Wallerberger <mwallerb@umich.edu>
+"""
 from __future__ import print_function
 import lexer
 import re
 
 class NoMatch(Exception):
+    "Current rule does not match, try next one if available."
     pass
+
+class ParserError(RuntimeError):
+    "Current rule does not match even though it should, fail meaningfully"
+    def __init__(self, tokens, msg):
+        RuntimeError.__init__(self, "parsing error: %s\nnext tokens:%s"
+                              % (msg, tokens.tokens[tokens.pos:tokens.pos+20]))
 
 # CONTEXT
 
@@ -75,7 +110,7 @@ def comma_sequence(rule, production_tag, allow_empty=False):
                 vals.append(rule(tokens))
         except NoMatch:
             if vals:
-                raise ValueError("Expecting item in comma-separated list")
+                raise ParserError(tokens, "Expecting item in comma-separated list")
         return tokens.produce(production_tag, *vals)
 
     return comma_sequence_rule
@@ -155,8 +190,7 @@ class LockedIn:
 
     def __exit__(self, exc_type, exc_val, traceback):
         if exc_type is NoMatch:
-            print(self.tokens.tokens[self.tokens.pos:self.tokens.pos+10])
-            raise ValueError("Parsing failure")
+            raise ParserError(tokens, "Expecting token")
 
 def int_(tokens):
     return tokens.produce('int', tokens.expect_cat(lexer.CAT_INT))
@@ -550,23 +584,16 @@ def shape(tokens):
     tokens.expect(')')
     return dims
 
-_INTENT_STRINGS = {
-    'in':    (True, False),
-    'inout': (True, True),
-    'out':   (False, True),
-    }
-
 @rule
 def intent(tokens):
     tokens.expect('intent')
     with LockedIn(tokens):
         tokens.expect('(')
-        string = tokens.expect_cat(lexer.CAT_WORD).lower()
-        try:
-            in_, out = _INTENT_STRINGS[string]
-        except KeyError:
-            raise NoMatch()
+        in_ = tokens.marker('in')
+        out = tokens.marker('out')
         tokens.expect(')')
+        if not in_ and not out:
+            raise ParserError("expecting in, out, or inout as intent.")
         return tokens.produce('intent', in_, out)
 
 _ENTITY_ATTR_HANDLERS = {
@@ -680,7 +707,7 @@ def type_attrs(tokens):
     try:
         double_colon(tokens)
     except NoMatch:
-        if attrs: raise ValueError("Expecting ::")
+        if attrs: raise ParserError(tokens, "Expecting ::")
     return tokens.produce('type_attrs', *attrs)
 
 @rule
@@ -697,7 +724,7 @@ optional_lineno = optional(lineno)
 def preproc_stmt(tokens):
     return ('preproc_stmt', tokens.expect_cat(lexer.CAT_PREPROC))
 
-_BLOCK_DELIM = { 'end', 'else', 'elsewhere', 'contains', 'case' }
+_BLOCK_DELIM = { 'end', 'else', 'contains', 'case' }
 
 def block(rule, production_tag='block', fenced=True):
     # Fortran blocks are delimited by one of these words, so we can use
@@ -719,8 +746,8 @@ def block(rule, production_tag='block', fenced=True):
                     stmts.append(rule(tokens))
                 except NoMatch:
                     if fenced:
-                        print(tokens.tokens[tokens.pos:tokens.pos+10])
-                        raise ValueError("Expecting item.")
+                        raise ParserError(tokens,
+                                          "Expecting item or block delimiter.")
                     break
         return tokens.produce(production_tag, *stmts)
 
@@ -1280,7 +1307,8 @@ def where_construct(tokens):
         else:
             # WHERE BLOCK
             execution_part(tokens)
-            while tokens.marker('elsewhere'):
+            while tokens.marker('else'):
+                tokens.expect('where')
                 if tokens.marker('('):
                     expr(tokens)
                     tokens.expect(')')

@@ -59,9 +59,15 @@ def _lexer_regex():
     word = r"""[A-Za-z][A-Za-z0-9_]*"""
     linestart = r"""(?<=[\r\n])"""
     compound = r"""
-          (?: go(?=(?:to)\W)
+          (?: block(?=(?:data)\W)
+            | double(?=(?:precision)\W)
             | else(?=(?:if|where)\W)
-            | end(?=(?:if|where|forall|function|subroutine|program|do|while|block)\W)
+            | end(?=(?:associate|block|blockdata|critical|do|enum|file|forall
+                      |function|if|interface|module|procedure|program|select
+                      |submodule|subroutine|type|where)\W)
+            | in(?=(?:out)\W)
+            | go(?=(?:to)\W)
+            | select(?=(?:case|type)\W)
             )
           """
     fortran_token = r"""(?ix)
