@@ -158,31 +158,24 @@ class LockedIn:
             print(self.tokens.tokens[self.tokens.pos:self.tokens.pos+10])
             raise ValueError("Parsing failure")
 
-@rule
 def int_(tokens):
     return tokens.produce('int', tokens.expect_cat(lexer.CAT_INT))
 
-@rule
 def float_(tokens):
     return tokens.produce('float', tokens.expect_cat(lexer.CAT_FLOAT))
 
-@rule
 def string_(tokens):
     return tokens.produce('string', tokens.expect_cat(lexer.CAT_STRING))
 
-@rule
 def bool_(tokens):
     return tokens.produce('bool', tokens.expect_cat(lexer.CAT_BOOLEAN))
 
-@rule
 def radix(tokens):
     return tokens.produce('radix', tokens.expect_cat(lexer.CAT_RADIX))
 
-@rule
 def identifier(tokens):
     return tokens.produce('id', tokens.expect_cat(lexer.CAT_WORD).lower())
 
-@rule
 def custom_op(tokens):
     return tokens.produce('custom_op', tokens.expect_cat(lexer.CAT_CUSTOM_DOT))
 
