@@ -1411,8 +1411,6 @@ def compilation_unit(tokens, filename=None):
 def pprint(ast, out, level=0):
     block_elems = {
         'compilation_unit',
-        'program_decl',
-        'module_decl',
         'subroutine_decl',
         'function_decl',
         'interface_body',
