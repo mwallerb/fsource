@@ -266,6 +266,14 @@ def argument(tokens):
     value = expr(tokens)
     return tokens.produce('arg', key, value)
 
+def subscript_arg(tokens):
+    try:
+        return slice_(tokens)
+    except NoMatch:
+        return argument(tokens)
+
+subscript_sequence = comma_sequence(subscript_arg, 'sub_list', allow_empty=True)
+
 class _PrefixHandler:
     def __init__(self, subglue, action):
         self.subglue = subglue
@@ -304,7 +312,6 @@ class _CustomBinary(_InfixHandler):
         rhs = expr(tokens, self.subglue)
         return (self.action, operator, lhs, rhs)
 
-
 class _SubscriptHandler:
     def __init__(self, glue):
         self.glue = glue
@@ -312,18 +319,9 @@ class _SubscriptHandler:
     def __call__(self, tokens, lhs):
         next(tokens)
         with LockedIn(tokens):
-            seq = []
-            if tokens.marker(')'):
-                return tokens.produce('call', lhs)
-            while True:
-                try:
-                    seq.append(slice_(tokens))
-                except NoMatch:
-                    seq.append(argument(tokens))
-                if tokens.marker(')'):
-                    return tokens.produce('call', lhs, *seq)
-                tokens.expect(',')
-
+            seq = subscript_sequence(tokens)[1:]
+            tokens.expect(')')
+            return tokens.produce('call', lhs, *seq)
 
 class ExpressionHandler:
     def __init__(self):
