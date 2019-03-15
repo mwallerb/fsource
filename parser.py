@@ -180,7 +180,7 @@ def radix(tokens):
 
 @rule
 def identifier(tokens):
-    return tokens.produce('identifier', tokens.expect_cat(lexer.CAT_WORD).lower())
+    return tokens.produce('id', tokens.expect_cat(lexer.CAT_WORD).lower())
 
 @rule
 def custom_op(tokens):
@@ -453,7 +453,7 @@ def kind_selector(tokens):
 
 @rule
 def keyword_arg(tokens, choices=None):
-    sel = tokens.expect_cat(lexer.CAT_WORD)
+    sel = tokens.expect_cat(lexer.CAT_WORD).lower()
     tokens.expect('=')
     if sel not in choices:
         raise NoMatch()
@@ -489,22 +489,24 @@ def char_selector(tokens):
         len_ = char_len_suffix(tokens)
     except NoMatch:
         tokens.expect('(')
-        sel = _optional_len_kind_kwd(tokens)
-        if sel == 'len' or sel is None:
-            len_ = char_len(tokens)
-        else:
-            kind = expr(tokens)
-
-        if tokens.marker(','):
+        with LockedIn(tokens):
             sel = _optional_len_kind_kwd(tokens)
-            if sel is None:
-                sel = 'kind' if kind is None else 'len'
-            if sel == 'len':
+            if sel == 'len' or sel is None:
                 len_ = char_len(tokens)
             else:
                 kind = expr(tokens)
 
-        tokens.expect(')')
+            if tokens.marker(','):
+                sel = _optional_len_kind_kwd(tokens)
+                print(sel)
+                if sel is None:
+                    sel = 'kind' if kind is None else 'len'
+                if sel == 'len':
+                    len_ = char_len(tokens)
+                else:
+                    kind = expr(tokens)
+
+            tokens.expect(')')
 
     return tokens.produce('char_sel', len_, kind)
 
@@ -711,7 +713,7 @@ def block(rule, production_tag='block', fenced=True):
             cat, token = tokens.peek()
             if cat == lexer.CAT_LINENO:
                 next(tokens)
-            elif cat == lexer.CAT_EOS:
+            elif cat == lexer.CAT_EOS or token == ';':
                 next(tokens)
             elif cat == lexer.CAT_PREPROC:
                 stmts.append(preproc_stmt(tokens))
@@ -1314,15 +1316,23 @@ STMT_HANDLERS.update(CONSTRUCT_HANDLERS)
 prefixed_stmt = prefixes(STMT_HANDLERS)
 
 @rule
+def assignment_stmt(tokens):
+    lvalue(tokens)
+    _, oper = next(tokens)
+    if oper != '=' and oper != '=>':
+        raise NoMatch()
+    ignore_stmt(tokens)
+    #with LockedIn(tokens):
+    #    expr(tokens)
+    #eos(tokens)
+
+@rule
 def execution_stmt(tokens):
     optional_construct_tag(tokens)
     try:
         prefixed_stmt(tokens)
     except NoMatch:
-        ident = tokens.expect_cat(lexer.CAT_WORD)
-        if ident in _BLOCK_DELIM:
-            raise NoMatch()
-        ignore_stmt(tokens)
+        assignment_stmt(tokens)
 
 execution_part = block(execution_stmt, 'execution_block')
 
