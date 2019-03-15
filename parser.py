@@ -1367,6 +1367,7 @@ def pprint(ast, out, level=0):
         'subroutine_decl',
         'function_decl',
         'interface_decl',
+        'interface_body',
         'entity_decl',
         'entity_list',
         'type_decl',
