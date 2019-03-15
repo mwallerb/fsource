@@ -1409,7 +1409,7 @@ def pprint(ast, out, level=0):
         out.write("[" + repr(ast[0]))
         if ast[0] in block_elems:
             for elem in ast[1:]:
-                out.write(",\n" + "    " * level)
+                out.write(",\n" + "    " * (level + 1))
                 pprint(elem, out, level + 1)
             out.write("\n" + "    " * level + "]")
         else:
@@ -1417,8 +1417,6 @@ def pprint(ast, out, level=0):
                 out.write(", ")
                 pprint(elem, out, level)
             out.write("]")
-    elif isinstance(ast, list):
-        pprint(('list',) + tuple(ast), out, level)
     else:
         try:
             val = repl[ast]
