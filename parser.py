@@ -1395,13 +1395,15 @@ def program_unit(tokens):
     # TODO: block_data
     # TODO: make this faster
 
-program_unit_sequence = block(program_unit, 'compilation_unit', fenced=False)
+program_unit_sequence = block(program_unit, 'program_unit_list', fenced=False)
 
 @rule
-def compilation_unit(tokens):
+def compilation_unit(tokens, filename=None):
     units = program_unit_sequence(tokens)
     tokens.expect_cat(lexer.CAT_DOLLAR)
-    return units
+    version = tokens.produce('ast_version', '0', '1')
+    fname = tokens.produce('filename', filename)
+    return tokens.produce('compilation_unit', version, fname, *units[1:])
 
 def pprint(ast, out, level=0):
     block_elems = {
@@ -1410,7 +1412,6 @@ def pprint(ast, out, level=0):
         'module_decl',
         'subroutine_decl',
         'function_decl',
-        'interface_decl',
         'interface_body',
         'entity_decl',
         'entity_list',
@@ -1461,7 +1462,7 @@ if __name__ == '__main__':
         program = open(fname).read()
         slexer = lexer.tokenize_regex(lexre, program)
         tokens = TokenStream(list(slexer))
-        ast = compilation_unit(tokens)
+        ast = compilation_unit(tokens, fname)
         if args.dump:
             pprint(ast, sys.stdout)
             print()
