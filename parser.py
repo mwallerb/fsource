@@ -1305,6 +1305,9 @@ CONSTRUCT_HANDLERS = {
     'forall':     forall_construct,
     'where':      where_construct
     }
+
+construct = prefixes(CONSTRUCT_HANDLERS)
+
 STMT_HANDLERS = {
     'allocate':   ignore_stmt,
     'assign':     ignore_stmt,
@@ -1348,11 +1351,17 @@ def assignment_stmt(tokens):
 
 @rule
 def execution_stmt(tokens):
-    optional_construct_tag(tokens)
     try:
         prefixed_stmt(tokens)
     except NoMatch:
-        assignment_stmt(tokens)
+        try:
+            assignment_stmt(tokens)
+        except NoMatch:
+            # This is the least likely, so it moved here.
+            construct_tag(tokens)
+            construct(tokens)
+
+
 
 # FIXME: even though this incurs a runtime penalty, we cannot use a simple
 #        fence here, since it is technically allowed to cause maximum confusion
