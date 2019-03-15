@@ -61,7 +61,7 @@ def _lexer_regex():
     compound = r"""
           (?: go(?=(?:to)\W)
             | else(?=(?:if|where)\W)
-            | end(?=(?:if|where|function|subroutine|program|do|while|block)\W)
+            | end(?=(?:if|where|forall|function|subroutine|program|do|while|block)\W)
             )
           """
     fortran_token = r"""(?ix)
