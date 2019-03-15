@@ -66,24 +66,28 @@ class TokenStream:
         else:
             return False
 
-def comma_sequence(rule):
+def comma_sequence(rule, production_tag, allow_empty=False):
     def comma_sequence_rule(tokens):
         vals = []
-        vals.append(rule(tokens))
-        while tokens.marker(','):
+        try:
             vals.append(rule(tokens))
-        return vals
+            while tokens.marker(','):
+                vals.append(rule(tokens))
+        except NoMatch:
+            if vals:
+                raise ValueError("Expecting item in comma-separated list")
+        return tokens.produce(production_tag, *vals)
 
     return comma_sequence_rule
 
-def ws_sequence(rule):
+def ws_sequence(rule, production_tag):
     def ws_sequence_rule(tokens):
         items = []
         try:
             while True:
                 items.append(rule(tokens))
         except NoMatch:
-            return items
+            return tokens.produce(production_tag, *items)
 
     return ws_sequence_rule
 
@@ -528,14 +532,14 @@ def dim_spec(tokens):
         upper = _optional_expr(tokens)
     return tokens.produce('dim_spec', lower, upper)
 
-dimspec_sequence = comma_sequence(dim_spec)
+dimspec_sequence = comma_sequence(dim_spec, 'shape')
 
 @rule
 def shape(tokens):
     tokens.expect('(')
     dims = dimspec_sequence(tokens)
     tokens.expect(')')
-    return tokens.produce('shape', *dims)
+    return dims
 
 _INTENT_STRINGS = {
     'in':    (True, False),
@@ -617,7 +621,7 @@ def entity(tokens):
     init = optional_initializer(tokens)
     return tokens.produce('entity', name, len_, shape_, init)
 
-entity_sequence = comma_sequence(entity)
+entity_sequence = comma_sequence(entity, 'entity_list')
 
 @rule
 def entity_decl(tokens):
@@ -625,7 +629,7 @@ def entity_decl(tokens):
     attrs_ = entity_attrs(tokens)
     entities = entity_sequence(tokens)
     eos(tokens)
-    return tokens.produce('entity_stmt', type_, attrs_, *entities)
+    return tokens.produce('entity_decl', type_, attrs_, entities)
 
 @rule
 def entity_ref(tokens):
@@ -684,7 +688,7 @@ def preproc_stmt(tokens):
 
 _BLOCK_DELIM = { 'end', 'else', 'elsewhere', 'contains', 'case' }
 
-def block(rule, fenced=True):
+def block(rule, production_tag='block', fenced=True):
     # Fortran blocks are delimited by one of these words, so we can use
     # them in failing fast
     def block_rule(tokens):
@@ -707,7 +711,7 @@ def block(rule, fenced=True):
                         print(tokens.tokens[tokens.pos:tokens.pos+10])
                         raise ValueError("Expecting item.")
                     break
-        return tokens.produce('block', *stmts)
+        return tokens.produce(production_tag, *stmts)
 
     return block_rule
 
@@ -752,7 +756,7 @@ def rename(tokens):
     name = identifier(tokens)
     return tokens.produce('rename', alias, name)
 
-rename_sequence = comma_sequence(rename)
+rename_sequence = comma_sequence(rename, 'rename_list')
 
 @rule
 def oper_spec(tokens):
@@ -791,14 +795,14 @@ def only(tokens):
         else:
             return name
 
-only_sequence = comma_sequence(only)
+only_sequence = comma_sequence(only, 'only_list')
 
 @rule
 def use_stmt(tokens):
     tokens.expect('use')
     with LockedIn(tokens):
         name = identifier(tokens)
-        clauses = []
+        clauses = tokens.produce('rename_list')   # default empty rename list
         is_only = False
         if tokens.marker(','):
             if tokens.marker('only'):
@@ -808,7 +812,7 @@ def use_stmt(tokens):
             else:
                 clauses = rename_sequence(tokens)
         eos(tokens)
-        return tokens.produce('use_stmt', name, is_only, *clauses)
+        return tokens.produce('use_stmt', name, clauses)
 
 _letter_re = re.compile(r'^[a-zA-Z]$')
 
@@ -827,7 +831,7 @@ def letter_range(tokens):
         end = letter()
     return tokens.produce('letter_range', start, end)
 
-letter_range_sequence = comma_sequence(letter_range)
+letter_range_sequence = comma_sequence(letter_range, 'letter_range_list')
 
 @rule
 def implicit_spec(tokens):
@@ -835,9 +839,9 @@ def implicit_spec(tokens):
     tokens.expect('(')
     ranges = letter_range_sequence(tokens)
     tokens.expect(')')
-    return tokens.produce('implicit_spec', type_, *ranges)
+    return tokens.produce('implicit_spec', type_, ranges)
 
-implicit_spec_sequence = comma_sequence(implicit_spec)
+implicit_spec_sequence = comma_sequence(implicit_spec, 'implicit_decl')
 
 @rule
 def implicit_stmt(tokens):
@@ -845,11 +849,11 @@ def implicit_stmt(tokens):
     with LockedIn(tokens):
         if tokens.marker('none'):
             eos(tokens)
-            return tokens.produce('implicit_none_stmt', )
+            return tokens.produce('implicit_none')
         else:
             specs = implicit_spec_sequence(tokens)
             eos(tokens)
-            return tokens.produce('implicit_stmt', *specs)
+            return specs
 
 @rule
 def dummy_arg(tokens):
@@ -858,7 +862,7 @@ def dummy_arg(tokens):
     else:
         return identifier(tokens)
 
-dummy_arg_sequence = optional(comma_sequence(dummy_arg))
+dummy_arg_sequence = comma_sequence(dummy_arg, 'arg_list', allow_empty=True)
 
 _SUB_PREFIX_HANDLERS = {
     'impure':    tag('impure', 'impure'),
@@ -868,7 +872,7 @@ _SUB_PREFIX_HANDLERS = {
 
 sub_prefix = prefixes(_SUB_PREFIX_HANDLERS)
 
-sub_prefix_sequence = ws_sequence(sub_prefix)
+sub_prefix_sequence = ws_sequence(sub_prefix, 'sub_prefix_list')
 
 @rule
 def contained_part(tokens):
@@ -876,29 +880,29 @@ def contained_part(tokens):
     tokens.expect('contains')
     with LockedIn(tokens):
         eos(tokens)
-        vals = subprogram_block(tokens)
-        return tokens.produce('contains', *vals)
+        vals = contained_block(tokens)
+        return vals
 
 optional_contained_part = optional(contained_part)
 
 @rule
 def subroutine_decl(tokens):
     # Header
-    prefixes = tokens.produce('sub_prefixes', sub_prefix_sequence(tokens))
+    prefixes = sub_prefix_sequence(tokens)
     tokens.expect('subroutine')
     with LockedIn(tokens):
         name = identifier(tokens)
         if tokens.marker('('):
-            args = tokens.produce('sub_args', dummy_arg_sequence(tokens))
+            args = dummy_arg_sequence(tokens)
             tokens.expect(')')
         else:
-            args = tokens.produce('sub_args')
+            args = tokens.produce('arg_list')   # empty args
         bind_ = optional_bind_c(tokens)
         eos(tokens)
 
         # Body
         declarations_ = declaration_part(tokens)
-        execution_part(tokens)
+        exec_ = execution_part(tokens)
         contained_ = optional_contained_part(tokens)
 
         # Footer
@@ -926,7 +930,7 @@ def func_prefix(tokens):
     except NoMatch:
         return type_spec(tokens)
 
-func_prefix_sequence = ws_sequence(func_prefix)
+func_prefix_sequence = ws_sequence(func_prefix, 'func_prefix_list')
 
 @rule
 def result(tokens):
@@ -943,26 +947,26 @@ def func_suffix(tokens):
     except NoMatch:
         return bind_c(tokens)
 
-func_suffix_sequence = ws_sequence(func_suffix)
+func_suffix_sequence = ws_sequence(func_suffix, 'func_suffix_list')
 
-func_arg_sequence = optional(comma_sequence(identifier))
+func_arg_sequence = comma_sequence(identifier, 'arg_list', allow_empty=True)
 
 @rule
 def function_decl(tokens):
     # Header
-    prefixes = tokens.produce('func_prefixes', func_prefix_sequence(tokens))
+    prefixes = func_prefix_sequence(tokens)
     tokens.expect('function')
     with LockedIn(tokens):
         name = identifier(tokens)
         tokens.expect('(')
-        args = tokens.produce('func_args', func_arg_sequence(tokens))
+        args = func_arg_sequence(tokens)
         tokens.expect(')')
-        suffixes = tokens.produce('func_suffixes', func_suffix_sequence(tokens))
+        suffixes = func_suffix_sequence(tokens)
         eos(tokens)
 
         # Body
         declarations_ = declaration_part(tokens)
-        execution_part(tokens)
+        exec_ = execution_part(tokens)
         contained_ = optional_contained_part(tokens)
 
         # Footer
@@ -980,7 +984,7 @@ def subprogram_decl(tokens):
     except NoMatch:
         return function_decl(tokens)
 
-subprogram_block = block(subprogram_decl)
+contained_block = block(subprogram_decl, 'contained_block')
 
 @rule
 def iface_name(tokens):
@@ -991,16 +995,16 @@ def iface_name(tokens):
 
 optional_iface_name = optional(iface_name)
 
-identifier_sequence = comma_sequence(identifier)
+identifier_sequence = comma_sequence(identifier, 'identifier_list')
 
 @rule
 def module_proc_stmt(tokens):
     tokens.expect('module')
     tokens.expect('procedure')
     with LockedIn(tokens):
-        procs = func_arg_sequence(tokens)
+        procs = identifier_sequence(tokens)
         eos(tokens)
-        return tokens.produce('module_proc_stmt', *procs)
+        return tokens.produce('module_proc_stmt', *procs[1:])
 
 def interface_body_stmt(tokens):
     try:
@@ -1008,7 +1012,7 @@ def interface_body_stmt(tokens):
     except NoMatch:
         return subprogram_decl(tokens)
 
-interface_body_block = block(interface_body_stmt)
+interface_body_block = block(interface_body_stmt, 'interface_body')
 
 @rule
 def interface_decl(tokens):
@@ -1042,9 +1046,9 @@ def declaration_stmt(tokens):
         except NoMatch:
             return entity_decl(tokens)
 
-declaration_part = block(declaration_stmt, fenced=False)
+declaration_part = block(declaration_stmt, 'declaration_block', fenced=False)
 
-fenced_declaration_part = block(declaration_stmt, fenced=True)
+fenced_declaration_part = block(declaration_stmt, 'declaration_block', fenced=True)
 
 @rule
 def construct_tag(tokens):
@@ -1059,7 +1063,7 @@ optional_construct_tag = optional(construct_tag)
 def if_clause(tokens):
     tokens.expect('if')
     tokens.expect('(')
-    cond = expr(tokens)
+    expr(tokens)
     tokens.expect(')')
 
 @rule
@@ -1071,7 +1075,7 @@ def else_if_block(tokens):
     eos(tokens)
     execution_part(tokens)
 
-else_if_block_sequence = ws_sequence(else_if_block)
+else_if_block_sequence = ws_sequence(else_if_block, 'else_if_sequence')
 
 @rule
 def else_block(tokens):
@@ -1146,7 +1150,7 @@ def case_range(tokens):
     except NoMatch:
         expr(tokens)
 
-case_range_sequence = comma_sequence(case_range)
+case_range_sequence = comma_sequence(case_range, 'case_range_list')
 
 @rule
 def select_case(tokens):
@@ -1160,7 +1164,7 @@ def select_case(tokens):
     eos(tokens)
     execution_part(tokens)
 
-select_case_sequence = ws_sequence(select_case)
+select_case_sequence = ws_sequence(select_case, 'select_case_list')
 
 @rule
 def select_case_construct(tokens):
@@ -1306,7 +1310,7 @@ def execution_stmt(tokens):
             raise NoMatch()
         ignore_stmt(tokens)
 
-execution_part = block(execution_stmt)
+execution_part = block(execution_stmt, 'execution_block')
 
 @rule
 def module_decl(tokens):
@@ -1347,7 +1351,7 @@ def program_unit(tokens):
     # TODO: block_data
     # TODO: make this faster
 
-program_unit_sequence = block(program_unit, fenced=False)
+program_unit_sequence = block(program_unit, 'compilation_unit', fenced=False)
 
 @rule
 def compilation_unit(tokens):
@@ -1357,14 +1361,18 @@ def compilation_unit(tokens):
 
 def pprint(ast, out, level=0):
     block_elems = {
+        'compilation_unit',
         'program_decl',
         'module_decl',
         'subroutine_decl',
         'function_decl',
         'interface_decl',
+        'entity_decl',
+        'entity_list',
         'type_decl',
-        'contains',
-        'block'
+        'declaration_block',
+        'contained_block',
+        'execution_block'
         }
     repl = {
         True: 'true',
@@ -1413,3 +1421,4 @@ if __name__ == '__main__':
         ast = compilation_unit(tokens)
         if args.dump:
             pprint(ast, sys.stdout)
+            print()
