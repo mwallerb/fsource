@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 from __future__ import print_function
+import sys
+import string
 import re
 import itertools
 
@@ -137,10 +139,14 @@ def parse_string(tok):
     return "".join(tokenize_regex(STRING_LEXER_REGEX[tok[0]],
                                   tok[1:-1], STRING_LEXER_ACTIONS))
 
+if sys.version_info >= (3,):
+    CHANGE_D_TO_E = str.maketrans('dD', 'eE')
+else:
+    CHANGE_D_TO_E = string.maketrans('dD', 'eE')
+
 def parse_float(tok):
     """Translates a Fortran real literal to a Python float"""
-    change_d_to_e = {100: 101, 68: 69}
-    return float(tok.translate(change_d_to_e))
+    return float(tok.translate(CHANGE_D_TO_E))
 
 def parse_bool(tok):
     return {'.true.': True, '.false.': False }[tok.lower()]
