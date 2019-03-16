@@ -1484,8 +1484,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='AST for free-form Fortran')
     parser.add_argument('files', metavar='FILE', type=str, nargs='+',
                         help='files to parse')
-    parser.add_argument('--json', dest='dump', action='store_true', default=False,
-                        help='dump the tokens to stdout')
+    parser.add_argument('--no-output', dest='output', action='store_false', default=True,
+                        help='perform parsing but do not print result')
     args = parser.parse_args()
 
     lexre = lexer.LEXER_REGEX
@@ -1494,6 +1494,6 @@ if __name__ == '__main__':
         slexer = lexer.lex_fortran(program)
         tokens = TokenStream(list(slexer))
         ast = compilation_unit(tokens, fname)
-        if args.dump:
+        if args.output:
             pprint(ast, sys.stdout)
             print()
