@@ -9,7 +9,7 @@ class LexerError(RuntimeError):
     def __init__(self, text, pos):
         self.text = text
         self.pos = pos
-        RuntimeError.__init__(
+        RuntimeError.__init__(self,
             "Lexer error at character %d:\n%s" % (pos, text[pos:pos+70]))
 
 def tokenize_regex(regex, text):
@@ -160,9 +160,6 @@ def parse_radix(tok):
     base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
     return int(tok[2:-1], base)
 
-
-class LexerError(RuntimeError):
-    pass
 
 def lexer_print_actions():
     return (None,
