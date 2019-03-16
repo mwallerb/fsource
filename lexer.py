@@ -73,7 +73,7 @@ def _lexer_regex():
           \.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)\.
           """
     dotop = r"""\.[A-Za-z]+\."""
-    preproc = r"""(?:\#[^\r\n]+){endline}""".format(endline=endline)
+    preproc = r"""(?:\#|include[ \t])[^\r\n]+{endline}""".format(endline=endline)
     word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&])"""
     linestart = r"""(?<=[\r\n])"""
     compound = r"""
