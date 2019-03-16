@@ -1490,8 +1490,8 @@ if __name__ == '__main__':
 
     lexre = lexer.LEXER_REGEX
     for fname in args.files:
-        program = open(fname).read()
-        slexer = lexer.tokenize_regex(lexre, program)
+        program = open(fname)
+        slexer = lexer.lex_fortran(program)
         tokens = TokenStream(list(slexer))
         ast = compilation_unit(tokens, fname)
         if args.dump:

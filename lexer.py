@@ -27,19 +27,38 @@ def tokenize_regex(regex, text):
     except (TypeError, IndexError) as e:
         raise LexerError(text, match.start())
 
-def _lexer_regex():
-    """Return regular expression for parsing free-form Fortran 2008"""
-    newline = r"""(?:\r\n?|\n)"""
+def _stub_regex():
+    """Return regular expression for stub part of continuation"""
+    endline = r"""(?:\r\n?|\n)$"""
     comment = r"""(?:![^\r\n]*)"""
     skip_ws = r"""[\t ]*"""
-    contn = r"""(?:&{skipws}{comment}?{newline}{skipws}(?:&{skipws})?)""" \
-                .format(skipws=skip_ws, comment=comment, newline=newline)
+    stub = r"""(?x)^
+                (?: '(?:''|[^'\r\n])*(?=&{skipws}{endline})
+                  | "(?:""|[^"\r\n])*(?=&{skipws}{endline})
+                  | [^\s&]*(?=&{skipws}{comment}?{endline})
+                  )
+            """.format(skipws=skip_ws, comment=comment, endline=endline)
+    return re.compile(stub)
+
+def _spill_regex():
+    """Return regular expression, where group 1 matches continuation spill"""
+    return re.compile("""(?xs)^[ \t]*&?(.*)$""")
+
+def _lexer_regex():
+    """Return regular expression for parsing free-form Fortran 2008"""
+    endline = r"""(?:\r\n?|\n)$"""
+    comment = r"""(?:![^\r\n]*)"""
+    skip_ws = r"""[\t ]*"""
     postquote = r"""(?!['"\w])"""
-    sq_string = r"""'(?:''|&{skipws}{newline}|[^'\r\n])*'{postquote}""" \
-                .format(skipws=skip_ws, newline=newline, postquote=postquote)
-    dq_string = r""""(?:""|&{skipws}{newline}|[^"\r\n])*"{postquote}""" \
-                .format(skipws=skip_ws, newline=newline, postquote=postquote)
-    postnum = r"""(?!['"0-9A-Za-z]|\.[0-9])"""
+    sq_string = r"""'(?:''|[^'\r\n])*'{postquote}""".format(postquote=postquote)
+    dq_string = r""""(?:""|[^"\r\n])*"{postquote}""".format(postquote=postquote)
+    sq_trunc = r"""'(?:''|[^'\r\n])*&{skipws}{endline}""" \
+                    .format(skipws=skip_ws, endline=endline)
+    dq_trunc = r""""(?:""|[^"\r\n])*&{skipws}{endline}""" \
+                    .format(skipws=skip_ws, endline=endline)
+    contd = r"""(?:[^\s&]*&{skipws}{comment}?{endline})""" \
+                    .format(skipws=skip_ws, comment=comment, endline=endline)
+    postnum = r"""(?!['"&0-9A-Za-z]|\.[0-9])"""
     integer = r"""\d+{postnum}""".format(postnum=postnum)
     decimal = r"""(?:\d+\.\d*|\.\d+)"""
     exponent = r"""(?:[dDeE][-+]?\d+)"""
@@ -54,8 +73,8 @@ def _lexer_regex():
           \.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)\.
           """
     dotop = r"""\.[A-Za-z]+\."""
-    preproc = r"""(?:\#[^\r\n]+){newline}""".format(newline=newline)
-    word = r"""[A-Za-z][A-Za-z0-9_]*"""
+    preproc = r"""(?:\#[^\r\n]+){endline}""".format(endline=endline)
+    word = r"""[A-Za-z][A-Za-z0-9_]*(?!&)"""
     linestart = r"""(?<=[\r\n])"""
     compound = r"""
           (?: block(?=(?:data)\W)
@@ -70,10 +89,10 @@ def _lexer_regex():
             )
           """
     fortran_token = r"""(?ix)
-          {linestart}{skipws}(\d{{1,5}})(?=\s)  #  1 line number
-        | {linestart}({skipws}{preproc})        #  2 preprocessor stmt
-        | {skipws}{contd}?(?:
-            ({comment}?(?:{newline}|$))         #  3 newline or end
+          ^{skipws}(\d{{1,5}})(?=\s)            #  1 line number
+        | ^({skipws}{preproc})                  #  2 preprocessor stmt
+        | {skipws}(?:
+            ({comment}?{endline})               #  3 endline
           | ({sqstring} | {dqstring})           #  4 strings
           | ({real})                            #  5 real
           | ({int})                             #  6 ints
@@ -83,15 +102,17 @@ def _lexer_regex():
           | ({operator} | {builtin_dot})        # 10 symbolic/dot operator
           | ({dotop})                           # 11 custom dot operator
           | ({compound} | {word})               # 12 word
+          | ({contd} | {sqtrunc} | {dqtrunc})   # (13 continuation)
           | (?=.)
           )
         """.format(
-                skipws=skip_ws, newline=newline, linestart=linestart,
-                comment=comment, contd=contn, preproc=preproc,
+                skipws=skip_ws, endline=endline, linestart=linestart,
+                comment=comment, preproc=preproc,
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                dotop=dotop, compound=compound, word=word
+                dotop=dotop, compound=compound, word=word,
+                contd=contd, sqtrunc=sq_trunc, dqtrunc=dq_trunc
                 )
 
     return re.compile(fortran_token)
@@ -111,23 +132,16 @@ CAT_CUSTOM_DOT = 11
 CAT_WORD = 12
 
 LEXER_REGEX = _lexer_regex()
+STUB_REGEX = _stub_regex()
+SPILL_REGEX = _spill_regex()
 
 def _string_lexer_regex(quote):
-    skipws = r"""[\t ]*"""
-    newline = r"""(?:\r\n?|\n)"""
-    pattern = r"""(?x)
-          ({quote}{quote})
-        | (&{skipws}{newline}(?:{skipws}&)?)
-        | (&)
-        | ([^{quote}&\r\n]+)
-        """.format(newline=newline, skipws=skipws, quote=quote)
+    pattern = r"""(?x) ({quote}{quote}) | ([^{quote}]+)""".format(quote=quote)
     return re.compile(pattern)
 
 def _string_lexer_actions():
     return (None,
         lambda tok: tok[0],
-        lambda tok: "\n",
-        lambda tok: "&",
         lambda tok: tok,
         )
 
@@ -162,7 +176,7 @@ def parse_radix(tok):
 
 
 def lexer_print_actions():
-    return (None,
+    return (lambda tok: 'eof:$\n',
             lambda tok: 'lineno:%s ' % tok,
             lambda tok: 'preproc:%s ' % tok,
             lambda tok: 'eos:%s\n' % repr(tok.rstrip()),
@@ -177,6 +191,30 @@ def lexer_print_actions():
             lambda tok: 'word:%s ' % tok
             )
 
+def lex_fortran(buffer):
+    # For speed of access
+    lexer_regex = LEXER_REGEX
+    stub_regex = STUB_REGEX
+    spill_regex = SPILL_REGEX
+
+    # Iterate through lines of the file
+    for line in buffer:
+        tokens = list(tokenize_regex(lexer_regex, line))
+
+        # Continuation lines
+        while tokens[-1][0] == 13:
+            stub = stub_regex.match(tokens.pop()[1]).group(0)
+            spill = spill_regex.match(next(buffer)).group(1)
+            tokens += list(tokenize_regex(lexer_regex, stub + spill))
+
+        # Yield that stuff
+        for token_pair in tokens:
+            yield token_pair
+
+    yield (CAT_EOS, '\n')
+    yield (CAT_DOLLAR, '<$>')
+    yield (CAT_DOLLAR, '<$>')
+
 if __name__ == '__main__':
     import sys
     import argparse
@@ -189,10 +227,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     for fname in args.files:
-        contents = "\n" + open(fname).read()
+        contents = open(fname)
         if args.dump:
             actions = lexer_print_actions()
-            for cat, token in tokenize_regex(LEXER_REGEX, contents):
+            for cat, token in lex_fortran(contents):
                 sys.stdout.write(actions[cat](token))
         else:
-            for _ in tokenize_regex(LEXER_REGEX, contents): pass
+            for _ in lex_fortran(contents): pass
