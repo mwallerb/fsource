@@ -1,14 +1,28 @@
 #!/usr/bin/env python
 """
-Lexer for free-form Fortran, up to version 2008.
+Lexical analysis for free-form Fortran, up to version 2008.
 
+Uses regular expressions to split up a Fortran source file into a sequence
+of tokens, where each token is has a category attached to it signifying its
+type (literal, identifier, comment, etc.).
 
+Lexical analysis must deal with two ambiguities in the Fortran grammar:
+
+ 1. The string '::' can mean an empty slice or a separator token.  The
+    lexer always returns single ':', which means one gets '::' as a
+    sequence of two ':' and cannot detect whitespace within a seperator.
+
+ 2. '(//)' can mean an empty inplace array or an overloaded '//' operator,
+    and '(/)', which is ambiguous for a similar reason.  To work around
+    this lexer will return a token of category `CAT_BRACKETED_SLASH`, and
+    the application must disambiguate.
+
+Author: Markus Wallerberger
 """
 from __future__ import print_function
 import sys
 import string
 import re
-import itertools
 
 class LexerError(RuntimeError):
     def __init__(self, text, pos):
@@ -176,6 +190,7 @@ def parse_float(tok):
     return float(tok.translate(CHANGE_D_TO_E))
 
 def parse_bool(tok):
+    """Translates a Fortran boolean literal to a Python boolean"""
     return {'.true.': True, '.false.': False }[tok.lower()]
 
 def parse_radix(tok):
@@ -183,23 +198,14 @@ def parse_radix(tok):
     base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
     return int(tok[2:-1], base)
 
-def lexer_print_actions():
-    return (lambda tok: 'eof:$\n',
-            lambda tok: 'lineno:%s ' % tok,
-            lambda tok: 'preproc:%s ' % tok,
-            lambda tok: 'eos:%s\n' % repr(tok.rstrip()),
-            lambda tok: 'string:%s ' % repr(parse_string(tok)),
-            lambda tok: 'float:%s ' % repr(parse_float(tok)),
-            lambda tok: 'int:%d ' % int(tok),
-            lambda tok: 'bool:%s ' % repr(parse_bool(tok)),
-            lambda tok: 'radix:%d ' % parse_radix(tok),
-            lambda tok: 'bracketed_slashes:%s ' % tok[1:-1],
-            lambda tok: 'op:%s ' % tok,
-            lambda tok: 'custom_dot:%s ' % tok[1:-1],
-            lambda tok: 'word:%s ' % tok
-            )
-
 def lex_fortran(buffer):
+    """Perform lexical analysis for an opened free-form Fortran file.
+
+    Generate pairs of the form `(cat, token)`, where `cat` is a category code
+    between 0 and 12 signifying the type of token returned, and `token` is the
+    portion of source code matching the token.  Whitespace is generally
+    ignored.
+    """
     # For speed of access
     lexer_regex = LEXER_REGEX
     stub_regex = STUB_REGEX
@@ -209,7 +215,11 @@ def lex_fortran(buffer):
     for line in buffer:
         tokens = list(tokenize_regex(lexer_regex, line))
 
-        # Continuation lines
+        # Continuation lines:
+        # Fortran allows complicated line continuations with '&', optional
+        # comments, and an optional '&' on the following line.  Worse, it also
+        # allows to split any token across multiple lines, which requires the
+        # lexer to re-read parts of the previous line.
         while tokens[-1][0] == 13:
             stub = stub_regex.match(tokens.pop()[1]).group(0)
             spill = spill_regex.match(next(buffer)).group(1)
@@ -224,15 +234,16 @@ def lex_fortran(buffer):
     yield (CAT_DOLLAR, '<$>')
 
 def pprint(lexer, out):
-    out.write('[\n')
+    """Make nicely formatted JSON output from lexer output"""
+    out.write("[\n")
+    out.write("['lex_version', '1.0'],\n")
     for cat, token in lexer:
-        out.write("['%s',%s], " % (CAT_NAMES[cat], repr(token)))
+        out.write("['%s',%s]" % (CAT_NAMES[cat], repr(token)))
         if cat == CAT_EOS or cat == CAT_PREPROC:
-            out.write('\n')
-        if cat == CAT_DOLLAR:
-            out.write("['eof','$']\n")
-            break
-    out.write(']\n')
+            out.write(',\n')
+        else:
+            out.write(', ')
+    out.write("['eof', '<$>']\n]\n")
 
 if __name__ == '__main__':
     import sys
@@ -241,7 +252,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Lexer for free-form Fortran')
     parser.add_argument('files', metavar='FILE', type=str, nargs='+',
                         help='files to lex')
-    parser.add_argument('--no-output', dest='output', action='store_false', default=True,
+    parser.add_argument('--no-output', dest='output', action='store_false',
+                        default=True,
                         help='perform lexing but do not print result')
     args = parser.parse_args()
 
