@@ -74,7 +74,7 @@ def _lexer_regex():
           """
     dotop = r"""\.[A-Za-z]+\."""
     preproc = r"""(?:\#[^\r\n]+){endline}""".format(endline=endline)
-    word = r"""[A-Za-z][A-Za-z0-9_]*(?!&)"""
+    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&])"""
     linestart = r"""(?<=[\r\n])"""
     compound = r"""
           (?: block(?=(?:data)\W)
