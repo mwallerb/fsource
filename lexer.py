@@ -6,9 +6,13 @@ import re
 import itertools
 
 class LexerError(RuntimeError):
-    pass
+    def __init__(self, text, pos):
+        self.text = text
+        self.pos = pos
+        RuntimeError.__init__(
+            "Lexer error at character %d:\n%s" % (pos, text[pos:pos+70]))
 
-def tokenize_regex(regex, text, actions=None):
+def tokenize_regex(regex, text):
     """Tokenizes text using the groups in the regex specified
 
     Expects a `regex`, where different capturing groups correspond to different
@@ -17,18 +21,11 @@ def tokenize_regex(regex, text, actions=None):
     text).
     """
     try:
-        if actions is None:
-            for match in regex.finditer(text):
-                category = match.lastindex
-                yield category, match.group(category)
-        else:
-            for match in regex.finditer(text):
-                category = match.lastindex
-                yield actions[category](match.group(category))
+        for match in regex.finditer(text):
+            category = match.lastindex
+            yield category, match.group(category)
     except (TypeError, IndexError) as e:
-        raise LexerError(
-            "Lexer error at character %d:\n%s" %
-            (match.start(), text[match.start():match.start()+100]))
+        raise LexerError(text, match.start())
 
 def _lexer_regex():
     """Return regular expression for parsing free-form Fortran 2008"""
@@ -142,8 +139,9 @@ STRING_LEXER_ACTIONS = _string_lexer_actions()
 
 def parse_string(tok):
     """Translates a Fortran string literal to a Python string"""
-    return "".join(tokenize_regex(STRING_LEXER_REGEX[tok[0]],
-                                  tok[1:-1], STRING_LEXER_ACTIONS))
+    actions = STRING_LEXER_ACTIONS
+    return "".join(actions[cat](token) for (cat, token)
+                   in tokenize_regex(STRING_LEXER_REGEX[tok[0]], tok[1:-1]))
 
 if sys.version_info >= (3,):
     CHANGE_D_TO_E = str.maketrans('dD', 'eE')
@@ -168,18 +166,18 @@ class LexerError(RuntimeError):
 
 def lexer_print_actions():
     return (None,
-            lambda tok: 'lineno:%s' % tok,
-            lambda tok: 'preproc:%s' % tok,
+            lambda tok: 'lineno:%s ' % tok,
+            lambda tok: 'preproc:%s ' % tok,
             lambda tok: 'eos:%s\n' % repr(tok.rstrip()),
-            lambda tok: 'string:%s' % repr(parse_string(tok)),
-            lambda tok: 'float:%s' % repr(parse_float(tok)),
-            lambda tok: 'int:%d' % int(tok),
-            lambda tok: 'bool:%s' % repr(parse_bool(tok)),
-            lambda tok: 'radix:%d' % parse_radix(tok),
-            lambda tok: 'bracketed_slashes:%s' % tok[1:-1],
-            lambda tok: 'op:%s' % tok,
-            lambda tok: 'custom_dot:%s' % tok[1:-1],
-            lambda tok: 'word:%s' % tok
+            lambda tok: 'string:%s ' % repr(parse_string(tok)),
+            lambda tok: 'float:%s ' % repr(parse_float(tok)),
+            lambda tok: 'int:%d ' % int(tok),
+            lambda tok: 'bool:%s ' % repr(parse_bool(tok)),
+            lambda tok: 'radix:%d ' % parse_radix(tok),
+            lambda tok: 'bracketed_slashes:%s ' % tok[1:-1],
+            lambda tok: 'op:%s ' % tok,
+            lambda tok: 'custom_dot:%s ' % tok[1:-1],
+            lambda tok: 'word:%s ' % tok
             )
 
 if __name__ == '__main__':
@@ -197,6 +195,7 @@ if __name__ == '__main__':
         contents = "\n" + open(fname).read()
         if args.dump:
             actions = lexer_print_actions()
-            print (" ".join(tokenize_regex(LEXER_REGEX, contents, actions)))
+            for cat, token in tokenize_regex(LEXER_REGEX, contents):
+                sys.stdout.write(actions[cat](token))
         else:
             for _ in tokenize_regex(LEXER_REGEX, contents): pass
