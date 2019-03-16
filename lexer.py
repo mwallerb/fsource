@@ -1,4 +1,9 @@
 #!/usr/bin/env python
+"""
+Lexer for free-form Fortran, up to version 2008.
+
+
+"""
 from __future__ import print_function
 import sys
 import string
@@ -131,6 +136,10 @@ CAT_OP = 10
 CAT_CUSTOM_DOT = 11
 CAT_WORD = 12
 
+CAT_NAMES = ('eof', 'lineno', 'preproc', 'eos', 'string', 'float',
+             'int', 'boolean', 'radix', 'bracketed_slash', 'op',
+             'custom_dot', 'word')
+
 LEXER_REGEX = _lexer_regex()
 STUB_REGEX = _stub_regex()
 SPILL_REGEX = _spill_regex()
@@ -174,7 +183,6 @@ def parse_radix(tok):
     base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
     return int(tok[2:-1], base)
 
-
 def lexer_print_actions():
     return (lambda tok: 'eof:$\n',
             lambda tok: 'lineno:%s ' % tok,
@@ -215,6 +223,17 @@ def lex_fortran(buffer):
     yield (CAT_DOLLAR, '<$>')
     yield (CAT_DOLLAR, '<$>')
 
+def pprint(lexer, out):
+    out.write('[\n')
+    for cat, token in lexer:
+        out.write("['%s',%s], " % (CAT_NAMES[cat], repr(token)))
+        if cat == CAT_EOS or cat == CAT_PREPROC:
+            out.write('\n')
+        if cat == CAT_DOLLAR:
+            out.write("['eof','$']\n")
+            break
+    out.write(']\n')
+
 if __name__ == '__main__':
     import sys
     import argparse
@@ -222,15 +241,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Lexer for free-form Fortran')
     parser.add_argument('files', metavar='FILE', type=str, nargs='+',
                         help='files to lex')
-    parser.add_argument('--dump', dest='dump', action='store_true', default=False,
-                        help='dump the tokens to stdout')
+    parser.add_argument('--no-output', dest='output', action='store_false', default=True,
+                        help='perform lexing but do not print result')
     args = parser.parse_args()
 
     for fname in args.files:
         contents = open(fname)
-        if args.dump:
-            actions = lexer_print_actions()
-            for cat, token in lex_fortran(contents):
-                sys.stdout.write(actions[cat](token))
+        if args.output:
+            pprint(lex_fortran(contents), sys.stdout)
         else:
             for _ in lex_fortran(contents): pass
