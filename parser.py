@@ -1092,13 +1092,34 @@ def parameter_stmt(tokens):
         tokens.expect('(')
         seq = param_init_sequence(tokens)
         tokens.expect(')')
+        eos(tokens)
     return seq
+
+equivalence_object_sequence = comma_sequence(lvalue, 'equivalence_set')
+
+@rule
+def equivalence_set(tokens):
+    tokens.expect('(')
+    seq = equivalence_object_sequence(tokens)
+    tokens.expect(')')
+    return seq
+
+equivalence_set_sequence = comma_sequence(equivalence_set, 'equivalence_stmt')
+
+@rule
+def equivalence_stmt(tokens):
+    tokens.expect('equivalence')
+    with LockedIn(tokens):
+        seq = equivalence_set_sequence(tokens)
+        eos(tokens)
+        return seq
 
 # TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
-    'use':       use_stmt,
-    'implicit':  implicit_stmt,
-    'interface': interface_decl,
+    'use':         use_stmt,
+    'implicit':    implicit_stmt,
+    'interface':   interface_decl,
+    'equivalence': equivalence_stmt,
 
     'public':      imbue_stmt(tag('public', 'public'), iface_name),
     'private':     imbue_stmt(tag('private', 'private'), iface_name),
@@ -1532,7 +1553,7 @@ if __name__ == '__main__':
 
     lex_fortran = lexer.get_lexer(args.form)
     for fname in args.files:
-        print ("### " + fname)
+        sys.stderr.write("Parsing: " + fname + "\n")
         program = open(fname)
         slexer = lex_fortran(program)
         tokens = TokenStream(list(slexer))
