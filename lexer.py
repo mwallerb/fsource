@@ -109,6 +109,7 @@ def _lexer_regex():
             | select(?=(?:case|type)\W)
             )
           """
+    format = r"""format\s*\([^\r\n]+"""
     fortran_token = r"""(?ix)
           ^{skipws}(\d{{1,5}})(?=\s)            #  1 line number
         | ^({skipws}{preproc})                  #  2 preprocessor stmt
@@ -122,8 +123,9 @@ def _lexer_regex():
           | \( {skipws} (//?) {skipws} \)       #  9 bracketed slashes
           | ({operator} | {builtin_dot})        # 10 symbolic/dot operator
           | ({dotop})                           # 11 custom dot operator
-          | ({compound} | {word})               # 12 word
-          | ({contd} | {sqtrunc} | {dqtrunc})   # (13 continuation)
+          | ({format})                          # 12 format line
+          | ({compound} | {word})               # 13 word
+          | ({contd} | {sqtrunc} | {dqtrunc})   # (14 continuation)
           | (?=.)
           )
         """.format(
@@ -132,7 +134,7 @@ def _lexer_regex():
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                dotop=dotop, compound=compound, word=word,
+                dotop=dotop, compound=compound, word=word, format=format,
                 contd=contd, sqtrunc=sq_trunc, dqtrunc=dq_trunc
                 )
 
@@ -150,11 +152,13 @@ CAT_RADIX = 8
 CAT_BRACKETED_SLASH = 9
 CAT_OP = 10
 CAT_CUSTOM_DOT = 11
-CAT_WORD = 12
+CAT_FORMAT = 12
+CAT_WORD = 13
+_CAT_CONTINUATION = 14
 
 CAT_NAMES = ('eof', 'lineno', 'preproc', 'eos', 'string', 'float',
              'int', 'boolean', 'radix', 'bracketed_slash', 'op',
-             'custom_dot', 'word')
+             'custom_dot', 'word', 'format')
 
 LEXER_REGEX = _lexer_regex()
 STUB_REGEX = _stub_regex()
@@ -208,6 +212,7 @@ def lex_free_form(buffer):
     stub_regex = STUB_REGEX
     spill_regex = SPILL_REGEX
     comment_line_regex = COMMENT_LINE_REGEX
+    cat_continuation = _CAT_CONTINUATION
 
     # Iterate through lines of the file
     for line in buffer:
@@ -218,7 +223,7 @@ def lex_free_form(buffer):
         # comments, and an optional '&' on the following line.  Worse, it also
         # allows to split any token across multiple lines, which requires the
         # lexer to re-read parts of the previous line.
-        while tokens[-1][0] == 13:
+        while tokens[-1][0] == cat_continuation:
             spill_line = next(buffer)
             if comment_line_regex.match(spill_line):
                 continue

@@ -1432,6 +1432,11 @@ def assignment_stmt(tokens):
     #eos(tokens)
 
 @rule
+def format_stmt(tokens):
+    tokens.expect_cat(lexer.CAT_FORMAT)
+    eos(tokens)
+
+@rule
 def execution_stmt(tokens):
     try:
         prefixed_stmt(tokens)
@@ -1439,9 +1444,12 @@ def execution_stmt(tokens):
         try:
             assignment_stmt(tokens)
         except NoMatch:
-            # This is the least likely, so it moved here.
-            construct_tag(tokens)
-            construct(tokens)
+            try:
+                # This is the least likely, so it moved here.
+                construct_tag(tokens)
+                construct(tokens)
+            except NoMatch:
+                format_stmt(tokens)
 
 # FIXME: even though this incurs a runtime penalty, we cannot use a simple
 #        fence here, since it is technically allowed to cause maximum confusion
