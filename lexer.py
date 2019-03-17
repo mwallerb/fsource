@@ -96,7 +96,8 @@ def _lexer_regex():
     builtin_dot = r"""
           \.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)\.
           """
-    dotop = r"""\.[A-Za-z]+\."""
+    # HACK: The spaces are to work around wacky F77 code
+    dotop = r"""\.\s*[A-Za-z]+\s*\."""
     preproc = r"""(?:\#|include[ \t])[^\r\n]+{endline}""".format(endline=endline)
     word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&])"""
     linestart = r"""(?<=[\r\n])"""
