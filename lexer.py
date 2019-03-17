@@ -64,10 +64,6 @@ def _stub_regex():
             """.format(skipws=skip_ws, comment=comment, endline=endline)
     return re.compile(stub)
 
-def _spill_regex():
-    """Return regular expression, where group 1 matches continuation spill"""
-    return re.compile("""(?xs)^[ \t]*&?(.*)$""")
-
 def _lexer_regex():
     """Return regular expression for parsing free-form Fortran 2008"""
     endline = r"""(?:\r\n?|\n)$"""
@@ -162,7 +158,8 @@ CAT_NAMES = ('eof', 'lineno', 'preproc', 'eos', 'string', 'float',
 
 LEXER_REGEX = _lexer_regex()
 STUB_REGEX = _stub_regex()
-SPILL_REGEX = _spill_regex()
+SPILL_REGEX = re.compile("""(?xs)^[ \t]*&?(.*)$""")
+COMMENT_LINE_REGEX = re.compile("""(?xs)^[ \t]*!(.*)$""")
 
 def _string_lexer_regex(quote):
     pattern = r"""(?x) ({quote}{quote}) | ([^{quote}]+)""".format(quote=quote)
@@ -210,6 +207,7 @@ def lex_free_form(buffer):
     lexer_regex = LEXER_REGEX
     stub_regex = STUB_REGEX
     spill_regex = SPILL_REGEX
+    comment_line_regex = COMMENT_LINE_REGEX
 
     # Iterate through lines of the file
     for line in buffer:
@@ -221,8 +219,11 @@ def lex_free_form(buffer):
         # allows to split any token across multiple lines, which requires the
         # lexer to re-read parts of the previous line.
         while tokens[-1][0] == 13:
+            spill_line = next(buffer)
+            if comment_line_regex.match(spill_line):
+                continue
             stub = stub_regex.match(tokens.pop()[1]).group(0)
-            spill = spill_regex.match(next(buffer)).group(1)
+            spill = spill_regex.match(spill_line).group(1)
             tokens += list(tokenize_regex(lexer_regex, stub + spill))
 
         # Yield that stuff
