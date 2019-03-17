@@ -258,8 +258,13 @@ def inplace_array(tokens):
 def parens_expr(tokens):
     tokens.expect('(')
     inner_expr = expr(tokens)
-    tokens.expect(')')
-    return tokens.produce('parens', inner_expr)
+    if tokens.marker(','):
+        imag_part = expr(tokens)
+        tokens.expect(')')
+        return tokens.produce('complex', inner_expr, imag_part)
+    else:
+        tokens.expect(')')
+        return tokens.produce('parens', inner_expr)
 
 
 @rule
