@@ -714,12 +714,14 @@ _BLOCK_DELIM = { 'end', 'else', 'contains', 'case' }
 def block(rule, production_tag='block', fenced=True):
     # Fortran blocks are delimited by one of these words, so we can use
     # them in failing fast
-    def block_rule(tokens):
+    def block_rule(tokens, until_lineno=None):
         stmts = []
         while True:
             cat, token = tokens.peek()
             if cat == lexer.CAT_LINENO:
                 next(tokens)
+                if int(token) == until_lineno:        # non-block do construct
+                    break
             elif cat == lexer.CAT_EOS or token == ';':
                 next(tokens)
             elif cat == lexer.CAT_PREPROC:
@@ -1160,18 +1162,35 @@ def loop_ctrl(tokens):
 optional_loop_ctrl = optional(loop_ctrl)
 
 @rule
+def end_do_stmt(tokens):
+    tokens.expect('end')
+    if tokens.marker('do'):
+        optional_identifier(tokens)
+    eos(tokens)
+
+@rule
 def do_construct(tokens):
     optional_construct_tag(tokens)
     tokens.expect('do')
     with LockedIn(tokens):
-        # TODO: non-block do
-        optional_loop_ctrl(tokens)
-        eos(tokens)
-        execution_part(tokens)
-        tokens.expect('end')
-        if tokens.marker('do'):
-            optional_identifier(tokens)
-        eos(tokens)
+        try:
+            until_lineno = int(int_(tokens)[1])
+        except NoMatch:
+            # BLOCK DO CONSTRUCT
+            optional_loop_ctrl(tokens)
+            eos(tokens)
+            execution_part(tokens)
+            end_do_stmt(tokens)
+        else:
+            # NONBLOCK DO CONSTRUCT
+            # TODO: nested non-block do constructs with shared end label
+            optional_loop_ctrl(tokens)
+            eos(tokens)
+            execution_part(tokens, until_lineno)
+            try:
+                end_do_stmt(tokens)
+            except NoMatch:
+                execution_stmt(tokens)
 
 @rule
 def case_slice(tokens):
@@ -1360,8 +1379,6 @@ def execution_stmt(tokens):
             # This is the least likely, so it moved here.
             construct_tag(tokens)
             construct(tokens)
-
-
 
 # FIXME: even though this incurs a runtime penalty, we cannot use a simple
 #        fence here, since it is technically allowed to cause maximum confusion
