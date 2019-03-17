@@ -455,8 +455,6 @@ def expr(tokens, min_glue=0):
 
 _optional_expr = optional(expr)
 
-
-
 # -----------
 
 @rule
@@ -542,8 +540,11 @@ def _typename_handler(tokens):
 
 def double_precision(tokens):
     tokens.expect('double')
-    tokens.expect('precision')
-    return ('double_precision',)
+    if tokens.marker('precision'):
+        return tokens.produce('real_type', 'double')
+    else:
+        tokens.expect('complex')
+        return tokens.produce('complex_type', 'double')
 
 _TYPE_SPEC_HANDLERS = {
     'integer':   prefix('integer', optional(kind_selector), 'integer_type'),
@@ -649,10 +650,10 @@ optional_initializer = optional(initializer)
 @rule
 def entity(tokens):
     name = identifier(tokens)
-    len_ = optional_char_len_suffix(tokens)
     shape_ = optional_shape(tokens)
+    len_ = optional_char_len_suffix(tokens)
     init = optional_initializer(tokens)
-    return tokens.produce('entity', name, len_, shape_, init)
+    return tokens.produce('entity', name, shape_, len_, init)
 
 entity_sequence = comma_sequence(entity, 'entity_list')
 
