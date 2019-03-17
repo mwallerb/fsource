@@ -6,6 +6,11 @@ Uses regular expressions to split up a Fortran source file into a sequence
 of tokens, where each token is has a category attached to it signifying its
 type (literal, identifier, comment, etc.).
 
+Generate pairs of the form `(cat, token)`, where `cat` is a category code
+between 0 and 12 signifying the type of token returned, and `token` is the
+portion of source code matching the token.  Whitespace is generally
+ignored.
+
 Lexical analysis must deal with two ambiguities in the Fortran grammar:
 
  1. The string '::' can mean an empty slice or a separator token.  The
@@ -198,14 +203,8 @@ def parse_radix(tok):
     base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
     return int(tok[2:-1], base)
 
-def lex_fortran(buffer):
-    """Perform lexical analysis for an opened free-form Fortran file.
-
-    Generate pairs of the form `(cat, token)`, where `cat` is a category code
-    between 0 and 12 signifying the type of token returned, and `token` is the
-    portion of source code matching the token.  Whitespace is generally
-    ignored.
-    """
+def lex_free_form(buffer):
+    """Perform lexical analysis for an opened free-form Fortran file."""
     # For speed of access
     lexer_regex = LEXER_REGEX
     stub_regex = STUB_REGEX
@@ -233,6 +232,49 @@ def lex_fortran(buffer):
     yield (CAT_DOLLAR, '<$>')
     yield (CAT_DOLLAR, '<$>')
 
+FIXED_CONTD_REGEX = re.compile(r'^[ ]{5}[^ 0]')
+
+def mend_fixed_form_lines(buffer, margin=72):
+    """Handle line continuation in fixed form fortran"""
+    # For speed of access
+    fixed_contd_regex = FIXED_CONTD_REGEX
+
+    # Iterate through lines of the file.  Fortran allows to split tokens
+    # across lines, which is why we build up the whole line before giving
+    # it to the tokenizer.
+    logical_line = None
+    for line in buffer:
+        line = line[:margin].rstrip()
+        if fixed_contd_regex.match(line):
+            # This is a continuation.
+            logical_line += line[6:]
+        else:
+            # This is a new line
+            if logical_line is not None:
+                yield logical_line + "\n"
+            logical_line = line
+
+    # Handle the last line
+    if logical_line is not None:
+        yield logical_line + "\n"
+
+def lex_fixed_form(buffer, margin=72):
+    """Perform lexical analysis for an opened fixed-form Fortran file."""
+    # For speed of access
+    lexer_regex = LEXER_REGEX
+
+    for line in mend_fixed_form_lines(buffer, margin):
+        if line[0] in 'cC*':
+            # Comment line
+            yield (CAT_EOS, line)
+        else:
+            # Handle normal lines
+            for token_pair in tokenize_regex(lexer_regex, line):
+                yield token_pair
+
+    yield (CAT_DOLLAR, '<$>')
+    yield (CAT_DOLLAR, '<$>')
+
 def pprint(lexer, out):
     """Make nicely formatted JSON output from lexer output"""
     out.write("[\n")
@@ -245,6 +287,12 @@ def pprint(lexer, out):
             out.write(', ')
     out.write("['eof', '<$>']\n]\n")
 
+def get_lexer(form='free'):
+    if form == 'free':
+        return lex_free_form
+    else:
+        return lex_fixed_form
+
 if __name__ == '__main__':
     import sys
     import argparse
@@ -252,14 +300,19 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Lexer for free-form Fortran')
     parser.add_argument('files', metavar='FILE', type=str, nargs='+',
                         help='files to lex')
+    parser.add_argument('--fixed-form', dest='form', action='store_const',
+                        const='fixed', default='free', help='Fixed form input')
+    parser.add_argument('--free-form', dest='form', action='store_const',
+                        const='free', help='Free form input')
     parser.add_argument('--no-output', dest='output', action='store_false',
                         default=True,
                         help='perform lexing but do not print result')
     args = parser.parse_args()
+    lexer = get_lexer(args.form)
 
     for fname in args.files:
         contents = open(fname)
         if args.output:
-            pprint(lex_fortran(contents), sys.stdout)
+            pprint(lexer(contents), sys.stdout)
         else:
-            for _ in lex_fortran(contents): pass
+            for _ in lexer(contents): pass
