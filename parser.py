@@ -1062,6 +1062,38 @@ def imbue_stmt(prefix_rule, object_rule):
             return tokens.produce('imbue', prefix, *vars[1:])
     return imbue_stmt_rule
 
+# TODO: one can also save common blocks
+imbue_save_stmt = imbue_stmt(tag('save', 'save'), identifier)
+
+@rule
+def save_all_stmt(tokens):
+    tokens.expect('save')
+    eos(tokens)
+    return tokens.produce('save_all')
+
+def save_stmt(tokens):
+    try:
+        return save_all_stmt(tokens)
+    except NoMatch:
+        return imbue_save_stmt(tokens)
+
+@rule
+def param_init(tokens):
+    name = identifier(tokens)
+    init = initializer(tokens)
+    return tokens.produce('param_init', name, init)
+
+param_init_sequence = comma_sequence(param_init, 'parameter_stmt')
+
+@rule
+def parameter_stmt(tokens):
+    tokens.expect('parameter')
+    with LockedIn(tokens):
+        tokens.expect('(')
+        seq = param_init_sequence(tokens)
+        tokens.expect(')')
+    return seq
+
 # TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
     'use':       use_stmt,
@@ -1070,10 +1102,12 @@ _DECLARATION_HANDLERS = {
 
     'public':      imbue_stmt(tag('public', 'public'), iface_name),
     'private':     imbue_stmt(tag('private', 'private'), iface_name),
+    'parameter':   parameter_stmt,
     'external':    imbue_stmt(tag('external', 'external'), identifier),
     'intent':      imbue_stmt(intent, identifier),
     'intrinsic':   imbue_stmt(tag('intrinsic', 'intrinsic'), identifier),
     'optional':    imbue_stmt(tag('optional', 'optional'), identifier),
+    'save':        save_stmt,
     }
 
 prefixed_declaration_stmt = prefixes(_DECLARATION_HANDLERS)
@@ -1182,6 +1216,7 @@ def do_construct(tokens):
             until_lineno = int(int_(tokens)[1])
         except NoMatch:
             # BLOCK DO CONSTRUCT
+            tokens.marker(',')
             optional_loop_ctrl(tokens)
             eos(tokens)
             execution_part(tokens)
@@ -1189,6 +1224,7 @@ def do_construct(tokens):
         else:
             # NONBLOCK DO CONSTRUCT
             # TODO: nested non-block do constructs with shared end label
+            tokens.marker(',')
             optional_loop_ctrl(tokens)
             eos(tokens)
             execution_part(tokens, until_lineno)
@@ -1229,8 +1265,8 @@ select_case_sequence = ws_sequence(select_case, 'select_case_list')
 def select_case_construct(tokens):
     optional_construct_tag(tokens)
     tokens.expect('select')
+    tokens.expect('case')
     with LockedIn(tokens):
-        tokens.expect('case')
         tokens.expect('(')
         expr(tokens)
         tokens.expect(')')
@@ -1485,12 +1521,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='AST for free-form Fortran')
     parser.add_argument('files', metavar='FILE', type=str, nargs='+',
                         help='files to parse')
-    parser.add_argument('--no-output', dest='output', action='store_false', default=True,
+    parser.add_argument('--fixed-form', dest='form', action='store_const',
+                        const='fixed', default='free', help='Fixed form input')
+    parser.add_argument('--free-form', dest='form', action='store_const',
+                        const='free', help='Free form input')
+    parser.add_argument('--no-output', dest='output', action='store_false',
+                        default=True,
                         help='perform parsing but do not print result')
     args = parser.parse_args()
 
-    lex_fortran = lexer.lex_free_form
+    lex_fortran = lexer.get_lexer(args.form)
     for fname in args.files:
+        print ("### " + fname)
         program = open(fname)
         slexer = lex_fortran(program)
         tokens = TokenStream(list(slexer))
