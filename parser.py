@@ -50,17 +50,12 @@ class TokenStream:
         self.stack = []
 
     def peek(self):
-        try:
-            return self.tokens[self.pos]
-        except IndexError:
-            if self.pos > len(self.tokens) + 1:  # TODO
-                raise StopIteration()
-            return lexer.CAT_DOLLAR, '<$>'
+        return self.tokens[self.pos]
 
     def __next__(self):
-        value = self.peek()
+        pos = self.pos
         self.pos += 1
-        return value
+        return self.tokens[pos]
 
     next = __next__       # Python 2
 
