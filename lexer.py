@@ -11,7 +11,7 @@ between 0 and 12 signifying the type of token returned, and `token` is the
 portion of source code matching the token.  Whitespace is generally
 ignored.
 
-Lexical analysis must deal with two ambiguities in the Fortran grammar:
+Lexical analysis must deal with three ambiguities in the Fortran grammar:
 
  1. The string '::' can mean an empty slice or a separator token.  The
     lexer always returns single ':', which means one gets '::' as a
@@ -21,6 +21,11 @@ Lexical analysis must deal with two ambiguities in the Fortran grammar:
     and '(/)', which is ambiguous for a similar reason.  To work around
     this lexer will return a token of category `CAT_BRACKETED_SLASH`, and
     the application must disambiguate.
+
+ 3. The 'FORMAT' statement is a bit of an oddball, as it allows tokens that
+    are illegal everywhere else, e.g., 3I6 or ES13.2.  The lexer works
+    around this by returning the format line as single token of category
+    `CAT_FORMAT`.
 
 Author: Markus Wallerberger
 """
