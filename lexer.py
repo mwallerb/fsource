@@ -283,9 +283,11 @@ def pprint(lexer, out):
         out.write("['%s',%s]" % (CAT_NAMES[cat], repr(token)))
         if cat == CAT_EOS or cat == CAT_PREPROC:
             out.write(',\n')
+        elif cat == CAT_DOLLAR:
+            out.write('\n]\n')
+            return
         else:
             out.write(', ')
-    out.write("['eof', '<$>']\n]\n")
 
 def get_lexer(form='free'):
     if form == 'free':
