@@ -139,7 +139,7 @@ def tag(expected, production_tag):
     @rule
     def tag_rule(tokens):
         tokens.expect(expected)
-        return production_tag
+        return (production_tag,)
 
     return tag_rule
 
@@ -710,17 +710,6 @@ def type_attrs(tokens):
         if attrs: raise ParserError(tokens, "Expecting ::")
     return tokens.produce('type_attrs', *attrs)
 
-@rule
-def lineno(tokens):
-    no = tokens.expect_cat(lexer.CAT_LINENO)
-    # Make sure we actually label something.
-    cat = tokens.peek()[0]
-    if cat in (lexer.CAT_EOS, lexer.CAT_DOLLAR):
-        raise NoMatch()
-    return tokens.produce('lineno', no)
-
-optional_lineno = optional(lineno)
-
 def preproc_stmt(tokens):
     return ('preproc_stmt', tokens.expect_cat(lexer.CAT_PREPROC))
 
@@ -753,22 +742,16 @@ def block(rule, production_tag='block', fenced=True):
 
     return block_rule
 
-entity_block = block(entity_decl)
+component_block = block(entity_decl, 'component_block')
 
-@rule
-def type_tags(tokens):
-    private_ = False
-    sequence_ = False
-    while True:
-        optional_lineno(tokens)
-        if tokens.marker('private'):
-            private_ = True
-        elif tokens.marker('sequence'):
-            sequence_ = True
-        else:
-            break
-        eos(tokens)
-    return tokens.produce('type_tags', private_, sequence_)
+_TYPE_TAG_HANDLERS = {
+    'private':     tag('private', 'private'),
+    'sequence':    tag('sequence', 'sequence'),
+    }
+
+type_tag = prefixes(_TYPE_TAG_HANDLERS)
+
+type_tag_block = block(type_tag, 'type_tags', fenced=False)
 
 optional_identifier = optional(identifier)
 
@@ -779,13 +762,13 @@ def type_decl(tokens):
     name = identifier(tokens)
     with LockedIn(tokens):
         eos(tokens)
-        tags = type_tags(tokens)
-        decls = entity_block(tokens)
+        tags = type_tag_block(tokens)
+        decls = component_block(tokens)
         tokens.expect('end')
         if tokens.marker('type'):
             optional_identifier(tokens)
         eos(tokens)
-        return tokens.produce('type_decl', name, attrs, tags, *decls)
+        return tokens.produce('type_decl', name, attrs, tags, decls)
 
 @rule
 def rename(tokens):
@@ -1446,7 +1429,7 @@ def pprint(ast, out, level=0):
         'interface_body',
         'entity_decl',
         'entity_list',
-        'type_decl',
+        'component_block',
         'declaration_block',
         'contained_block',
         'execution_block'
