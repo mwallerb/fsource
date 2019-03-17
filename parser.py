@@ -1402,6 +1402,7 @@ STMT_HANDLERS = {
     'endfile':    ignore_stmt,
     'entry':      ignore_stmt,
     'exit':       ignore_stmt,
+    'flush':      ignore_stmt,
     'format':     ignore_stmt,
     'go':         ignore_stmt,
     'inquire':    ignore_stmt,
