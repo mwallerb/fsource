@@ -45,7 +45,7 @@ class ParserError(RuntimeError):
 
 class TokenStream:
     def __init__(self, tokens, pos=0):
-        self.tokens = tokens
+        self.tokens = tuple(tokens)
         self.pos = pos
         self.stack = []
 
@@ -1506,6 +1506,7 @@ def compilation_unit(tokens, filename=None):
     return tokens.produce('compilation_unit', version, fname, *units[1:])
 
 def pprint(ast, out, level=0):
+    from json.encoder import encode_basestring
     block_elems = {
         'compilation_unit',
         'subroutine_decl',
@@ -1525,7 +1526,7 @@ def pprint(ast, out, level=0):
     }
 
     if isinstance(ast, tuple):
-        out.write("[" + repr(ast[0]))
+        out.write("[" + encode_basestring(ast[0]))
         if ast[0] in block_elems:
             for elem in ast[1:]:
                 out.write(",\n" + "    " * (level + 1))
@@ -1540,7 +1541,7 @@ def pprint(ast, out, level=0):
         try:
             val = repl[ast]
         except KeyError:
-            val = repr(ast)
+            val = encode_basestring(ast)
         out.write(val)
 
 if __name__ == '__main__':
@@ -1565,7 +1566,7 @@ if __name__ == '__main__':
         sys.stderr.write("Parsing: " + fname + "\n")
         program = open(fname)
         slexer = lex_fortran(program)
-        tokens = TokenStream(list(slexer))
+        tokens = TokenStream(slexer)
         ast = compilation_unit(tokens, fname)
         if args.output:
             pprint(ast, sys.stdout)

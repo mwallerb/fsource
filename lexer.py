@@ -31,8 +31,16 @@ Author: Markus Wallerberger
 """
 from __future__ import print_function
 import sys
-import string
 import re
+
+# Python 2/3 compatibility
+if sys.version_info >= (3,):
+    _string_like_types = str, bytes,
+    _maketrans = str.maketrans
+else:
+    import string
+    _string_like_types = basestring,
+    _maketrans = string.maketrans
 
 class LexerError(RuntimeError):
     def __init__(self, text, pos):
@@ -192,10 +200,7 @@ def parse_string(tok):
     return "".join(actions[cat](token) for (cat, token)
                    in tokenize_regex(STRING_LEXER_REGEX[tok[0]], tok[1:-1]))
 
-if sys.version_info >= (3,):
-    CHANGE_D_TO_E = str.maketrans('dD', 'eE')
-else:
-    CHANGE_D_TO_E = string.maketrans('dD', 'eE')
+CHANGE_D_TO_E = _maketrans('dD', 'eE')
 
 def parse_float(tok):
     """Translates a Fortran real literal to a Python float"""
@@ -212,6 +217,11 @@ def parse_radix(tok):
 
 def lex_free_form(buffer):
     """Perform lexical analysis for an opened free-form Fortran file."""
+    # check for buffer
+    if isinstance(buffer, _string_like_types):
+        raise ValueError("Expect open file or other sequence of lines")
+    buffer = iter(buffer)
+
     # For speed of access
     lexer_regex = LEXER_REGEX
     stub_regex = STUB_REGEX
@@ -240,8 +250,8 @@ def lex_free_form(buffer):
         for token_pair in tokens:
             yield token_pair
 
+    # Make sure last line is terminated, then yield terminal token
     yield (CAT_EOS, '\n')
-    yield (CAT_DOLLAR, '<$>')
     yield (CAT_DOLLAR, '<$>')
 
 FIXED_CONTD_REGEX = re.compile(r'^[ ]{5}[^ 0]')
@@ -272,6 +282,11 @@ def mend_fixed_form_lines(buffer, margin=72):
 
 def lex_fixed_form(buffer, margin=72):
     """Perform lexical analysis for an opened fixed-form Fortran file."""
+    # check for buffer
+    if isinstance(buffer, _string_like_types):
+        raise ValueError("Expect open file or other sequence of lines")
+    buffer = iter(buffer)
+
     # For speed of access
     lexer_regex = LEXER_REGEX
 
@@ -284,20 +299,25 @@ def lex_fixed_form(buffer, margin=72):
             for token_pair in tokenize_regex(lexer_regex, line):
                 yield token_pair
 
-    yield (CAT_DOLLAR, '<$>')
+    # Yield terminal token
     yield (CAT_DOLLAR, '<$>')
 
-def pprint(lexer, out):
+def lex_snippet(fstring):
+    """Perform lexical analysis of parts of a line"""
+    return tuple(tokenize_regex(LEXER_REGEX, fstring)) + ((CAT_DOLLAR, ''),)
+
+def pprint(lexer, out, filename=None):
     """Make nicely formatted JSON output from lexer output"""
-    out.write("[\n")
-    out.write("['lex_version', '1.0'],\n")
+    from json.encoder import encode_basestring
+    out.write('[\n')
+    out.write('["lex_version", "1.0"],\n')
+    out.write('["filename", %s],\n' % encode_basestring(filename))
     for cat, token in lexer:
-        out.write("['%s',%s]" % (CAT_NAMES[cat], repr(token)))
+        out.write('["%s",%s]' % (CAT_NAMES[cat], encode_basestring(token)))
         if cat == CAT_EOS or cat == CAT_PREPROC:
             out.write(',\n')
         elif cat == CAT_DOLLAR:
             out.write('\n]\n')
-            return
         else:
             out.write(', ')
 
@@ -327,6 +347,6 @@ if __name__ == '__main__':
     for fname in args.files:
         contents = open(fname)
         if args.output:
-            pprint(lexer(contents), sys.stdout)
+            pprint(lexer(contents), sys.stdout, fname)
         else:
             for _ in lexer(contents): pass
