@@ -15,6 +15,33 @@ fbridge - Like a bridge over troubled Fortran
 
 
 
+   Default mapped types:
+
+    REAL -> float
+    DOUBLE PRECISION -> double
+    INTEGER(c_*) -> int, long etc.
+    TYPE(...,bind_c,no-sequence)
+
+   Potentially Mapped types:
+    
+    REAL(KIND) -> struct freal_kind;
+               -> (user-defined mapping)
+    
+   Opaque types with accessors:
+
+    TYPE(...,bind_c,sequence) -> struct ftype_something;
+    TYPE(...,no-bind-c)
+    REAL, DIMENSION(:,:), POINTER -> struct fptr2_real;
+    REAL, ALLOCATABLE(:,:,:),   -> struct falloc3_real;
+    
+
+    
+    struct ftype_something_info { ... };
+    struct freal_info { ... };
+    struct falloc3_real_info { ... };
+
+    
+    
 
 
 
