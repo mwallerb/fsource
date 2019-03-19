@@ -124,21 +124,20 @@ def _lexer_regex():
           """
     format = r"""format\s*\([^\r\n]+"""
     fortran_token = r"""(?ix)
-          ^{skipws}(\d{{1,5}})(?=\s)            #  1 line number
-        | ^({skipws}{preproc})                  #  2 preprocessor stmt
+          ^({skipws}{preproc})                  #  1 preprocessor stmt
         | {skipws}(?:
-            (;|{comment}?{endline})             #  3 end of statement
-          | ({sqstring} | {dqstring})           #  4 strings
-          | ({real})                            #  5 real
-          | ({int})                             #  6 ints
-          | (\.true\. | \.false\.)              #  7 booleans
-          | ({binary} | {octal} | {hex})        #  8 radix literals
-          | \( {skipws} (//?) {skipws} \)       #  9 bracketed slashes
-          | ({operator} | {builtin_dot})        # 10 symbolic/dot operator
-          | ({dotop})                           # 11 custom dot operator
-          | ({format})                          # 12 format line
-          | ({compound} | {word})               # 13 word
-          | ({contd} | {sqtrunc} | {dqtrunc})   # (14 continuation)
+            (;|{comment}?{endline})             #  2 end of statement
+          | ({sqstring} | {dqstring})           #  3 strings
+          | ({real})                            #  4 real
+          | ({int})                             #  5 ints
+          | (\.true\. | \.false\.)              #  6 booleans
+          | ({binary} | {octal} | {hex})        #  7 radix literals
+          | \( {skipws} (//?) {skipws} \)       #  8 bracketed slashes
+          | ({operator} | {builtin_dot})        #  9 symbolic/dot operator
+          | ({dotop})                           # 10 custom dot operator
+          | ({format})                          # 11 format line
+          | ({compound} | {word})               # 12 word
+          | ({contd} | {sqtrunc} | {dqtrunc})   # (13 continuation)
           | (?=.)
           )
         """.format(
@@ -154,24 +153,23 @@ def _lexer_regex():
     return re.compile(fortran_token)
 
 CAT_DOLLAR = 0
-CAT_LINENO = 1
-CAT_PREPROC = 2
-CAT_EOS = 3
-CAT_STRING = 4
-CAT_FLOAT = 5
-CAT_INT = 6
-CAT_BOOLEAN = 7
-CAT_RADIX = 8
-CAT_BRACKETED_SLASH = 9
-CAT_OP = 10
-CAT_CUSTOM_DOT = 11
-CAT_FORMAT = 12
-CAT_WORD = 13
-_CAT_CONTINUATION = 14
+#CAT_LINENO = 1
+CAT_PREPROC = 1
+CAT_EOS = 2
+CAT_STRING = 3
+CAT_FLOAT = 4
+CAT_INT = 5
+CAT_BOOLEAN = 6
+CAT_RADIX = 7
+CAT_BRACKETED_SLASH = 8
+CAT_OP = 9
+CAT_CUSTOM_DOT = 10
+CAT_FORMAT = 11
+CAT_WORD = 12
+_CAT_CONTINUATION = 13
 
-CAT_NAMES = ('eof', 'lineno', 'preproc', 'eos', 'string', 'float',
-             'int', 'boolean', 'radix', 'bracketed_slash', 'op',
-             'custom_dot', 'format', 'word')
+CAT_NAMES = ('eof', 'preproc', 'eos', 'string', 'float', 'int', 'boolean',
+             'radix', 'bracketed_slash', 'op', 'custom_dot', 'format', 'word')
 
 LEXER_REGEX = _lexer_regex()
 STUB_REGEX = _stub_regex()

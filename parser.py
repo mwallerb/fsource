@@ -724,7 +724,7 @@ def block(rule, production_tag='block', fenced=True):
         stmts = []
         while True:
             cat, token = tokens.peek()
-            if cat == lexer.CAT_LINENO:
+            if cat == lexer.CAT_INT:
                 next(tokens)
                 if int(token) == until_lineno:        # non-block do construct
                     break
