@@ -101,11 +101,15 @@ def comma_sequence(rule, production_tag, allow_empty=False):
         vals = []
         try:
             vals.append(rule(tokens))
+        except NoMatch:
+            if allow_empty:
+                return tokens.produce(production_tag)
+            raise
+        try:
             while tokens.marker(','):
                 vals.append(rule(tokens))
         except NoMatch:
-            if vals:
-                raise ParserError(tokens, "Expecting item in comma-separated list")
+            raise ParserError(tokens, "Expecting item in comma-separated list")
         return tokens.produce(production_tag, *vals)
 
     return comma_sequence_rule
@@ -171,11 +175,8 @@ def rule(fn):
             return value
     return rule_setup
 
-@rule
 def eos(tokens):
-    cat, token = next(tokens)
-    if cat != lexer.CAT_EOS and cat != lexer.CAT_DOLLAR and token != ';':
-        raise NoMatch()
+    return tokens.expect_cat(lexer.CAT_EOS)
 
 class LockedIn:
     def __init__(self, tokens):
@@ -727,7 +728,7 @@ def block(rule, production_tag='block', fenced=True):
                 next(tokens)
                 if int(token) == until_lineno:        # non-block do construct
                     break
-            elif cat == lexer.CAT_EOS or token == ';':
+            elif cat == lexer.CAT_EOS:
                 next(tokens)
             elif cat == lexer.CAT_PREPROC:
                 stmts.append(preproc_stmt(tokens))
@@ -1186,7 +1187,7 @@ optional_else_block = optional(else_block)
 def ignore_stmt(tokens):
     while True:
         cat, token = next(tokens)
-        if cat == lexer.CAT_EOS or cat == lexer.CAT_DOLLAR:
+        if cat == lexer.CAT_EOS:
             return
 
 @rule

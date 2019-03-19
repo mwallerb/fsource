@@ -101,7 +101,7 @@ def _lexer_regex():
     octal = r"""[Oo](?:'[0-7]+'|"[0-7]+"){postq}""".format(postq=postquote)
     hexadec = r"""[Zz](?:'[0-9A-Fa-f]+'|"[0-9A-Fa-f]+"){postq}""" \
                 .format(postq=postquote)
-    operator = r"""\(/?|\)|[-+,;:_%]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
+    operator = r"""\(/?|\)|[-+,:_%]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
     builtin_dot = r"""
           \.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)\.
           """
@@ -127,7 +127,7 @@ def _lexer_regex():
           ^{skipws}(\d{{1,5}})(?=\s)            #  1 line number
         | ^({skipws}{preproc})                  #  2 preprocessor stmt
         | {skipws}(?:
-            ({comment}?{endline})               #  3 endline
+            (;|{comment}?{endline})             #  3 end of statement
           | ({sqstring} | {dqstring})           #  4 strings
           | ({real})                            #  5 real
           | ({int})                             #  6 ints
@@ -171,7 +171,7 @@ _CAT_CONTINUATION = 14
 
 CAT_NAMES = ('eof', 'lineno', 'preproc', 'eos', 'string', 'float',
              'int', 'boolean', 'radix', 'bracketed_slash', 'op',
-             'custom_dot', 'word', 'format')
+             'custom_dot', 'format', 'word')
 
 LEXER_REGEX = _lexer_regex()
 STUB_REGEX = _stub_regex()
