@@ -102,14 +102,10 @@ def _lexer_regex():
     hexadec = r"""[Zz](?:'[0-9A-Fa-f]+'|"[0-9A-Fa-f]+"){postq}""" \
                 .format(postq=postquote)
     operator = r"""\(/?|\)|[-+,:_%]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
-    builtin_dot = r"""
-          \.(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)\.
-          """
-    # HACK: The spaces are to work around wacky F77 code
-    dotop = r"""\.\s*[A-Za-z]+\s*\."""
+    builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
+    dotop = r"""[A-Za-z]+"""
     preproc = r"""(?:\#|include[ \t])[^\r\n]+{endline}""".format(endline=endline)
     word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&])"""
-    linestart = r"""(?<=[\r\n])"""
     compound = r"""
           (?: block(?=(?:data)\W)
             | double(?=(?:precision)\W)
@@ -130,19 +126,22 @@ def _lexer_regex():
           | ({sqstring} | {dqstring})           #  3 strings
           | ({real})                            #  4 real
           | ({int})                             #  5 ints
-          | (\.true\. | \.false\.)              #  6 booleans
-          | ({binary} | {octal} | {hex})        #  7 radix literals
-          | \( {skipws} (//?) {skipws} \)       #  8 bracketed slashes
-          | ({operator} | {builtin_dot})        #  9 symbolic/dot operator
-          | ({dotop})                           # 10 custom dot operator
-          | ({format})                          # 11 format line
-          | ({compound} | {word})               # 12 word
-          | ({contd} | {sqtrunc} | {dqtrunc})   # (13 continuation)
+          | ({binary} | {octal} | {hex})        #  6 radix literals
+          | \.\s* (?:
+              ( true | false )                  #  7 boolean
+            | ( {builtin_dot} )                 #  8 built-in dot operator
+            | ( {dotop} )                       #  9 custom dot operator
+            ) \s*\.
+          | \( {skipws} (//?) {skipws} \)       # 10 bracketed slashes
+          | ({operator})                        # 11 symbolic operator
+          | ({format})                          # 12 format line
+          | ({compound} | {word})               # 13 word
+          | ({contd} | {sqtrunc} | {dqtrunc})   # (14 continuation)
           | (?=.)
           )
         """.format(
-                skipws=skip_ws, endline=endline, linestart=linestart,
-                comment=comment, preproc=preproc,
+                skipws=skip_ws, endline=endline, comment=comment,
+                preproc=preproc,
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
@@ -153,19 +152,19 @@ def _lexer_regex():
     return re.compile(fortran_token)
 
 CAT_DOLLAR = 0
-#CAT_LINENO = 1
 CAT_PREPROC = 1
 CAT_EOS = 2
 CAT_STRING = 3
 CAT_FLOAT = 4
 CAT_INT = 5
-CAT_BOOLEAN = 6
-CAT_RADIX = 7
-CAT_BRACKETED_SLASH = 8
-CAT_OP = 9
-CAT_CUSTOM_DOT = 10
-CAT_FORMAT = 11
-CAT_WORD = 12
+CAT_RADIX = 6
+CAT_BOOLEAN = 7
+CAT_BUILTIN_DOT = 8
+CAT_CUSTOM_DOT = 9
+CAT_BRACKETED_SLASH = 10
+CAT_SYMBOLIC_OP = 11
+CAT_FORMAT = 12
+CAT_WORD = 13
 _CAT_CONTINUATION = 13
 
 CAT_NAMES = ('eof', 'preproc', 'eos', 'string', 'float', 'int', 'boolean',
