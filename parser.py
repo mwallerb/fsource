@@ -1564,7 +1564,6 @@ if __name__ == '__main__':
 
     lex_fortran = lexer.get_lexer(args.form)
     for fname in args.files:
-        sys.stderr.write("Parsing: " + fname + "\n")
         program = open(fname)
         slexer = lex_fortran(program)
         tokens = TokenStream(slexer)
