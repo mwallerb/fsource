@@ -397,12 +397,12 @@ class ExpressionHandler:
             }
 
         # Fortran 90 operator aliases
-        infix_ops["=="] = infix_ops[".eq."]
-        infix_ops["/="] = infix_ops[".ne."]
-        infix_ops["<="] = infix_ops[".le."]
-        infix_ops[">="] = infix_ops[".ge."]
-        infix_ops["<"]  = infix_ops[".lt."]
-        infix_ops[">"]  = infix_ops[".gt."]
+        infix_ops["=="] = infix_ops["eq"]
+        infix_ops["/="] = infix_ops["ne"]
+        infix_ops["<="] = infix_ops["le"]
+        infix_ops[">="] = infix_ops["ge"]
+        infix_ops["<"]  = infix_ops["lt"]
+        infix_ops[">"]  = infix_ops["gt"]
 
         prefix_cats = {
             lexer.CAT_STRING:     string_,
@@ -424,7 +424,9 @@ class ExpressionHandler:
 
     def get_prefix_handler(self, cat, token):
         try:
-            if cat == lexer.CAT_OP:
+            if cat == lexer.CAT_SYMBOLIC_OP:
+                return self._prefix_ops[token]
+            elif cat == lexer.CAT_BUILTIN_DOT:
                 return self._prefix_ops[token.lower()]
             else:
                 return self._prefix_cats[cat]
@@ -433,7 +435,9 @@ class ExpressionHandler:
 
     def get_infix_handler(self, cat, token):
         try:
-            if cat == lexer.CAT_OP:
+            if cat == lexer.CAT_SYMBOLIC_OP:
+                return self._infix_ops[token]
+            elif cat == lexer.CAT_BUILTIN_DOT:
                 return self._infix_ops[token.lower()]
             else:
                 return self._infix_cats[cat]
@@ -801,7 +805,7 @@ def oper_spec(tokens):
             cat, token = next(tokens)
             if cat == lexer.CAT_CUSTOM_DOT:
                 oper = tokens.produce('custom_op', token)
-            elif cat == lexer.CAT_OP:
+            elif cat == lexer.CAT_SYMBOLIC_OP or lexer.CAT_BUILTIN_DOT:
                 oper = token
             else:
                 raise NoMatch()

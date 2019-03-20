@@ -165,7 +165,7 @@ CAT_BRACKETED_SLASH = 10
 CAT_SYMBOLIC_OP = 11
 CAT_FORMAT = 12
 CAT_WORD = 13
-_CAT_CONTINUATION = 13
+_CAT_CONTINUATION = 14
 
 CAT_NAMES = ('eof', 'preproc', 'eos', 'string', 'float', 'int', 'boolean',
              'radix', 'bracketed_slash', 'op', 'custom_dot', 'format', 'word')
