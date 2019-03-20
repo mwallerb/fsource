@@ -52,6 +52,9 @@ class TokenStream:
     def peek(self):
         return self.tokens[self.pos]
 
+    def advance(self):
+        self.pos += 1
+
     def __next__(self):
         pos = self.pos
         self.pos += 1
@@ -311,7 +314,7 @@ def lvalue(tokens):
 
 def prefix_op_handler(subglue, action, custom=False):
     def prefix_op_handle(tokens):
-        next(tokens)
+        tokens.advance()
         operand = expr(tokens, subglue)
         return tokens.produce(action, operand)
 
@@ -331,7 +334,7 @@ def infix_op_handler(glue, assoc, action):
     subglue = glue + (0 if assoc == 'right' else 1)
 
     def infix_op_handle(tokens, lhs):
-        next(tokens)
+        tokens.advance()
         rhs = expr(tokens, subglue)
         return tokens.produce(action, lhs, rhs)
 
@@ -717,11 +720,11 @@ def block(rule, production_tag='block', fenced=True):
         while True:
             cat, token = tokens.peek()
             if cat == lexer.CAT_INT:
-                next(tokens)
+                tokens.advance()
                 if int(token) == until_lineno:        # non-block do construct
                     break
             elif cat == lexer.CAT_EOS:
-                next(tokens)
+                tokens.advance()
             elif cat == lexer.CAT_PREPROC:
                 stmts.append(preproc_stmt(tokens))
             elif fenced and token.lower() in _BLOCK_DELIM:
