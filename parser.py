@@ -191,17 +191,8 @@ class LockedIn:
 def int_(tokens):
     return tokens.produce('int', tokens.expect_cat(lexer.CAT_INT))
 
-def float_(tokens):
-    return tokens.produce('float', tokens.expect_cat(lexer.CAT_FLOAT))
-
 def string_(tokens):
     return tokens.produce('string', tokens.expect_cat(lexer.CAT_STRING))
-
-def bool_(tokens):
-    return tokens.produce('bool', tokens.expect_cat(lexer.CAT_BOOLEAN))
-
-def radix(tokens):
-    return tokens.produce('radix', tokens.expect_cat(lexer.CAT_RADIX))
 
 def identifier(tokens):
     return tokens.produce('id', tokens.expect_cat(lexer.CAT_WORD).lower())
@@ -318,81 +309,79 @@ def lvalue(tokens):
                 break
         return result
 
-class _PrefixHandler:
-    def __init__(self, subglue, action):
-        self.subglue = subglue
-        self.action = action
-
-    def __call__(self, tokens):
+def prefix_op_handler(subglue, action, custom=False):
+    def prefix_op_handle(tokens):
         next(tokens)
-        operand = expr(tokens, self.subglue)
-        return tokens.produce(self.action, operand)
+        operand = expr(tokens, subglue)
+        return tokens.produce(action, operand)
 
+    return prefix_op_handle
 
-class _CustomUnary(_PrefixHandler):
-    def __call__(self, tokens):
+def custom_unary_handler(subglue):
+    def custom_unary_handle(tokens):
         operator = custom_op(tokens)
-        operand = expr(tokens, self.subglue)
-        return tokens.produce(self.action, operator, operand)
+        operand = expr(tokens, subglue)
+        return tokens.produce('unary', operator, operand)
 
+    return custom_unary_handle
 
-class _InfixHandler:
-    def __init__(self, glue, assoc, action):
-        if assoc not in ('left', 'right'):
-            raise ValueError("Associativity must be either left or right")
-        self.glue = glue
-        self.subglue = glue + (0 if assoc == 'right' else 1)
-        self.action = action
+def infix_op_handler(glue, assoc, action):
+    if assoc not in ('left', 'right'):
+        raise ValueError("Associativity must be either left or right")
+    subglue = glue + (0 if assoc == 'right' else 1)
 
-    def __call__(self, tokens, lhs):
+    def infix_op_handle(tokens, lhs):
         next(tokens)
-        rhs = expr(tokens, self.subglue)
-        return tokens.produce(self.action, lhs, rhs)
+        rhs = expr(tokens, subglue)
+        return tokens.produce(action, lhs, rhs)
 
-class _CustomBinary(_InfixHandler):
-    def __call__(self, tokens, lhs):
+    infix_op_handle.glue = glue
+    return infix_op_handle
+
+def custom_binary_handler(glue):
+    subglue = glue + 1
+    def custom_binary_handle(tokens, lhs):
         operator = custom_op(tokens)
-        rhs = expr(tokens, self.subglue)
-        return tokens.produce(self.action, operator, lhs, rhs)
+        rhs = expr(tokens, subglue)
+        return tokens.produce('binary', operator, lhs, rhs)
 
-class _SubscriptHandler:
-    def __init__(self, glue):
-        self.glue = glue
+    custom_binary_handle.glue = glue
+    return custom_binary_handle
 
-    def __call__(self, tokens, lhs):
-        next(tokens)
-        with LockedIn(tokens):
-            seq = subscript_sequence(tokens)[1:]
-            tokens.expect(')')
-            return tokens.produce('call', lhs, *seq)
+def literal_handler(action):
+    # We don't need to check for the token type here, since we have already
+    # done so at the dispatch phase for expr()
+    def literal_handle(tokens):
+        return tokens.produce(action, next(tokens)[1])
+    return literal_handle
 
 class ExpressionHandler:
     def __init__(self):
         prefix_ops = {
-            ".not.":  _PrefixHandler( 50, 'not_'),
-            "+":      _PrefixHandler(110, 'pos'),
-            "-":      _PrefixHandler(110, 'neg'),
+            ".not.":  prefix_op_handler( 50, 'not_'),
+            "+":      prefix_op_handler(110, 'pos'),
+            "-":      prefix_op_handler(110, 'neg'),
             "(":      parens_expr,
             "(/":     inplace_array,
             }
         infix_ops = {
-            ".eqv.":  _InfixHandler( 20, 'right', 'eqv'),
-            ".neqv.": _InfixHandler( 20, 'right', 'neqv'),
-            ".or.":   _InfixHandler( 30, 'right', 'or_'),
-            ".and.":  _InfixHandler( 40, 'right', 'and_'),
-            ".eq.":   _InfixHandler( 60, 'left',  'eq'),
-            ".ne.":   _InfixHandler( 60, 'left',  'ne'),
-            ".le.":   _InfixHandler( 60, 'left',  'le'),
-            ".lt.":   _InfixHandler( 60, 'left',  'lt'),
-            ".ge.":   _InfixHandler( 60, 'left',  'ge'),
-            ".gt.":   _InfixHandler( 60, 'left',  'gt'),
-            "//":     _InfixHandler( 70, 'left',  'concat'),
-            "+":      _InfixHandler( 80, 'left',  'plus'),
-            "-":      _InfixHandler( 80, 'left',  'minus'),
-            "*":      _InfixHandler( 90, 'left',  'mul'),
-            "/":      _InfixHandler( 90, 'left',  'div'),
-            "**":     _InfixHandler(100, 'right', 'pow'),
-            "_":      _InfixHandler(130, 'left',  'kind'),
+            ".eqv.":  infix_op_handler( 20, 'right', 'eqv'),
+            ".neqv.": infix_op_handler( 20, 'right', 'neqv'),
+            ".or.":   infix_op_handler( 30, 'right', 'or_'),
+            ".and.":  infix_op_handler( 40, 'right', 'and_'),
+            ".eq.":   infix_op_handler( 60, 'left',  'eq'),
+            ".ne.":   infix_op_handler( 60, 'left',  'ne'),
+            ".le.":   infix_op_handler( 60, 'left',  'le'),
+            ".lt.":   infix_op_handler( 60, 'left',  'lt'),
+            ".ge.":   infix_op_handler( 60, 'left',  'ge'),
+            ".gt.":   infix_op_handler( 60, 'left',  'gt'),
+            "//":     infix_op_handler( 70, 'left',  'concat'),
+            "+":      infix_op_handler( 80, 'left',  'plus'),
+            "-":      infix_op_handler( 80, 'left',  'minus'),
+            "*":      infix_op_handler( 90, 'left',  'mul'),
+            "/":      infix_op_handler( 90, 'left',  'div'),
+            "**":     infix_op_handler(100, 'right', 'pow'),
+            "_":      infix_op_handler(130, 'left',  'kind'),
             }
 
         # Fortran 90 operator aliases
@@ -404,16 +393,16 @@ class ExpressionHandler:
         infix_ops[">"]  = infix_ops[".gt."]
 
         prefix_cats = {
-            lexer.CAT_STRING:     string_,
-            lexer.CAT_FLOAT:      float_,
-            lexer.CAT_INT:        int_,
-            lexer.CAT_RADIX:      radix,
-            lexer.CAT_BOOLEAN:    bool_,
-            lexer.CAT_CUSTOM_DOT: _CustomUnary(120, 'unary'),
+            lexer.CAT_STRING:     literal_handler('string'),
+            lexer.CAT_FLOAT:      literal_handler('float'),
+            lexer.CAT_INT:        literal_handler('int'),
+            lexer.CAT_RADIX:      literal_handler('radix'),
+            lexer.CAT_BOOLEAN:    literal_handler('bool'),
+            lexer.CAT_CUSTOM_DOT: custom_unary_handler(120),
             lexer.CAT_WORD:       lvalue,
             }
         infix_cats = {
-            lexer.CAT_CUSTOM_DOT: _CustomBinary(10, 'left', 'binary')
+            lexer.CAT_CUSTOM_DOT: custom_binary_handler(10)
             }
 
         self._infix_ops = infix_ops
