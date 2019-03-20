@@ -326,14 +326,14 @@ class _PrefixHandler:
     def __call__(self, tokens):
         next(tokens)
         operand = expr(tokens, self.subglue)
-        return (self.action, operand)
+        return tokens.produce(self.action, operand)
 
 
 class _CustomUnary(_PrefixHandler):
     def __call__(self, tokens):
         operator = custom_op(tokens)
         operand = expr(tokens, self.subglue)
-        return (self.action, operator, operand)
+        return tokens.produce(self.action, operator, operand)
 
 
 class _InfixHandler:
@@ -347,14 +347,13 @@ class _InfixHandler:
     def __call__(self, tokens, lhs):
         next(tokens)
         rhs = expr(tokens, self.subglue)
-        return (self.action, lhs, rhs)
-
+        return tokens.produce(self.action, lhs, rhs)
 
 class _CustomBinary(_InfixHandler):
     def __call__(self, tokens, lhs):
         operator = custom_op(tokens)
         rhs = expr(tokens, self.subglue)
-        return (self.action, operator, lhs, rhs)
+        return tokens.produce(self.action, operator, lhs, rhs)
 
 class _SubscriptHandler:
     def __init__(self, glue):
