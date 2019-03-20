@@ -167,8 +167,9 @@ CAT_FORMAT = 12
 CAT_WORD = 13
 _CAT_CONTINUATION = 14
 
-CAT_NAMES = ('eof', 'preproc', 'eos', 'string', 'float', 'int', 'boolean',
-             'radix', 'bracketed_slash', 'op', 'custom_dot', 'format', 'word')
+CAT_NAMES = ('eof', 'preproc', 'eos', 'string', 'float', 'int', 'radix',
+             'bool', 'dotop', 'custom_dotop', 'bracketed_slash', 'symop',
+             'format', 'word')
 
 LEXER_REGEX = _lexer_regex()
 STUB_REGEX = _stub_regex()

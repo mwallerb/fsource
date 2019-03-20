@@ -45,6 +45,9 @@ class ParserError(RuntimeError):
 
 class TokenStream:
     def __init__(self, tokens, pos=0):
+        if isinstance(tokens, lexer._string_like_types):
+            tokens = lexer.lex_snippet(tokens)
+
         self.tokens = tuple(tokens)
         self.pos = pos
         self.stack = []
@@ -54,6 +57,9 @@ class TokenStream:
 
     def advance(self):
         self.pos += 1
+
+    def __iter__(self):
+        return self
 
     def __next__(self):
         pos = self.pos
