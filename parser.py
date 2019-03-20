@@ -566,17 +566,26 @@ _TYPE_SPEC_HANDLERS = {
 type_spec = prefixes(_TYPE_SPEC_HANDLERS)
 
 @rule
+def lower_bound(tokens):
+    lower = _optional_expr(tokens)
+    tokens.expect(':')
+    return lower
+
+optional_lower_bound = optional(lower_bound)
+
+@rule
 def dim_spec(tokens):
-    try:
-        lower = _optional_expr(tokens)
-        tokens.expect(':')
-    except NoMatch:
-        pass
+    lower = optional_lower_bound(tokens)
     if tokens.marker('*'):
-        upper = '*'
-    else:
-        upper = _optional_expr(tokens)
-    return tokens.produce('dim_spec', lower, upper)
+        # Implied dimension
+        return tokens.produce('implicit_dim', lower, '*')
+    try:
+        # Explicit dimension
+        upper = expr(tokens)
+        return tokens.produce('explicit_dim', lower, upper)
+    except NoMatch:
+        # Deferred dimension
+        return tokens.produce('deferred_dim', lower, None)
 
 dimspec_sequence = comma_sequence(dim_spec, 'shape')
 
@@ -670,7 +679,10 @@ def entity_decl(tokens):
     attrs_ = entity_attrs(tokens)
     entities = entity_sequence(tokens)
     eos(tokens)
-    return tokens.produce('entity_decl', type_, attrs_, entities)
+
+    # Flatten out entity list for simplicity of handling:
+    for e in entities[1:]:
+        return tokens.produce('entity_decl', type_, attrs_, *e[1:])
 
 @rule
 def entity_ref(tokens):
@@ -1515,7 +1527,6 @@ def pprint(ast, out, level=0):
         'function_decl',
         'interface_body',
         'entity_decl',
-        'entity_list',
         'component_block',
         'declaration_block',
         'contained_block',
