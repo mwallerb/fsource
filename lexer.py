@@ -206,7 +206,7 @@ def parse_float(tok):
 
 def parse_bool(tok):
     """Translates a Fortran boolean literal to a Python boolean"""
-    return {'.true.': True, '.false.': False }[tok.lower()]
+    return {'true': True, 'false': False }[tok.lower()]
 
 def parse_radix(tok):
     """Parses a F03-style x'***' literal"""
