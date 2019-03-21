@@ -86,7 +86,7 @@ class TokenStream:
         cat, token = self.peek()
         if token.lower() != expected:
             raise NoMatch()
-        next(self)
+        self.advance()
 
     def expect_cat(self, expected):
         cat, token = self.peek()
@@ -100,7 +100,7 @@ class TokenStream:
 
     def marker(self, expected):
         if self.next_is(expected):
-            next(self)
+            self.advance()
             return True
         else:
             return False
