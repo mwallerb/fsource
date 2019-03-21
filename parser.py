@@ -443,22 +443,24 @@ class ExpressionHandler:
 
 EXPR_HANDLER = ExpressionHandler()
 
-@rule
 def expr(tokens, min_glue=0):
     # Get prefix
     handler = EXPR_HANDLER.get_prefix_handler(*tokens.peek())
-    result = handler(tokens)
+    try:
+        result = handler(tokens)
 
-    # Cycle through appropriate infixes:
-    while True:
-        try:
-            handler = EXPR_HANDLER.get_infix_handler(*tokens.peek())
-        except NoMatch:
-            return result
-        else:
-            if handler.glue < min_glue:
+        # Cycle through appropriate infixes:
+        while True:
+            try:
+                handler = EXPR_HANDLER.get_infix_handler(*tokens.peek())
+            except NoMatch:
                 return result
-            result = handler(tokens, result)
+            else:
+                if handler.glue < min_glue:
+                    return result
+                result = handler(tokens, result)
+    except NoMatch:
+        raise ParserError(tokens, "Invalid expression")
 
 _optional_expr = optional(expr)
 
