@@ -334,27 +334,20 @@ def custom_unary_handler(subglue):
 
     return custom_unary_handle
 
-def infix_op_handler(glue, assoc, action):
-    if assoc not in ('left', 'right'):
-        raise ValueError("Associativity must be either left or right")
-    subglue = glue + (0 if assoc == 'right' else 1)
-
+def infix_op_handler(subglue, action):
     def infix_op_handle(tokens, lhs):
         tokens.advance()
         rhs = expr(tokens, subglue)
         return tokens.produce(action, lhs, rhs)
 
-    infix_op_handle.glue = glue
     return infix_op_handle
 
-def custom_binary_handler(glue):
-    subglue = glue + 1
+def custom_binary_handler(subglue):
     def custom_binary_handle(tokens, lhs):
         operator = custom_op(tokens)
         rhs = expr(tokens, subglue)
         return tokens.produce('binary', operator, lhs, rhs)
 
-    custom_binary_handle.glue = glue
     return custom_binary_handle
 
 def literal_handler(action):
@@ -374,23 +367,23 @@ class ExpressionHandler:
             "(/":     inplace_array,
             }
         infix_ops = {
-            "eqv":    infix_op_handler( 20, 'right', 'eqv'),
-            "neqv":   infix_op_handler( 20, 'right', 'neqv'),
-            "or":     infix_op_handler( 30, 'right', 'or_'),
-            "and":    infix_op_handler( 40, 'right', 'and_'),
-            "eq":     infix_op_handler( 60, 'left',  'eq'),
-            "ne":     infix_op_handler( 60, 'left',  'ne'),
-            "le":     infix_op_handler( 60, 'left',  'le'),
-            "lt":     infix_op_handler( 60, 'left',  'lt'),
-            "ge":     infix_op_handler( 60, 'left',  'ge'),
-            "gt":     infix_op_handler( 60, 'left',  'gt'),
-            "//":     infix_op_handler( 70, 'left',  'concat'),
-            "+":      infix_op_handler( 80, 'left',  'plus'),
-            "-":      infix_op_handler( 80, 'left',  'minus'),
-            "*":      infix_op_handler( 90, 'left',  'mul'),
-            "/":      infix_op_handler( 90, 'left',  'div'),
-            "**":     infix_op_handler(100, 'right', 'pow'),
-            "_":      infix_op_handler(130, 'left',  'kind'),
+            "eqv":    ( 20, infix_op_handler( 20, 'eqv')),
+            "neqv":   ( 20, infix_op_handler( 20, 'neqv')),
+            "or":     ( 30, infix_op_handler( 30, 'or_')),
+            "and":    ( 40, infix_op_handler( 40, 'and_')),
+            "eq":     ( 60, infix_op_handler( 61, 'eq')),
+            "ne":     ( 60, infix_op_handler( 61, 'ne')),
+            "le":     ( 60, infix_op_handler( 61, 'le')),
+            "lt":     ( 60, infix_op_handler( 61, 'lt')),
+            "ge":     ( 60, infix_op_handler( 61, 'ge')),
+            "gt":     ( 60, infix_op_handler( 61, 'gt')),
+            "//":     ( 70, infix_op_handler( 71, 'concat')),
+            "+":      ( 80, infix_op_handler( 81, 'plus')),
+            "-":      ( 80, infix_op_handler( 81, 'minus')),
+            "*":      ( 90, infix_op_handler( 91, 'mul')),
+            "/":      ( 90, infix_op_handler( 91, 'div')),
+            "**":     (100, infix_op_handler(100, 'pow')),
+            "_":      (130, infix_op_handler(131, 'kind')),
             }
 
         # Fortran 90 operator aliases
@@ -411,7 +404,7 @@ class ExpressionHandler:
             lexer.CAT_WORD:       lvalue,
             }
         infix_cats = {
-            lexer.CAT_CUSTOM_DOT: custom_binary_handler(10)
+            lexer.CAT_CUSTOM_DOT: (10, custom_binary_handler(11))
             }
 
         self._infix_ops = infix_ops
@@ -452,11 +445,11 @@ def expr(tokens, min_glue=0):
         # Cycle through appropriate infixes:
         while True:
             try:
-                handler = EXPR_HANDLER.get_infix_handler(*tokens.peek())
+                glue, handler = EXPR_HANDLER.get_infix_handler(*tokens.peek())
             except NoMatch:
                 return result
             else:
-                if handler.glue < min_glue:
+                if glue < min_glue:
                     return result
                 result = handler(tokens, result)
     except NoMatch:
@@ -942,8 +935,8 @@ def subroutine_decl(tokens):
 
         # Body
         declarations_ = declaration_part(tokens)
-        exec_ = execution_part(tokens)
-        contained_ = optional_contained_part(tokens)
+        execution_part(tokens)
+        optional_contained_part(tokens)
 
         # Footer
         tokens.expect('end')
@@ -951,7 +944,7 @@ def subroutine_decl(tokens):
             optional_identifier(tokens)
         eos(tokens)
         return tokens.produce('subroutine_decl', name, prefixes, args, bind_,
-                              declarations_, contained_)
+                              declarations_)
 
 
 _FUNC_PREFIX_HANDLERS = {
@@ -1006,8 +999,8 @@ def function_decl(tokens):
 
         # Body
         declarations_ = declaration_part(tokens)
-        exec_ = execution_part(tokens)
-        contained_ = optional_contained_part(tokens)
+        execution_part(tokens)
+        optional_contained_part(tokens)
 
         # Footer
         tokens.expect('end')
@@ -1015,7 +1008,7 @@ def function_decl(tokens):
             optional_identifier(tokens)
         eos(tokens)
         return tokens.produce('function_decl', name, prefixes, args, suffixes,
-                              declarations_, contained_)
+                              declarations_)
 
 @rule
 def subprogram_decl(tokens):
