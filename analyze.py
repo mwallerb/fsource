@@ -74,6 +74,7 @@ class IgnoredAttr:
     def __init__(self, *args): pass
     def imbue_entity(self, entity): pass
     def imbue_subprogram(self, subp): pass
+    def imbue_module(self, mod): pass
 
 class Entity:
     def set_class(self, new_class):
@@ -107,6 +108,28 @@ class Entity:
             subp.args[self.name] = self
             self.set_class('argument')
 
+    def imbue_module(self, mod):
+        mod.entities[self.name] = self
+
+class Module:
+    def __init__(self, name, decls, contained):
+        self.name = name
+
+        self.dependencies = OrderedDict()
+        self.entities = OrderedDict()
+        self.types = OrderedDict()
+        self.subprograms = OrderedDict()
+
+        for decl in decls:
+            print (decl)
+            decl.imbue_module(self)
+        if contained is not None:
+            for decl in contained:
+                print (decl)
+                decl.imbue_module(self)
+
+class Program(Module): pass
+
 class Subroutine:
     def __init__(self, name, prefixes, args, bind_c, decls):
         self.name = name
@@ -128,6 +151,10 @@ class Subroutine:
 
         self.bind_c = bind_c
 
+    def imbue_module(self, mod):
+        mod.subprograms[self.name] = self
+        self.container = mod
+
 def ast_version(*args):
     return tuple(map(int, args))
 
@@ -148,13 +175,18 @@ tf = {
     "implicit_dim": lambda l, u: slice((1 if l is None else l), u),
     "entity_attrs": idems,
     "declaration_block": idems,
+    "contained_block": idems,
     "entity_decl": Entity,
+    "module_decl": Module,
+    "interface_decl": IgnoredAttr,
 
     "shape": Shape,
     "parameter": ParameterAttr,
     "intent": IntentAttr,
     "optional": OptionalAttr,
     "value": ValueAttr,
+    "type_decl": IgnoredAttr,
+    "program_decl": Program,
 
     "subroutine_decl": Subroutine,
     "arg_list": idems,
