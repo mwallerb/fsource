@@ -195,7 +195,7 @@ class LockedIn:
 
     def __exit__(self, exc_type, exc_val, traceback):
         if exc_type is NoMatch:
-            raise ParserError(tokens, "Expecting token")
+            raise ParserError(self.tokens, "Expecting token")
 
 def int_(tokens):
     return tokens.produce('int', tokens.expect_cat(lexer.CAT_INT))
