@@ -238,35 +238,36 @@ class CType:
 
 # These typemaps are exact as guaranteed by the Fortran standard
 EXACT_TYPEMAP = {
-    parse_type("integer(c_int)"): CType("int"),
-    parse_type("integer(c_short)"): CType("short"),
-    parse_type("integer(c_long)"): CType("long"),
-    parse_type("integer(c_long_long)"): CType("long long"),
-    parse_type("integer(c_signed_char)"): CType("signed char"),
-    parse_type("integer(c_size_t)"): CType("size_t"),
-    parse_type("integer(c_int8_t)"): CType("int8_t"),
-    parse_type("integer(c_int16_t)"): CType("int16_t"),
-    parse_type("integer(c_int32_t)"): CType("int32_t"),
-    parse_type("integer(c_int64_t)"): CType("int64_t"),
-    parse_type("integer(c_intptr_t)"): CType("intptr_t"),
-    parse_type("real(c_float)"): CType("float"),
-    parse_type("real(c_double)"): CType("double"),
-    parse_type("real(c_long_double)"): CType("long double"),
-    parse_type("complex(c_float_complex)"): CType("float _Complex"),
-    parse_type("complex(c_double_complex)"): CType("double _Complex"),
-    parse_type("complex(c_long_double_complex)"): CType("long double _Complex"),
-    parse_type("logical(c_bool)"): CType("_Bool"),
-    parse_type("character(kind=c_char)"): CType("char"),
+    ("integer(c_int)", "int"),
+    ("integer(c_short)", "short"),
+    ("integer(c_long)", "long"),
+    ("integer(c_long_long)", "long long"),
+    ("integer(c_signed_char)", "signed char"),
+    ("integer(c_size_t)", "size_t"),
+    ("integer(c_int8_t)", "int8_t"),
+    ("integer(c_int16_t)", "int16_t"),
+    ("integer(c_int32_t)", "int32_t"),
+    ("integer(c_int64_t)", "int64_t"),
+    ("integer(c_intptr_t)", "intptr_t"),
+    ("real(c_float)", "float"),
+    ("real(c_double)", "double"),
+    ("real(c_long_double)", "long double"),
+    ("complex(c_float_complex)", "float _Complex"),
+    ("complex(c_double_complex)", "double _Complex"),
+    ("complex(c_long_double_complex)", "long double _Complex"),
+    ("logical(c_bool)", "_Bool"),
+    ("character(kind=c_char)", "char"),
     }
+
 
 # These equivalences are valid on any reasonable architecture.
 # If you find a counterexample, please file a bug.
 ASSUMED_EQUIVALENCE = {
-    parse_type("logical"): parse_type("logical(c_bool)"),
-    parse_type("character"): parse_type("character(kind=c_char)"),
+    ("logical", "logical(c_bool)"),
+    ("character", "character(kind=c_char)"),
 
-    # TODO:
-    parse_type("integer(pint)"): parse_type("integer(c_int64_t)")
+    # FIXME
+    ("integer(pint)", "integer(c_int64_t)"),
     }
 
 def dress_ctype(ctype, entity):
