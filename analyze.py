@@ -66,16 +66,12 @@ class Overridable:
 class Shape:
     def __init__(self, *dims):
         self.rank = len(dims)
-        self.has_implied = dims[-1].stop == '*'
+        self.has_implied = dims and dims[-1].stop == '*'
         self.deferred = [e for (e, d) in enumerate(dims) if d.stop is None]
         self.dims = dims
 
     def imbue_entity(self, entity):
-        if entity.shape is not None:
-            raise ValueError("meh")
         entity.shape = self
-
-    def __repr__(self): return repr(self.__dict__)
 
 class IntentAttr:
     def __init__(self, in_, out):
@@ -127,7 +123,7 @@ class Entity:
     intent = Overridable("intent", IntentAttr(True, True))
     passby = Overridable("passby", "reference")
     required = Overridable("required", True)
-    shape = Overridable("shape", None)
+    shape = Overridable("shape", Shape())
 
     def imbue_subprogram(self, subp):
         if self.name in subp.args:
@@ -276,7 +272,7 @@ ASSUMED_EQUIVALENCE = {
 def dress_ctype(ctype, entity):
     "Add pointers and const qualifiers based on the entity"
     dressed = copy.copy(ctype)
-    if entity.shape is not None and entity.shape.rank > 0:
+    if entity.shape.rank > 0:
         dressed.ptr = True
     if not entity.required:
         dressed.ptr = True
