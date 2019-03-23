@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 from __future__ import print_function
 from collections import OrderedDict
+import copy
 
 import lexer
+import parser
 
 def ast_transformer(fn):
     "Make depth-first transformer of prefix-form abstract syntax tree"
@@ -28,6 +30,38 @@ def ast_dispatcher(type_map, fallback=None):
 
     return ast_transformer(dispatch)
 
+class Overridable:
+    def __init__(self, name, default=None):
+        self.name = name
+        self.value_attr = "__overridable" + name
+        self.default_attr = "__default" + name
+        self.default = default
+
+    def __get__(self, obj, owner):
+        try:
+            return getattr(obj, self.value_attr)
+        except AttributeError:
+            try:
+                return getattr(obj. self.default_attr)
+            except AttributeError:
+                return self.default
+
+    def __set__(self, obj, new_value):
+        try:
+            current = getattr(obj, self.value_attr)
+        except AttributeError:
+            setattr(obj, self.value_attr, new_value)
+        else:
+            if current != new_value:
+                raise RuntimeError("conflicting values for %s: %s -> %s" %
+                                   (self.name, current, new_value))
+
+    def set_default(self, obj, new_default):
+        setattr(obj, self.default_attr, new_default)
+
+    def __delete__(self, obj):
+        delattr(obj, self.value_attr)
+        delattr(obj, self.default_attr)
 
 class Shape:
     def __init__(self, *dims):
@@ -49,25 +83,23 @@ class IntentAttr:
         self.out = out
 
     def imbue_entity(self, entity):
-        entity.set_class('argument')
+        entity.class_ = 'argument'
         entity.intent = self
 
     def __repr__(self): return repr(self.__dict__)
 
 class ParameterAttr:
-    def __init__(self): pass
-    def imbue_entity(self, entity): entity.set_class('parameter')
+    def imbue_entity(self, entity):
+        entity.class_ = 'parameter'
 
 class ValueAttr:
-    def __init__(self): pass
     def imbue_entity(self, entity):
-        entity.set_class('argument')
+        entity.class_ = 'argument'
         entity.passby = 'value'
 
 class OptionalAttr:
-    def __init__(self): pass
     def imbue_entity(self, entity):
-        entity.set_class('argument')
+        entity.class_ = 'argument'
         entity.required = False
 
 class IgnoredAttr:
@@ -77,23 +109,10 @@ class IgnoredAttr:
     def imbue_module(self, mod): pass
 
 class Entity:
-    def set_class(self, new_class):
-        if self.class_ is None:
-            self.class_ = new_class
-        elif self.class_ != new_class:
-            raise ValueError("class conflict for entity %s: %s -> %s" %
-                             (self.name, self.class_, new_class))
-
     def __init__(self, type_, attrs, name, shape_p, kind_p, init):
         self.type_ = type_
         self.name = name
         self.init = init
-
-        self.class_ = None
-        self.shape = None
-        self.intent = None
-        self.passby = 'reference'
-        self.required = True
 
         for attr in attrs:
             attr.imbue_entity(self)
@@ -103,10 +122,17 @@ class Entity:
             # TODO: set kind of type ...
             raise ValueError("not implemented")
 
+    # Attributes that can be controlled from different sources.
+    class_ = Overridable("class_", "local")
+    intent = Overridable("intent", IntentAttr(True, True))
+    passby = Overridable("passby", "reference")
+    required = Overridable("required", True)
+    shape = Overridable("shape", None)
+
     def imbue_subprogram(self, subp):
         if self.name in subp.args:
             subp.args[self.name] = self
-            self.set_class('argument')
+            self.class_ = 'argument'
 
     def imbue_module(self, mod):
         mod.entities[self.name] = self
@@ -121,11 +147,9 @@ class Module:
         self.subprograms = OrderedDict()
 
         for decl in decls:
-            print (decl)
             decl.imbue_module(self)
         if contained is not None:
             for decl in contained:
-                print (decl)
                 decl.imbue_module(self)
 
 class Program(Module): pass
@@ -145,7 +169,6 @@ class Subroutine:
 
         for prefix in prefixes:
             prefix.imbue_subprogram(self)
-        print (decls)
         for decl in decls:
             decl.imbue_subprogram(self)
 
@@ -195,3 +218,73 @@ tf = {
 }
 
 my_dispatch = ast_dispatcher(tf)
+
+# ------------------
+
+def parse_type(typestr):
+    return parser.type_spec(parser.TokenStream(typestr))
+
+class CType:
+    def __init__(self, base, const=False, volatile=False, ptr=None):
+        self.base = base
+        self.const = const
+        self.volatile = volatile
+        self.ptr = ptr
+
+    def __str__(self):
+        return ("", "const ")[self.const] \
+             + ("", "volatile ")[self.volatile] \
+             + self.base \
+             + (" ", " *")[self.ptr is not None]
+
+    def __repr__(self):
+        return "CType('%s')" % str(self)
+
+# These typemaps are exact as guaranteed by the Fortran standard
+EXACT_TYPEMAP = {
+    parse_type("integer(c_int)"): CType("int"),
+    parse_type("integer(c_short)"): CType("short"),
+    parse_type("integer(c_long)"): CType("long"),
+    parse_type("integer(c_long_long)"): CType("long long"),
+    parse_type("integer(c_signed_char)"): CType("signed char"),
+    parse_type("integer(c_size_t)"): CType("size_t"),
+    parse_type("integer(c_int8_t)"): CType("int8_t"),
+    parse_type("integer(c_int16_t)"): CType("int16_t"),
+    parse_type("integer(c_int32_t)"): CType("int32_t"),
+    parse_type("integer(c_int64_t)"): CType("int64_t"),
+    parse_type("integer(c_intptr_t)"): CType("intptr_t"),
+    parse_type("real(c_float)"): CType("float"),
+    parse_type("real(c_double)"): CType("double"),
+    parse_type("real(c_long_double)"): CType("long double"),
+    parse_type("complex(c_float_complex)"): CType("float _Complex"),
+    parse_type("complex(c_double_complex)"): CType("double _Complex"),
+    parse_type("complex(c_long_double_complex)"): CType("long double _Complex"),
+    parse_type("logical(c_bool)"): CType("_Bool"),
+    parse_type("character(kind=c_char)"): CType("char"),
+    }
+
+# These equivalences are valid on any reasonable architecture.
+# If you find a counterexample, please file a bug.
+ASSUMED_EQUIVALENCE = {
+    parse_type("logical"): parse_type("logical(c_bool)"),
+    parse_type("character"): parse_type("character(kind=c_char)"),
+
+    # TODO:
+    parse_type("integer(pint)"): parse_type("integer(c_int64_t)")
+    }
+
+def dress_ctype(ctype, entity):
+    "Add pointers and const qualifiers based on the entity"
+    dressed = copy.copy(ctype)
+    if entity.shape is not None and entity.shape.rank > 0:
+        dressed.ptr = True
+    if not entity.required:
+        dressed.ptr = True
+    if not entity.intent.out:
+        if dressed.ptr: dressed.const = True
+    else:
+        dressed.ptr = True
+    return dressed
+
+
+
