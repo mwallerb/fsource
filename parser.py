@@ -206,6 +206,9 @@ def string_(tokens):
 def identifier(tokens):
     return tokens.produce('id', tokens.expect_cat(lexer.CAT_WORD).lower())
 
+def id_ref(tokens):
+    return tokens.produce('idref', tokens.expect_cat(lexer.CAT_WORD).lower())
+
 def custom_op(tokens):
     return tokens.produce('custom_op', tokens.expect_cat(lexer.CAT_CUSTOM_DOT))
 
@@ -304,7 +307,7 @@ subscript_sequence = comma_sequence(subscript_arg, 'sub_list', allow_empty=True)
 
 def lvalue(tokens):
     # lvalue candidate, really
-    result = identifier(tokens)
+    result = id_ref(tokens)
     with LockedIn(tokens):
         while True:
             if tokens.marker('('):
@@ -312,7 +315,7 @@ def lvalue(tokens):
                 tokens.expect(')')
                 result = tokens.produce('call', result, *seq[1:])
             if tokens.marker('%'):
-                dependant = identifier(tokens)
+                dependant = id_ref(tokens)
                 result = tokens.produce('resolve', result, dependant)
             else:
                 break
