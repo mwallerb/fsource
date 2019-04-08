@@ -204,10 +204,10 @@ def string_(tokens):
     return tokens.produce('string', tokens.expect_cat(lexer.CAT_STRING))
 
 def identifier(tokens):
-    return tokens.produce('id', tokens.expect_cat(lexer.CAT_WORD).lower())
+    return tokens.produce('id', tokens.expect_cat(lexer.CAT_WORD))
 
 def id_ref(tokens):
-    return tokens.produce('idref', tokens.expect_cat(lexer.CAT_WORD).lower())
+    return tokens.produce('ref', tokens.expect_cat(lexer.CAT_WORD))
 
 def custom_op(tokens):
     return tokens.produce('custom_op', tokens.expect_cat(lexer.CAT_CUSTOM_DOT))
@@ -910,16 +910,14 @@ sub_prefix = prefixes(_SUB_PREFIX_HANDLERS)
 
 sub_prefix_sequence = ws_sequence(sub_prefix, 'sub_prefix_list')
 
-@rule
-def contained_part(tokens):
+def optional_contained_part(tokens):
     # contains statement
-    tokens.expect('contains')
-    with LockedIn(tokens):
-        eos(tokens)
-        vals = contained_block(tokens)
-        return vals
-
-optional_contained_part = optional(contained_part)
+    if tokens.marker('contains'):
+        with LockedIn(tokens):
+            eos(tokens)
+            return contained_block(tokens)
+    else:
+        return tokens.produce('contained_block')
 
 @rule
 def subroutine_decl(tokens):
