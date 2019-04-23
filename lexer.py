@@ -77,6 +77,38 @@ def _stub_regex():
             """.format(skipws=skip_ws, comment=comment, endline=endline)
     return re.compile(stub)
 
+
+def _freeform_line_regex():
+    """Discriminate line type"""
+    ws = r"""[ \t]+"""
+    anything = r"""[^\r\n]*"""
+    comment = r"""(?:![^\r\n]*)"""
+    endline = r"""(?:\r\n?|\n)$"""
+    lineno = r"""[0-9]{1,5}(?=[ \t])"""
+    include = r"""include{ws}{anything}""".format(ws=ws, anything=anything)
+    preproc = r"""\#{anything}""".format(anything=anything)
+    format = r"""{lineno}{ws}format{ws}\({anything}""".format(
+                    ws=ws, anything=anything, lineno=lineno)
+
+    line = r"""(?ix) ^[ \t]*
+            (?: ( {preproc} )       # 1 preprocessor stmt
+              | ( {include} )       # 2 include line
+              | ( {comment} )       # 3 comment line
+              | ( {format} )        # 4 format stmt
+              | ( {anything} )      # 5 anything else
+              ) {endline}
+            """.format(preproc=preproc, include=include, format=format,
+                       anything=anything, endline=endline, comment=comment)
+    return re.compile(line)
+
+LINE_PREPROC = 1
+LINE_INCLUDE = 2
+LINE_COMMENT = 3
+LINE_FORMAT = 4
+LINE_ELSE = 5
+
+FF_LINE_REGEX = _freeform_line_regex()
+
 def _lexer_regex():
     """Return regular expression for parsing free-form Fortran 2008"""
     endline = r"""(?:\r\n?|\n)$"""
@@ -104,7 +136,6 @@ def _lexer_regex():
     operator = r"""\(/?|\)|[-+,:_%]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
-    preproc = r"""(?:\#|include[ \t])[^\r\n]+{endline}""".format(endline=endline)
     word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&])"""
     compound = r"""
           (?: block(?=(?:data)\W)
@@ -118,58 +149,57 @@ def _lexer_regex():
             | select(?=(?:case|type)\W)
             )
           """
-    format = r"""format\s*\([^\r\n]+"""
     fortran_token = r"""(?ix)
-          ^({skipws}{preproc})                  #  1 preprocessor stmt
-        | {skipws}(?:
-            (;|{comment}?{endline})             #  2 end of statement
-          | ({sqstring} | {dqstring})           #  3 strings
-          | ({real})                            #  4 real
-          | ({int})                             #  5 ints
-          | ({binary} | {octal} | {hex})        #  6 radix literals
+          {skipws}(?:
+            (;|{comment}?{endline})             #  1 end of statement
+          | ({sqstring} | {dqstring})           #  2 strings
+          | ({real})                            #  3 real
+          | ({int})                             #  4 ints
+          | ({binary} | {octal} | {hex})        #  5 radix literals
           | \.\s* (?:
-              ( true | false )                  #  7 boolean
-            | ( {builtin_dot} )                 #  8 built-in dot operator
-            | ( {dotop} )                       #  9 custom dot operator
+              ( true | false )                  #  6 boolean
+            | ( {builtin_dot} )                 #  7 built-in dot operator
+            | ( {dotop} )                       #  8 custom dot operator
             ) \s*\.
-          | \( {skipws} (//?) {skipws} \)       # 10 bracketed slashes
-          | ({operator})                        # 11 symbolic operator
-          | ({format})                          # 12 format line
-          | ({compound} | {word})               # 13 word
-          | ({contd} | {sqtrunc} | {dqtrunc})   # (14 continuation)
+          | \( {skipws} (//?) {skipws} \)       #  9 bracketed slashes
+          | ({operator})                        # 10 symbolic operator
+          | ({compound} | {word})               # 11 word
+          | ({contd} | {sqtrunc} | {dqtrunc})   # (12 continuation)
           | (?=.)
           )
         """.format(
                 skipws=skip_ws, endline=endline, comment=comment,
-                preproc=preproc,
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                dotop=dotop, compound=compound, word=word, format=format,
+                dotop=dotop, compound=compound, word=word,
                 contd=contd, sqtrunc=sq_trunc, dqtrunc=dq_trunc
                 )
 
     return re.compile(fortran_token)
 
 CAT_DOLLAR = 0
-CAT_PREPROC = 1
-CAT_EOS = 2
-CAT_STRING = 3
-CAT_FLOAT = 4
-CAT_INT = 5
-CAT_RADIX = 6
-CAT_BOOLEAN = 7
-CAT_BUILTIN_DOT = 8
-CAT_CUSTOM_DOT = 9
-CAT_BRACKETED_SLASH = 10
-CAT_SYMBOLIC_OP = 11
-CAT_FORMAT = 12
-CAT_WORD = 13
-_CAT_CONTINUATION = 14
+CAT_EOS = 1
+CAT_STRING = 2
+CAT_FLOAT = 3
+CAT_INT = 4
+CAT_RADIX = 5
+CAT_BOOLEAN = 6
+CAT_BUILTIN_DOT = 7
+CAT_CUSTOM_DOT = 8
+CAT_BRACKETED_SLASH = 9
+CAT_SYMBOLIC_OP = 10
+CAT_WORD = 11
+CAT_MAX = 11
+_CAT_CONTINUATION = 12
 
-CAT_NAMES = ('eof', 'preproc', 'eos', 'string', 'float', 'int', 'radix',
+CAT_PREPROC = 12
+CAT_INCLUDE = 13
+CAT_FORMAT = 14
+
+CAT_NAMES = ('eof', 'eos', 'string', 'float', 'int', 'radix',
              'bool', 'dotop', 'custom_dotop', 'bracketed_slash', 'symop',
-             'format', 'word')
+             'word', 'preproc', 'include', 'format')
 
 LEXER_REGEX = _lexer_regex()
 STUB_REGEX = _stub_regex()
@@ -221,32 +251,46 @@ def lex_free_form(buffer):
     buffer = iter(buffer)
 
     # For speed of access
+    line_regex = FF_LINE_REGEX
     lexer_regex = LEXER_REGEX
     stub_regex = STUB_REGEX
     spill_regex = SPILL_REGEX
     comment_line_regex = COMMENT_LINE_REGEX
     cat_continuation = _CAT_CONTINUATION
 
+    line_token_cat = (
+        None,
+        CAT_PREPROC,   # LINE_PREPROC
+        CAT_INCLUDE,   # LINE_INCLUDE
+        CAT_EOS,       # LINE_COMMENT
+        CAT_FORMAT,    # LINE_FORMAT
+        )
+
     # Iterate through lines of the file
     for line in buffer:
-        tokens = list(tokenize_regex(lexer_regex, line))
+        line_cat = line_regex.match(line).lastindex
 
-        # Continuation lines:
-        # Fortran allows complicated line continuations with '&', optional
-        # comments, and an optional '&' on the following line.  Worse, it also
-        # allows to split any token across multiple lines, which requires the
-        # lexer to re-read parts of the previous line.
-        while tokens[-1][0] == cat_continuation:
-            spill_line = next(buffer)
-            if comment_line_regex.match(spill_line):
-                continue
-            stub = stub_regex.match(tokens.pop()[1]).group(0)
-            spill = spill_regex.match(spill_line).group(1)
-            tokens += list(tokenize_regex(lexer_regex, stub + spill))
+        if line_cat == LINE_ELSE:
+            tokens = list(tokenize_regex(lexer_regex, line))
 
-        # Yield that stuff
-        for token_pair in tokens:
-            yield token_pair
+            # Continuation lines:
+            # Fortran allows complicated line continuations with '&', optional
+            # comments, and an optional '&' on the following line.  Worse, it
+            # also allows to split any token across multiple lines, which
+            # requires the lexer to re-read parts of the previous line.
+            while tokens[-1][0] == cat_continuation:
+                spill_line = next(buffer)
+                if comment_line_regex.match(spill_line):
+                    continue
+                stub = stub_regex.match(tokens.pop()[1]).group(0)
+                spill = spill_regex.match(spill_line).group(1)
+                tokens += list(tokenize_regex(lexer_regex, stub + spill))
+
+            # Yield that stuff
+            for token_pair in tokens:
+                yield token_pair
+        else:
+            yield line_token_cat[line_cat], line
 
     # Make sure last line is terminated, then yield terminal token
     yield (CAT_EOS, '\n')
