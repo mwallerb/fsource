@@ -543,6 +543,17 @@ def _typename_handler(tokens):
         tokens.expect(')')
         return ('type', typename)
 
+def _class_handler(tokens):
+    tokens.expect('class')
+    tokens.expect('(')
+    with LockedIn(tokens):
+        if tokens.marker('*'):
+            typename = None
+        else:
+            typename = identifier(tokens)
+        tokens.expect(')')
+        return ('class_', typename)
+
 def double_precision(tokens):
     tokens.expect('double')
     if tokens.marker('precision'):
@@ -558,7 +569,8 @@ _TYPE_SPEC_HANDLERS = {
     'complex':   prefix('complex', optional(kind_selector), 'complex_type'),
     'character': prefix('character', optional(char_selector), 'character_type'),
     'logical':   prefix('logical', optional(kind_selector), 'logical_type'),
-    'type':      _typename_handler
+    'type':      _typename_handler,
+    'class':     _class_handler,
     }
 
 type_spec = prefixes(_TYPE_SPEC_HANDLERS)
