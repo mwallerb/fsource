@@ -85,13 +85,11 @@ LINECAT_NORMAL = 1
 LINECAT_INCLUDE = 2
 LINECAT_FORMAT = 3
 LINECAT_PREPROC = 4
+LINECAT_COMMENT = 5
 
-LINECAT_NAMES = (None, 'line', 'include', 'format', 'preproc')
+LINECAT_NAMES = (None, 'line', 'include', 'format', 'preproc', 'comment')
 
 def free_form_lines(buffer):
-    line_regex = FF_LINE_REGEX
-    contd_regex = FF_CONTD_REGEX
-
     # Iterate through lines of the file.  Fortran allows to split tokens
     # across lines, which is why we build up the whole line before giving
     # it to the tokenizer.
@@ -105,18 +103,22 @@ def free_form_lines(buffer):
                 line = trunc_str + line
                 trunc_str = ''
             else:
-                match = contd_regex.match(line)
+                match = FF_CONTD_REGEX.match(line)
                 if match.lastindex == CONTD_COMMENT:
                     continue
                 line = match.group(2)
 
         # Now parse current (potentially preprocessed) line
-        match = line_regex.match(line)
+        match = FF_LINE_REGEX.match(line)
         discr = match.lastindex
         if discr == LINE_FULL_END:
-            stub += match.group(LINE_WHOLE_PART) + match.group(LINE_FULL_END)
-            yield LINECAT_NORMAL, stub
-            stub = ''
+            stub += match.group(LINE_WHOLE_PART)
+            if stub:
+                yield LINECAT_NORMAL, stub
+                stub = ''
+            comment = match.group(LINE_FULL_END)
+            if comment:
+                yield LINECAT_COMMENT, comment
         elif discr >= LINE_TRUNC_END:
             stub += match.group(LINE_WHOLE_PART)
             if discr == LINE_TRUNC_STRING_END:
