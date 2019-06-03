@@ -81,31 +81,46 @@ def _stub_regex():
 def _freeform_line_regex():
     """Discriminate line type"""
     ws = r"""[ \t]+"""
+    skipws = r"""[\t ]*"""
     anything = r"""[^\r\n]*"""
     comment = r"""(?:![^\r\n]*)"""
     endline = r"""(?:\r\n?|\n)$"""
     lineno = r"""[0-9]{1,5}(?=[ \t])"""
     include = r"""include{ws}{anything}""".format(ws=ws, anything=anything)
     preproc = r"""\#{anything}""".format(anything=anything)
+    atom = r"""(?: [^!&'"\r\n] | '(?:''|[^'\r\n])*' | "(?:""|[^"\r\n])*" )"""
     format = r"""{lineno}{ws}format{ws}\({anything}""".format(
                     ws=ws, anything=anything, lineno=lineno)
-
+    trunc = r"""(?x)^
+                (?: '(?:''|[^'\r\n])*
+                  | "(?:""|[^"\r\n])*
+                  |
+                  ) (?=&)
+            """
     line = r"""(?ix) ^[ \t]*
-            (?: ( {preproc} )       # 1 preprocessor stmt
-              | ( {include} )       # 2 include line
-              | ( {comment} )       # 3 comment line
-              | ( {format} )        # 4 format stmt
-              | ( {anything} )      # 5 anything else
+            (?: ( {preproc} )         # 1 preprocessor stmt
+              | ( {include} )         # 2 include line
+              | ( {format} )          # 3 format stmt
+              | ( & [ \t]* )?         # 4 continuation marker
+                ( {atom}* )           # 5 anything else (ignore cont'd)
+                ( {trunc} & )?        # 6 truncation
+                ( {comment} )?        # 7 comment
               ) {endline}
             """.format(preproc=preproc, include=include, format=format,
-                       anything=anything, endline=endline, comment=comment)
+                       anything=anything, endline=endline, trunc=trunc,
+                       comment=comment)
     return re.compile(line)
 
 LINE_PREPROC = 1
 LINE_INCLUDE = 2
-LINE_COMMENT = 3
-LINE_FORMAT = 4
-LINE_ELSE = 5
+LINE_FORMAT = 3
+LINE_CONT_MARKER = 4
+LINE_WHOLE_PART = 5
+LINE_TRUNC_PART = 6
+LINE_COMMENT_PART = 7
+
+
+
 
 FF_LINE_REGEX = _freeform_line_regex()
 
