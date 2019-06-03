@@ -110,13 +110,9 @@ def free_form_lines(buffer):
         match = FREE_REGEX.match(line)
         discr = match.lastindex
         if discr == FREE_FULL_END:
-            stub += match.group(FREE_WHOLE_PART)
-            if stub:
-                yield LINECAT_NORMAL, stub
-                stub = ''
-            comment = match.group(FREE_FULL_END)
-            if comment:
-                yield LINECAT_COMMENT, comment
+            stub += match.group(FREE_WHOLE_PART) + match.group(FREE_FULL_END)
+            yield LINECAT_NORMAL, stub
+            stub = ''
         elif discr >= FREE_TRUNC_END:
             stub += match.group(FREE_WHOLE_PART)
             if discr == FREE_TRUNC_STRING_END:
