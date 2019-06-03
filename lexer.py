@@ -84,31 +84,31 @@ def _freeform_line_regex():
     skipws = r"""[\t ]*"""
     anything = r"""[^\r\n]*"""
     comment = r"""(?:![^\r\n]*)"""
-    endline = r"""(?:\r\n?|\n)$"""
+    endline = r"""$""" #r"""(?:\r\n?|\n)$"""
     lineno = r"""[0-9]{1,5}(?=[ \t])"""
     include = r"""include{ws}{anything}""".format(ws=ws, anything=anything)
     preproc = r"""\#{anything}""".format(anything=anything)
     atom = r"""(?: [^!&'"\r\n] | '(?:''|[^'\r\n])*' | "(?:""|[^"\r\n])*" )"""
     format = r"""{lineno}{ws}format{ws}\({anything}""".format(
                     ws=ws, anything=anything, lineno=lineno)
-    trunc = r"""(?x)^
-                (?: '(?:''|[^'\r\n])*
+    trunc = r"""(?: '(?:''|[^'\r\n])*
                   | "(?:""|[^"\r\n])*
                   |
-                  ) (?=&)
+                  )
             """
     line = r"""(?ix) ^[ \t]*
-            (?: ( {preproc} )         # 1 preprocessor stmt
-              | ( {include} )         # 2 include line
-              | ( {format} )          # 3 format stmt
-              | ( & [ \t]* )?         # 4 continuation marker
-                ( {atom}* )           # 5 anything else (ignore cont'd)
-                ( {trunc} & )?        # 6 truncation
-                ( {comment} )?        # 7 comment
-              ) {endline}
+            (?: ( {preproc} ) $              # 1 preprocessor stmt
+              | ( {include} ) $              # 2 include line
+              | ( {format} ) $               # 3 format stmt
+              | ( & [ \t]* )?                # 4 continuation marker
+                ( {atom}+ )?                 # 5 anything else (ignore cont'd)
+                (?: ( {trunc} ) & [ \t]* )?  # 6 truncation
+                ( {comment} )?               # 7 comment/eos
+                ( $ )                        # 8 empty (indicates normal line)
+              )
             """.format(preproc=preproc, include=include, format=format,
-                       anything=anything, endline=endline, trunc=trunc,
-                       comment=comment)
+                       anything=anything, endline=endline, atom=atom,
+                       trunc=trunc, comment=comment)
     return re.compile(line)
 
 LINE_PREPROC = 1
@@ -118,9 +118,10 @@ LINE_CONT_MARKER = 4
 LINE_WHOLE_PART = 5
 LINE_TRUNC_PART = 6
 LINE_COMMENT_PART = 7
+LINE_EOS = 8
 
-
-
+LINE_NAMES = (None, 'preproc', 'include', 'format', 'contd', 'line',
+              'trunc', 'comment', 'eos')
 
 FF_LINE_REGEX = _freeform_line_regex()
 
@@ -403,6 +404,14 @@ if __name__ == '__main__':
 
     for fname in args.files:
         contents = open(fname)
+        for l in contents:
+            m = FF_LINE_REGEX.match(l)
+            print("LINE:", m.lastindex, l, end='')
+            for i, g in enumerate(m.groups()):
+                if g is not None:
+                    print(LINE_NAMES[i+1], g)
+        continue
+
         if args.output:
             pprint(lexer(contents), sys.stdout, fname)
         else:
