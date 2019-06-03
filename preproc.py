@@ -49,18 +49,15 @@ def _freeform_line_regex():
 
     return re.compile(line)
 
-LINE_PREPROC = 1
-LINE_INCLUDE = 2
-LINE_FORMAT = 3
-LINE_WHOLE_PART = 4
-LINE_FULL_END = 5
-LINE_TRUNC_END = 6
-LINE_TRUNC_STRING_END = 7
+FREE_PREPROC = 1
+FREE_INCLUDE = 2
+FREE_FORMAT = 3
+FREE_WHOLE_PART = 4
+FREE_FULL_END = 5
+FREE_TRUNC_END = 6
+FREE_TRUNC_STRING_END = 7
 
-LINE_NAMES = (None, 'preproc', 'include', 'format', 'line'
-              'end', 'trunc', 'trunc_string')
-
-FF_LINE_REGEX = _freeform_line_regex()
+FREE_REGEX = _freeform_line_regex()
 
 def _freeform_contd_regex():
     """Discriminate line type"""
@@ -90,6 +87,7 @@ LINECAT_COMMENT = 5
 LINECAT_NAMES = (None, 'line', 'include', 'format', 'preproc', 'comment')
 
 def free_form_lines(buffer):
+    """Mend lines in free-form Fortran file"""
     # Iterate through lines of the file.  Fortran allows to split tokens
     # across lines, which is why we build up the whole line before giving
     # it to the tokenizer.
@@ -109,22 +107,22 @@ def free_form_lines(buffer):
                 line = match.group(2)
 
         # Now parse current (potentially preprocessed) line
-        match = FF_LINE_REGEX.match(line)
+        match = FREE_REGEX.match(line)
         discr = match.lastindex
-        if discr == LINE_FULL_END:
-            stub += match.group(LINE_WHOLE_PART)
+        if discr == FREE_FULL_END:
+            stub += match.group(FREE_WHOLE_PART)
             if stub:
                 yield LINECAT_NORMAL, stub
                 stub = ''
-            comment = match.group(LINE_FULL_END)
+            comment = match.group(FREE_FULL_END)
             if comment:
                 yield LINECAT_COMMENT, comment
-        elif discr >= LINE_TRUNC_END:
-            stub += match.group(LINE_WHOLE_PART)
-            if discr == LINE_TRUNC_STRING_END:
-                trunc_str = match.group(LINE_TRUNC_STRING_END)
-        elif discr == LINE_PREPROC:
-            trunc_str += match.group(LINE_PREPROC)
+        elif discr >= FREE_TRUNC_END:
+            stub += match.group(FREE_WHOLE_PART)
+            if discr == FREE_TRUNC_STRING_END:
+                trunc_str = match.group(FREE_TRUNC_STRING_END)
+        elif discr == FREE_PREPROC:
+            trunc_str += match.group(FREE_PREPROC)
             if trunc_str[-1] == '\\':
                 trunc_str = trunc_str[:-1]
                 stub = trunc_str
@@ -132,7 +130,7 @@ def free_form_lines(buffer):
                 yield LINECAT_PREPROC, trunc_str
                 stub = ''
                 trunc_str = ''
-        elif discr == LINE_FORMAT:
+        elif discr == FREE_FORMAT:
             yield LINECAT_FORMAT, line
         else:
             yield LINECAT_INCLUDE, line
@@ -141,11 +139,77 @@ def free_form_lines(buffer):
         raise RuntimeError("line continuation marker followed by end of file")
 
 
+def _fixedform_line_regex():
+    line = """(?ix) ^
+        (?: [cC*!](.*)                                      # 1: comment
+            | [ ]{5}[^ 0] (.*)                              # 2: continuation
+            | [ ]{6} [ \t]* (\#.*)                          # 3: preprocessor
+            | [ ]{6} [ \t]* (include[ \t].*)                # 4: include line
+            | ( [ ][\d ]{4}[ ] [ \t]* format[ \t]*\(.* )    # 5: format line
+            | ( [ ][\d ]{4}[ ] [ \t]* .* | )                # 6: normal line
+            ) $
+            """
+    return re.compile(line)
+
+FIXED_COMMENT = 1
+FIXED_CONTD = 2
+FIXED_PREPROC = 3
+FIXED_INCLUDE = 4
+FIXED_FORMAT = 5
+FIXED_OTHER = 6
+
+FIXED_REGEX = _fixedform_line_regex()
+
+def fixed_form_lines(buffer, margin=72):
+    """Handle line continuation in fixed form fortran"""
+
+    # The continuation markers at fixed-form lines are at the *following*
+    # line, so we need to store the previous current line
+    cat = None
+    stub = None
+
+    for line in buffer:
+        line = line[:margin].rstrip()
+        match = FIXED_REGEX.match(line)
+        discr = match.lastindex
+
+        if discr == FIXED_CONTD:
+            if not stub:
+                raise RuntimeError("No valid line to continue:\n" + line)
+            stub += match.group(FIXED_CONTD)
+            continue
+        else:
+            if stub and discr != FIXED_COMMENT:
+                yield cat, stub
+                stub = None
+
+        if discr == FIXED_OTHER:
+            cat = LINECAT_NORMAL
+            stub = match.group(FIXED_OTHER)
+        elif discr == FIXED_COMMENT:
+            yield LINECAT_COMMENT, match.group(FIXED_COMMENT)
+        elif discr == FIXED_FORMAT:
+            cat = LINECAT_FORMAT
+            stub = match.group(FIXED_FORMAT)
+        elif discr == FIXED_INCLUDE:
+            yield LINECAT_INCLUDE, match.group(FIXED_INCLUDE)
+        elif discr == FIXED_PREPROC:
+            yield LINECAT_PREPROC, match.group(FIXED_PREPROC)
+        else:
+            raise RuntimeError("Invalid token")
+
+    # Handle last line
+    if stub is not None:
+        yield cat, stub
+
+
 def get_lines(form='free'):
     if form == 'free':
         return free_form_lines
+    elif form == 'fixed':
+        return fixed_form_lines
     else:
-        return None
+        raise ValueError("form must be either 'free' or 'fixed'")
 
 if __name__ == '__main__':
     import sys
