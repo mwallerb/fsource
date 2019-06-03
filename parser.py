@@ -151,6 +151,15 @@ def tag(expected, production_tag):
 
     return tag_rule
 
+def tag_stmt(expected, production_tag):
+    @rule
+    def tag_rule(tokens):
+        tokens.expect(expected)
+        eos(tokens)
+        return (production_tag,)
+
+    return tag_rule
+
 def prefix(expected, my_rule, production_tag):
     @rule
     def prefix_rule(tokens):
@@ -543,6 +552,17 @@ def _typename_handler(tokens):
         tokens.expect(')')
         return ('type', typename)
 
+def _class_handler(tokens):
+    tokens.expect('class')
+    tokens.expect('(')
+    with LockedIn(tokens):
+        if tokens.marker('*'):
+            typename = None
+        else:
+            typename = identifier(tokens)
+        tokens.expect(')')
+        return ('class_', typename)
+
 def double_precision(tokens):
     tokens.expect('double')
     if tokens.marker('precision'):
@@ -558,7 +578,8 @@ _TYPE_SPEC_HANDLERS = {
     'complex':   prefix('complex', optional(kind_selector), 'complex_type'),
     'character': prefix('character', optional(char_selector), 'character_type'),
     'logical':   prefix('logical', optional(kind_selector), 'logical_type'),
-    'type':      _typename_handler
+    'type':      _typename_handler,
+    'class':     _class_handler,
     }
 
 type_spec = prefixes(_TYPE_SPEC_HANDLERS)
@@ -635,7 +656,6 @@ optional_double_colon = optional(double_colon)
 
 @rule
 def entity_attrs(tokens):
-    handler_dict = _ENTITY_ATTR_HANDLERS
     attrs = []
     while tokens.marker(','):
         attrs.append(entity_attr(tokens))
@@ -702,12 +722,21 @@ def bind_c(tokens):
     tokens.expect(')')
     return tokens.produce('bind_c', name)
 
+def extends(tokens):
+    tokens.expect('extends')
+    with LockedIn(tokens):
+        tokens.expect('(')
+        name = identifier(tokens)
+        tokens.expect(')')
+        return tokens.produce('extends', name)
+
 optional_bind_c = optional(bind_c)
 
 _TYPE_ATTR_HANDLERS = {
     'public':      tag('public', 'public'),
     'private':     tag('private', 'private'),
     'bind':        bind_c,
+    'extends':     extends
     }
 
 type_attr = prefixes(_TYPE_ATTR_HANDLERS)
@@ -759,9 +788,13 @@ def block(rule, production_tag='block', fenced=True):
 
 component_block = block(entity_decl, 'component_block')
 
+private_stmt = tag_stmt('private', 'private')
+
+sequence_stmt = tag_stmt('sequence', 'sequence')
+
 _TYPE_TAG_HANDLERS = {
-    'private':     tag('private', 'private'),
-    'sequence':    tag('sequence', 'sequence'),
+    'private':     private_stmt,
+    'sequence':    sequence_stmt,
     }
 
 type_tag = prefixes(_TYPE_TAG_HANDLERS)
@@ -769,6 +802,95 @@ type_tag = prefixes(_TYPE_TAG_HANDLERS)
 type_tag_block = block(type_tag, 'type_tags', fenced=False)
 
 optional_identifier = optional(identifier)
+
+def pass_attr(tokens):
+    tokens.expect('pass')
+    if tokens.marker('('):
+        ident = identifier(tokens)
+        tokens.expect(')')
+    else:
+        ident = None
+    return tokens.produce('pass', identifier)
+
+_TYPE_PROC_ATTR_HANDLERS = {
+    'deferred':        tag('deferred', 'deferred'),
+    'nopass':          tag('nopass', 'nopass'),
+    'non_overridable': tag('non_overridable', 'non_overridable'),
+    'pass':            pass_attr,
+    'public':          tag('public', 'public'),
+    'private':         tag('private', 'private'),
+    }
+
+type_proc_attr = prefixes(_TYPE_PROC_ATTR_HANDLERS)
+
+@rule
+def type_proc_attrs(tokens):
+    attrs = []
+    while tokens.marker(','):
+        attrs.append(type_proc_attr(tokens))
+    try:
+        double_colon(tokens)
+    except NoMatch:
+        if attrs: raise NoMatch()
+    return tokens.produce('type_proc_attrs', *attrs)
+
+def type_proc(tokens):
+    name = identifier(tokens)
+    if tokens.marker('=>'):
+        ref = identifier(tokens)
+    else:
+        ref = None
+    return tokens.produce('type_proc', name, ref)
+
+type_proc_sequence = comma_sequence(type_proc, 'type_proc_list')
+
+def type_proc_decl(tokens):
+    tokens.expect('procedure')
+    with LockedIn(tokens):
+        if tokens.marker('('):
+            iface_name = identifier(tokens)
+            tokens.expect(')')
+        else:
+            iface_name = None
+        attrs = type_proc_attrs(tokens)
+        procs = type_proc_sequence(tokens)
+        return tokens.produce('type_proc_decl', iface_name, attrs, procs)
+
+def generic_decl(tokens):
+    tokens.expect('generic')
+    with LockedIn(tokens):
+        attrs = type_proc_attrs(tokens)
+        name = iface_name(tokens)
+        tokens.expect('=>')
+        refs = identifier_sequence(tokens)
+        return tokens.produce('generic_decl', name, attrs, refs)
+
+def final_decl(tokens):
+    tokens.expect('final')
+    with LockedIn(tokens):
+        optional_double_colon(tokens)
+        refs = identifier_sequence(tokens)
+        return tokens.produce('final_decl', refs)
+
+_TYPE_CONTAINS_HANDLERS = {
+    'procedure':   type_proc_decl,
+    'generic':     generic_decl,
+    'final':       final_decl
+    }
+
+type_contains_stmt = prefixes(_TYPE_CONTAINS_HANDLERS)
+
+type_contains_block = block(type_contains_stmt)
+
+optional_private_stmt = optional(private_stmt)
+
+def optional_procedures_block(tokens):
+    if tokens.marker('contains'):
+        private = optional_private_stmt(tokens)
+        conts = type_contains_block(tokens)
+        return ('type_bound_procedures', private, *conts[1:])
+    else:
+        return None
 
 @rule
 def type_decl(tokens):
@@ -779,11 +901,12 @@ def type_decl(tokens):
         eos(tokens)
         tags = type_tag_block(tokens)
         decls = component_block(tokens)
+        proc = optional_procedures_block(tokens)
         tokens.expect('end')
         if tokens.marker('type'):
             optional_identifier(tokens)
         eos(tokens)
-        return tokens.produce('type_decl', name, attrs, tags, decls)
+        return tokens.produce('type_decl', name, attrs, tags, decls, proc)
 
 @rule
 def rename(tokens):
@@ -1526,7 +1649,8 @@ def pprint(ast, out, level=0):
         'component_block',
         'declaration_block',
         'contained_block',
-        'execution_block'
+        'execution_block',
+        'type_bound_procedures'
         }
     repl = {
         True: 'true',
