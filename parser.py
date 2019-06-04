@@ -1413,7 +1413,7 @@ def select_case(tokens):
     eos(tokens)
     execution_part(tokens)
 
-select_case_sequence = ws_sequence(select_case, 'select_case_list')
+select_case_sequence = block(select_case, 'select_case_list', fenced=False)
 
 @rule
 def select_case_construct(tokens):

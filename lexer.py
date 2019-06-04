@@ -33,6 +33,8 @@ from __future__ import print_function
 import sys
 import re
 
+import lines
+
 # Python 2/3 compatibility
 if sys.version_info >= (3,):
     _string_like_types = str, bytes,
@@ -64,81 +66,15 @@ def tokenize_regex(regex, text):
     except (TypeError, IndexError) as e:
         raise LexerError(text, match.start())
 
-def _stub_regex():
-    """Return regular expression for stub part of continuation"""
-    endline = r"""(?:\r\n?|\n)$"""
-    comment = r"""(?:![^\r\n]*)"""
-    skip_ws = r"""[\t ]*"""
-    stub = r"""(?x)^
-                (?: '(?:''|[^'\r\n])*(?=&{skipws}{endline})
-                  | "(?:""|[^"\r\n])*(?=&{skipws}{endline})
-                  | [^\s&]*(?=&{skipws}{comment}?{endline})
-                  )
-            """.format(skipws=skip_ws, comment=comment, endline=endline)
-    return re.compile(stub)
-
-
-def _freeform_line_regex():
-    """Discriminate line type"""
-    ws = r"""[ \t]+"""
-    skipws = r"""[\t ]*"""
-    anything = r"""[^\r\n]*"""
-    comment = r"""(?:![^\r\n]*)"""
-    endline = r"""$""" #r"""(?:\r\n?|\n)$"""
-    lineno = r"""[0-9]{1,5}(?=[ \t])"""
-    include = r"""include{ws}{anything}""".format(ws=ws, anything=anything)
-    preproc = r"""\#{anything}""".format(anything=anything)
-    atom = r"""(?: [^!&'"\r\n] | '(?:''|[^'\r\n])*' | "(?:""|[^"\r\n])*" )"""
-    format = r"""{lineno}{ws}format{ws}\({anything}""".format(
-                    ws=ws, anything=anything, lineno=lineno)
-    trunc = r"""(?: '(?:''|[^'\r\n])*
-                  | "(?:""|[^"\r\n])*
-                  |
-                  )
-            """
-    line = r"""(?ix) ^[ \t]*
-            (?: ( {preproc} ) $              # 1 preprocessor stmt
-              | ( {include} ) $              # 2 include line
-              | ( {format} ) $               # 3 format stmt
-              | ( & [ \t]* )?                # 4 continuation marker
-                ( {atom}+ )?                 # 5 anything else (ignore cont'd)
-                (?: ( {trunc} ) & [ \t]* )?  # 6 truncation
-                ( {comment} )?               # 7 comment/eos
-                ( $ )                        # 8 empty (indicates normal line)
-              )
-            """.format(preproc=preproc, include=include, format=format,
-                       anything=anything, endline=endline, atom=atom,
-                       trunc=trunc, comment=comment)
-    return re.compile(line)
-
-LINE_PREPROC = 1
-LINE_INCLUDE = 2
-LINE_FORMAT = 3
-LINE_CONT_MARKER = 4
-LINE_WHOLE_PART = 5
-LINE_TRUNC_PART = 6
-LINE_COMMENT_PART = 7
-LINE_EOS = 8
-
-LINE_NAMES = (None, 'preproc', 'include', 'format', 'contd', 'line',
-              'trunc', 'comment', 'eos')
-
-FF_LINE_REGEX = _freeform_line_regex()
 
 def _lexer_regex():
     """Return regular expression for parsing free-form Fortran 2008"""
-    endline = r"""(?:\r\n?|\n)$"""
-    comment = r"""(?:![^\r\n]*)"""
+    endline = r"""$"""
+    comment = r"""(?:!.*)"""
     skip_ws = r"""[\t ]*"""
     postquote = r"""(?!['"\w])"""
     sq_string = r"""'(?:''|[^'\r\n])*'{postquote}""".format(postquote=postquote)
     dq_string = r""""(?:""|[^"\r\n])*"{postquote}""".format(postquote=postquote)
-    sq_trunc = r"""'(?:''|[^'\r\n])*&{skipws}{endline}""" \
-                    .format(skipws=skip_ws, endline=endline)
-    dq_trunc = r""""(?:""|[^"\r\n])*&{skipws}{endline}""" \
-                    .format(skipws=skip_ws, endline=endline)
-    contd = r"""(?:[^\s&]*&{skipws}{comment}?{endline})""" \
-                    .format(skipws=skip_ws, comment=comment, endline=endline)
     postnum = r"""(?!['"&0-9A-Za-z]|\.[0-9])"""
     integer = r"""\d+{postnum}""".format(postnum=postnum)
     decimal = r"""(?:\d+\.\d*|\.\d+)"""
@@ -154,20 +90,20 @@ def _lexer_regex():
     dotop = r"""[A-Za-z]+"""
     word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&])"""
     compound = r"""
-          (?: block(?=(?:data)\W)
-            | double(?=(?:precision)\W)
-            | else(?=(?:if|where)\W)
+          (?: block(?=(?:data)(?!\w))
+            | double(?=(?:precision)(?!\w))
+            | else(?=(?:if|where)(?!\w))
             | end(?=(?:associate|block|blockdata|critical|do|enum|file|forall
                       |function|if|interface|module|procedure|program|select
-                      |submodule|subroutine|type|where)\W)
-            | in(?=(?:out)\W)
-            | go(?=(?:to)\W)
-            | select(?=(?:case|type)\W)
+                      |submodule|subroutine|type|where)(?!\w))
+            | in(?=(?:out)(?!\w))
+            | go(?=(?:to)(?!\w))
+            | select(?=(?:case|type)(?!\w))
             )
           """
     fortran_token = r"""(?ix)
           {skipws}(?:
-            (;|{comment}?{endline})             #  1 end of statement
+            (; | {comment}?$)                   #  1 end of statement
           | ({sqstring} | {dqstring})           #  2 strings
           | ({real})                            #  3 real
           | ({int})                             #  4 ints
@@ -180,7 +116,6 @@ def _lexer_regex():
           | \( {skipws} (//?) {skipws} \)       #  9 bracketed slashes
           | ({operator})                        # 10 symbolic operator
           | ({compound} | {word})               # 11 word
-          | ({contd} | {sqtrunc} | {dqtrunc})   # (12 continuation)
           | (?=.)
           )
         """.format(
@@ -188,8 +123,7 @@ def _lexer_regex():
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                dotop=dotop, compound=compound, word=word,
-                contd=contd, sqtrunc=sq_trunc, dqtrunc=dq_trunc
+                dotop=dotop, compound=compound, word=word
                 )
 
     return re.compile(fortran_token)
@@ -218,9 +152,6 @@ CAT_NAMES = ('eof', 'eos', 'string', 'float', 'int', 'radix',
              'word', 'preproc', 'include', 'format')
 
 LEXER_REGEX = _lexer_regex()
-STUB_REGEX = _stub_regex()
-SPILL_REGEX = re.compile("""(?xs)^[ \t]*&?(.*)$""")
-COMMENT_LINE_REGEX = re.compile("""(?xs)^[ \t]*!(.*)$""")
 
 def _string_lexer_regex(quote):
     pattern = r"""(?x) ({quote}{quote}) | ([^{quote}]+)""".format(quote=quote)
@@ -264,100 +195,19 @@ def lex_free_form(buffer):
     # check for buffer
     if isinstance(buffer, _string_like_types):
         raise ValueError("Expect open file or other sequence of lines")
-    buffer = iter(buffer)
 
-    # For speed of access
-    line_regex = FF_LINE_REGEX
     lexer_regex = LEXER_REGEX
-    stub_regex = STUB_REGEX
-    spill_regex = SPILL_REGEX
-    comment_line_regex = COMMENT_LINE_REGEX
-    cat_continuation = _CAT_CONTINUATION
 
-    line_token_cat = (
-        None,
-        CAT_PREPROC,   # LINE_PREPROC
-        CAT_INCLUDE,   # LINE_INCLUDE
-        CAT_EOS,       # LINE_COMMENT
-        CAT_FORMAT,    # LINE_FORMAT
-        )
-
-    # Iterate through lines of the file
-    for line in buffer:
-        line_cat = line_regex.match(line).lastindex
-
-        if line_cat == LINE_ELSE:
-            tokens = list(tokenize_regex(lexer_regex, line))
-
-            # Continuation lines:
-            # Fortran allows complicated line continuations with '&', optional
-            # comments, and an optional '&' on the following line.  Worse, it
-            # also allows to split any token across multiple lines, which
-            # requires the lexer to re-read parts of the previous line.
-            while tokens[-1][0] == cat_continuation:
-                spill_line = next(buffer)
-                if comment_line_regex.match(spill_line):
-                    continue
-                stub = stub_regex.match(tokens.pop()[1]).group(0)
-                spill = spill_regex.match(spill_line).group(1)
-                tokens += list(tokenize_regex(lexer_regex, stub + spill))
-
-            # Yield that stuff
-            for token_pair in tokens:
-                yield token_pair
-        else:
-            yield line_token_cat[line_cat], line
+    for cat, line in lines.free_form_lines(buffer):
+        # TODO
+        if cat != lines.LINECAT_NORMAL:
+            continue
+        #print(cat, repr(line))
+        for token_pair in tokenize_regex(lexer_regex, line):
+            yield token_pair
 
     # Make sure last line is terminated, then yield terminal token
     yield (CAT_EOS, '\n')
-    yield (CAT_DOLLAR, '<$>')
-
-FIXED_CONTD_REGEX = re.compile(r'^[ ]{5}[^ 0]')
-
-def mend_fixed_form_lines(buffer, margin=72):
-    """Handle line continuation in fixed form fortran"""
-    # For speed of access
-    fixed_contd_regex = FIXED_CONTD_REGEX
-
-    # Iterate through lines of the file.  Fortran allows to split tokens
-    # across lines, which is why we build up the whole line before giving
-    # it to the tokenizer.
-    logical_line = None
-    for line in buffer:
-        line = line[:margin].rstrip()
-        if fixed_contd_regex.match(line):
-            # This is a continuation.
-            logical_line += line[6:]
-        else:
-            # This is a new line
-            if logical_line is not None:
-                yield logical_line + "\n"
-            logical_line = line
-
-    # Handle the last line
-    if logical_line is not None:
-        yield logical_line + "\n"
-
-def lex_fixed_form(buffer, margin=72):
-    """Perform lexical analysis for an opened fixed-form Fortran file."""
-    # check for buffer
-    if isinstance(buffer, _string_like_types):
-        raise ValueError("Expect open file or other sequence of lines")
-    buffer = iter(buffer)
-
-    # For speed of access
-    lexer_regex = LEXER_REGEX
-
-    for line in mend_fixed_form_lines(buffer, margin):
-        if line[0] in 'cC*':
-            # Comment line
-            yield (CAT_EOS, line)
-        else:
-            # Handle normal lines
-            for token_pair in tokenize_regex(lexer_regex, line):
-                yield token_pair
-
-    # Yield terminal token
     yield (CAT_DOLLAR, '<$>')
 
 def lex_snippet(fstring):
@@ -404,13 +254,6 @@ if __name__ == '__main__':
 
     for fname in args.files:
         contents = open(fname)
-        for l in contents:
-            m = FF_LINE_REGEX.match(l)
-            print("LINE:", m.lastindex, l, end='')
-            for i, g in enumerate(m.groups()):
-                if g is not None:
-                    print(LINE_NAMES[i+1], g)
-        continue
 
         if args.output:
             pprint(lexer(contents), sys.stdout, fname)
