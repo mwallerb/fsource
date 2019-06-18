@@ -69,8 +69,8 @@ def tokenize_regex(regex, text):
 
 def _lexer_regex():
     """Return regular expression for parsing free-form Fortran 2008"""
-    endline = r"""$"""
-    comment = r"""(?:!.*)"""
+    endline = r"""(?:\n|\r\n?)"""
+    comment = r"""(?:![^\r\n]*)"""
     skip_ws = r"""[\t ]*"""
     postquote = r"""(?!['"\w])"""
     sq_string = r"""'(?:''|[^'\r\n])*'{postquote}""".format(postquote=postquote)
@@ -103,7 +103,7 @@ def _lexer_regex():
           """
     fortran_token = r"""(?ix)
           {skipws}(?:
-            (; | {comment}?$)                   #  1 end of statement
+            (; | {comment}?{endline})           #  1 end of statement
           | ({sqstring} | {dqstring})           #  2 strings
           | ({real})                            #  3 real
           | ({int})                             #  4 ints

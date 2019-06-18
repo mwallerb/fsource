@@ -21,6 +21,7 @@ import re
 def _freeform_line_regex():
     """Discriminate line type"""
     ws = r"""[ \t]+"""
+    endline = r"""(?:\n|\r\n?)"""
     anything = r"""[^\r\n]*"""
     comment = r"""(?:![^\r\n]*)"""
     lineno = r"""[0-9]{1,5}(?=[ \t])"""
@@ -34,18 +35,18 @@ def _freeform_line_regex():
                      )
             """
     line = r"""(?ix) ^[ \t]*
-            (?: ( {preproc} )                   # 1 preprocessor stmt
-              | ( {include} )                   # 2 include line
-              | ( {format} )                    # 3 format stmt
-              | ( {atom}* ) (?:                 # 4 whole line part
-                  ( {comment}? )                # 5 full line end
-                | ( & [ \t]* {comment}? )       # 6 truncated line end
-                | ( {truncstr} ) &[ \t]*        # 7 truncated string line end
+            (?: ( {preproc} {endline} )         # 1 preprocessor stmt
+              | ( {include} {endline} )         # 2 include line
+              | ( {format} {endline} )          # 3 format stmt
+              | ( {atom}* ) (?:                  # 4 whole line part
+                  ( {comment}? {endline} )           # 5 full line end
+                | ( & [ \t]* {comment}? {endline} )  # 6 truncated line end
+                | ( {truncstr} ) &[ \t]* {endline}   # 7 truncated string line end
                 )
               ) $
             """.format(preproc=preproc, include=include, format=format,
                        anything=anything, atom=atom, truncstr=truncstr,
-                       comment=comment)
+                       comment=comment, endline=endline)
 
     return re.compile(line)
 
@@ -63,13 +64,14 @@ def _freeform_contd_regex():
     """Discriminate line type"""
     ws = r"""[ \t]+"""
     anything = r"""[^\r\n]+"""
+    endline = r"""(?:\n|\r\n?)"""
     comment = r"""(?:![^\r\n]*)"""
     line = r"""(?x) ^[ \t]*
             (?:
-                ( {comment} )              # 1 comment line (ignored)
-              | &? [ \t]* ( {anything} )   # 2 spill
+                ( {comment} {endline} )              # 1 comment line (ignored)
+              | &? [ \t]* ( {anything} {endline} )   # 2 spill
               ) $
-            """.format(anything=anything, comment=comment)
+            """.format(anything=anything, comment=comment, endline=endline)
     return re.compile(line)
 
 CONTD_COMMENT = 1
@@ -228,6 +230,6 @@ if __name__ == '__main__':
         contents = open(fname)
         if args.output:
             for cat, line in lines(contents):
-                print("%s: %s" % (LINECAT_NAMES[cat], line))
+                print("%s: %s" % (LINECAT_NAMES[cat], line), end='')
         else:
             for _ in lines(contents): pass
