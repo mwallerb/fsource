@@ -658,16 +658,21 @@ def double_colon(tokens):
 
 optional_double_colon = optional(double_colon)
 
-@rule
-def entity_attrs(tokens):
-    attrs = []
-    while tokens.marker(','):
-        attrs.append(entity_attr(tokens))
-    try:
-        double_colon(tokens)
-    except NoMatch:
-        if attrs: raise NoMatch()
-    return tokens.produce('entity_attrs', *attrs)
+def attribute_sequence(attr_rule, production_tag):
+    @rule
+    def attribute_sequence_rule(tokens):
+        attrs = []
+        while tokens.marker(','):
+            attrs.append(attr_rule(tokens))
+        try:
+            double_colon(tokens)
+        except NoMatch:
+            if attrs: raise ParserError("Expecting ::")
+        return tokens.produce(production_tag, *attrs)
+
+    return attribute_sequence_rule
+
+entity_attrs = attribute_sequence(entity_attr, 'entity_attrs')
 
 @rule
 def initializer(tokens):
@@ -746,16 +751,7 @@ _TYPE_ATTR_HANDLERS = {
 
 type_attr = prefixes(_TYPE_ATTR_HANDLERS)
 
-@rule
-def type_attrs(tokens):
-    attrs = []
-    while tokens.marker(','):
-        attrs.append(type_attr(tokens))
-    try:
-        double_colon(tokens)
-    except NoMatch:
-        if attrs: raise ParserError(tokens, "Expecting ::")
-    return tokens.produce('type_attrs', *attrs)
+type_attrs = attribute_sequence(type_attr, 'type_attrs')
 
 def preproc_stmt(tokens):
     return ('preproc_stmt', tokens.expect_cat(lexer.CAT_PREPROC))
@@ -828,16 +824,7 @@ _TYPE_PROC_ATTR_HANDLERS = {
 
 type_proc_attr = prefixes(_TYPE_PROC_ATTR_HANDLERS)
 
-@rule
-def type_proc_attrs(tokens):
-    attrs = []
-    while tokens.marker(','):
-        attrs.append(type_proc_attr(tokens))
-    try:
-        double_colon(tokens)
-    except NoMatch:
-        if attrs: raise NoMatch()
-    return tokens.produce('type_proc_attrs', *attrs)
+type_proc_attrs = attribute_sequence(type_proc_attr, 'type_proc_attrs')
 
 def type_proc(tokens):
     name = identifier(tokens)
