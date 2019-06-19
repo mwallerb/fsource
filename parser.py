@@ -251,21 +251,24 @@ def implied_do(tokens):
                 tokens.expect(')')
                 return tokens.produce('impl_do', do_ctrl_result, *args)
 
-@rule
-def inplace_array(tokens):
-    seq = []
-    tokens.expect('(/')
-    with LockedIn(tokens):
-        if tokens.marker('/)'):
-            return tokens.produce('array')
-        while True:
-            try:
-                seq.append(implied_do(tokens))
-            except NoMatch:
-                seq.append(expr(tokens))
-            if tokens.marker('/)'):
-                return tokens.produce('array', *seq)
-            tokens.expect(',')
+def inplace_array(open_delim, close_delim):
+    @rule
+    def inplace_array_rule(tokens):
+        seq = []
+        tokens.expect(open_delim)
+        with LockedIn(tokens):
+            if tokens.marker(close_delim):
+                return tokens.produce('array')
+            while True:
+                try:
+                    seq.append(implied_do(tokens))
+                except NoMatch:
+                    seq.append(expr(tokens))
+                if tokens.marker(close_delim):
+                    return tokens.produce('array', *seq)
+                tokens.expect(',')
+
+    return inplace_array_rule
 
 @rule
 def parens_expr(tokens):
@@ -376,7 +379,8 @@ class ExpressionHandler:
             "+":      prefix_op_handler(110, 'pos'),
             "-":      prefix_op_handler(110, 'neg'),
             "(":      parens_expr,
-            "(/":     inplace_array,
+            "(/":     inplace_array('(/', '/)'),
+            "[":      inplace_array('[', ']')
             }
         infix_ops = {
             "eqv":    ( 20, infix_op_handler( 20, 'eqv')),
@@ -733,6 +737,7 @@ def extends(tokens):
 optional_bind_c = optional(bind_c)
 
 _TYPE_ATTR_HANDLERS = {
+    'abstract':    tag('abstract', 'abstract'),
     'public':      tag('public', 'public'),
     'private':     tag('private', 'private'),
     'bind':        bind_c,
@@ -1159,6 +1164,7 @@ def module_proc_stmt(tokens):
     tokens.expect('module')
     tokens.expect('procedure')
     with LockedIn(tokens):
+        optional_double_colon(tokens)
         procs = identifier_sequence(tokens)
         eos(tokens)
         return tokens.produce('module_proc_stmt', *procs[1:])
@@ -1183,6 +1189,18 @@ def interface_decl(tokens):
             optional_iface_name(tokens)
         eos(tokens)
         return tokens.produce('interface_decl', name, decls)
+
+@rule
+def abstract_interface_decl(tokens):
+    tokens.expect('abstract')
+    tokens.expect('interface')
+    with LockedIn(tokens):
+        eos(tokens)
+        decls = interface_body_block(tokens)
+        tokens.expect('end')
+        tokens.marker('interface')
+        eos(tokens)
+        return tokens.produce('abstract_interface_decl', decls)
 
 def imbue_stmt(prefix_rule, object_rule):
     object_sequence = comma_sequence(object_rule, None)
@@ -1247,15 +1265,26 @@ def equivalence_stmt(tokens):
         eos(tokens)
         return seq
 
+private_imbue_stmt = imbue_stmt(tag('private', 'private'), iface_name)
+
+def private_or_imbue_stmt(tokens):
+    try:
+        # As a common extension, many compilers allow 'private' statements
+        # as part of a module.
+        return private_stmt(tokens)
+    except NoMatch:
+        return private_imbue_stmt(tokens)
+
 # TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
     'use':         use_stmt,
     'implicit':    implicit_stmt,
+    'abstract':    abstract_interface_decl,
     'interface':   interface_decl,
     'equivalence': equivalence_stmt,
 
     'public':      imbue_stmt(tag('public', 'public'), iface_name),
-    'private':     imbue_stmt(tag('private', 'private'), iface_name),
+    'private':     private_or_imbue_stmt,
     'parameter':   parameter_stmt,
     'external':    imbue_stmt(tag('external', 'external'), identifier),
     'intent':      imbue_stmt(intent, identifier),
