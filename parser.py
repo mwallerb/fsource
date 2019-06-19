@@ -674,15 +674,23 @@ def attribute_sequence(attr_rule, production_tag):
 
 entity_attrs = attribute_sequence(entity_attr, 'entity_attrs')
 
-@rule
-def initializer(tokens):
-    if tokens.marker('='):
+def init_assign(tokens):
+    tokens.expect('=')
+    with LockedIn(tokens):
         init = expr(tokens)
         return tokens.produce('init_assign', init)
-    else:
-        tokens.expect('=>')
+
+def init_point(tokens):
+    tokens.expect('=>')
+    with LockedIn(tokens):
         init = expr(tokens)
         return tokens.produce('init_point', init)
+
+def initializer(tokens):
+    try:
+        return init_assign(tokens)
+    except NoMatch:
+        return init_point(tokens)
 
 optional_char_len_suffix = optional(char_len_suffix)
 
@@ -1262,6 +1270,41 @@ def private_or_imbue_stmt(tokens):
     except NoMatch:
         return private_imbue_stmt(tokens)
 
+_PROC_ATTR_HANDLERS = {
+    'public':      tag('public', 'public'),
+    'private':     tag('private', 'private'),
+    'bind':        bind_c,
+    'intent':      intent,
+    'intrinsic':   tag('intrinsic', 'intrinsic'),
+    'optional':    tag('optional', 'optional'),
+    'pointer':     tag('pointer', 'pointer'),
+    'nopass':      tag('nopass', 'nopass'),
+    'pass':        pass_attr,
+    }
+
+proc_attr = prefixes(_PROC_ATTR_HANDLERS)
+
+proc_attrs = attribute_sequence(proc_attr, 'proc_attrs')
+
+optional_init_point = optional(init_point)
+
+@rule
+def procedure(tokens):
+    name = identifier(tokens)
+    init = optional_init_point(tokens)
+    return tokens.produce('procedure', name, init)
+
+procedure_sequence = comma_sequence(procedure, 'procedure_list')
+
+def procedure_decl(tokens):
+    tokens.expect('procedure')
+    tokens.expect('(')
+    iface = optional_identifier(tokens)
+    tokens.expect(')')
+    attrs = proc_attrs(tokens)
+    procs = procedure_sequence(tokens)
+    return tokens.produce('procedure_decl', iface, attrs, procs)
+
 # TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
     'use':         use_stmt,
@@ -1269,6 +1312,7 @@ _DECLARATION_HANDLERS = {
     'abstract':    abstract_interface_decl,
     'interface':   interface_decl,
     'equivalence': equivalence_stmt,
+    'procedure':   procedure_decl,
 
     'public':      imbue_stmt(tag('public', 'public'), iface_name),
     'private':     private_or_imbue_stmt,
