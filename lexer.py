@@ -240,6 +240,7 @@ def get_lexer(form='free'):
 
 if __name__ == '__main__':
     import sys
+    import time
     import argparse
 
     parser = argparse.ArgumentParser(description='Lexer for free-form Fortran')
@@ -255,10 +256,11 @@ if __name__ == '__main__':
     args = parser.parse_args()
     lexer = get_lexer(args.form)
 
-    for fname in args.files:
-        contents = open(fname)
-
-        if args.output:
-            pprint(lexer(contents), sys.stdout, fname)
-        else:
-            for _ in lexer(contents): pass
+    if args.output:
+        for fname in args.files:
+            pprint(lexer(open(fname)), sys.stdout, fname)
+    else:
+        begin = time.time()
+        for fname in args.files:
+            for _ in lexer(open(fname)): pass
+        sys.stderr.write("elapsed: %g\n" % (time.time() - begin))

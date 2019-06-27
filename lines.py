@@ -184,7 +184,7 @@ def fixed_form_lines(buffer, margin=72):
             cat = LINECAT_NORMAL
             stub = match.group(FIXED_OTHER)
         elif discr == FIXED_COMMENT:
-            yield LINECAT_COMMENT, match.group(FIXED_COMMENT)
+            yield LINECAT_NORMAL, "!" + match.group(FIXED_COMMENT)
         elif discr == FIXED_FORMAT:
             cat = LINECAT_FORMAT
             stub = match.group(FIXED_FORMAT)
