@@ -140,9 +140,6 @@ CAT_CUSTOM_DOT = 8
 CAT_BRACKETED_SLASH = 9
 CAT_SYMBOLIC_OP = 10
 CAT_WORD = 11
-CAT_MAX = 11
-_CAT_CONTINUATION = 12
-
 CAT_PREPROC = 12
 CAT_INCLUDE = 13
 CAT_FORMAT = 14
@@ -152,6 +149,12 @@ CAT_NAMES = ('eof', 'eos', 'string', 'float', 'int', 'radix',
              'word', 'preproc', 'include', 'format')
 
 LEXER_REGEX = _lexer_regex()
+
+LINECAT_TO_CAT = {
+    lines.LINECAT_PREPROC: CAT_PREPROC,
+    lines.LINECAT_INCLUDE: CAT_INCLUDE,
+    lines.LINECAT_FORMAT: CAT_FORMAT
+    }
 
 def _string_lexer_regex(quote):
     pattern = r"""(?x) ({quote}{quote}) | ([^{quote}]+)""".format(quote=quote)
@@ -197,14 +200,14 @@ def lex_free_form(buffer):
         raise ValueError("Expect open file or other sequence of lines")
 
     lexer_regex = LEXER_REGEX
+    linecat_to_cat = LINECAT_TO_CAT
 
-    for cat, line in lines.free_form_lines(buffer):
-        # TODO
-        if cat != lines.LINECAT_NORMAL:
-            continue
-        #print(cat, repr(line))
-        for token_pair in tokenize_regex(lexer_regex, line):
-            yield token_pair
+    for linecat, line in lines.free_form_lines(buffer):
+        try:
+            yield linecat_to_cat[linecat], line
+        except KeyError:
+            for token_pair in tokenize_regex(lexer_regex, line):
+                yield token_pair
 
     # Make sure last line is terminated, then yield terminal token
     yield (CAT_EOS, '\n')

@@ -84,7 +84,6 @@ LINECAT_NORMAL = 1
 LINECAT_INCLUDE = 2
 LINECAT_FORMAT = 3
 LINECAT_PREPROC = 4
-LINECAT_COMMENT = 5
 
 LINECAT_NAMES = (None, 'line', 'include', 'format', 'preproc', 'comment')
 
