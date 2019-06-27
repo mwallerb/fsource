@@ -251,21 +251,24 @@ def implied_do(tokens):
                 tokens.expect(')')
                 return tokens.produce('impl_do', do_ctrl_result, *args)
 
-@rule
-def inplace_array(tokens):
-    seq = []
-    tokens.expect('(/')
-    with LockedIn(tokens):
-        if tokens.marker('/)'):
-            return tokens.produce('array')
-        while True:
-            try:
-                seq.append(implied_do(tokens))
-            except NoMatch:
-                seq.append(expr(tokens))
-            if tokens.marker('/)'):
-                return tokens.produce('array', *seq)
-            tokens.expect(',')
+def inplace_array(open_delim, close_delim):
+    @rule
+    def inplace_array_rule(tokens):
+        seq = []
+        tokens.expect(open_delim)
+        with LockedIn(tokens):
+            if tokens.marker(close_delim):
+                return tokens.produce('array')
+            while True:
+                try:
+                    seq.append(implied_do(tokens))
+                except NoMatch:
+                    seq.append(expr(tokens))
+                if tokens.marker(close_delim):
+                    return tokens.produce('array', *seq)
+                tokens.expect(',')
+
+    return inplace_array_rule
 
 @rule
 def parens_expr(tokens):
@@ -376,7 +379,8 @@ class ExpressionHandler:
             "+":      prefix_op_handler(110, 'pos'),
             "-":      prefix_op_handler(110, 'neg'),
             "(":      parens_expr,
-            "(/":     inplace_array,
+            "(/":     inplace_array('(/', '/)'),
+            "[":      inplace_array('[', ']')
             }
         infix_ops = {
             "eqv":    ( 20, infix_op_handler( 20, 'eqv')),
@@ -654,26 +658,39 @@ def double_colon(tokens):
 
 optional_double_colon = optional(double_colon)
 
-@rule
-def entity_attrs(tokens):
-    attrs = []
-    while tokens.marker(','):
-        attrs.append(entity_attr(tokens))
-    try:
-        double_colon(tokens)
-    except NoMatch:
-        if attrs: raise NoMatch()
-    return tokens.produce('entity_attrs', *attrs)
+def attribute_sequence(attr_rule, production_tag):
+    @rule
+    def attribute_sequence_rule(tokens):
+        attrs = []
+        while tokens.marker(','):
+            attrs.append(attr_rule(tokens))
+        try:
+            double_colon(tokens)
+        except NoMatch:
+            if attrs: raise ParserError("Expecting ::")
+        return tokens.produce(production_tag, *attrs)
 
-@rule
-def initializer(tokens):
-    if tokens.marker('='):
+    return attribute_sequence_rule
+
+entity_attrs = attribute_sequence(entity_attr, 'entity_attrs')
+
+def init_assign(tokens):
+    tokens.expect('=')
+    with LockedIn(tokens):
         init = expr(tokens)
         return tokens.produce('init_assign', init)
-    else:
-        tokens.expect('=>')
+
+def init_point(tokens):
+    tokens.expect('=>')
+    with LockedIn(tokens):
         init = expr(tokens)
         return tokens.produce('init_point', init)
+
+def initializer(tokens):
+    try:
+        return init_assign(tokens)
+    except NoMatch:
+        return init_point(tokens)
 
 optional_char_len_suffix = optional(char_len_suffix)
 
@@ -733,6 +750,7 @@ def extends(tokens):
 optional_bind_c = optional(bind_c)
 
 _TYPE_ATTR_HANDLERS = {
+    'abstract':    tag('abstract', 'abstract'),
     'public':      tag('public', 'public'),
     'private':     tag('private', 'private'),
     'bind':        bind_c,
@@ -741,16 +759,7 @@ _TYPE_ATTR_HANDLERS = {
 
 type_attr = prefixes(_TYPE_ATTR_HANDLERS)
 
-@rule
-def type_attrs(tokens):
-    attrs = []
-    while tokens.marker(','):
-        attrs.append(type_attr(tokens))
-    try:
-        double_colon(tokens)
-    except NoMatch:
-        if attrs: raise ParserError(tokens, "Expecting ::")
-    return tokens.produce('type_attrs', *attrs)
+type_attrs = attribute_sequence(type_attr, 'type_attrs')
 
 def preproc_stmt(tokens):
     return ('preproc_stmt', tokens.expect_cat(lexer.CAT_PREPROC))
@@ -823,16 +832,7 @@ _TYPE_PROC_ATTR_HANDLERS = {
 
 type_proc_attr = prefixes(_TYPE_PROC_ATTR_HANDLERS)
 
-@rule
-def type_proc_attrs(tokens):
-    attrs = []
-    while tokens.marker(','):
-        attrs.append(type_proc_attr(tokens))
-    try:
-        double_colon(tokens)
-    except NoMatch:
-        if attrs: raise NoMatch()
-    return tokens.produce('type_proc_attrs', *attrs)
+type_proc_attrs = attribute_sequence(type_proc_attr, 'type_proc_attrs')
 
 def type_proc(tokens):
     name = identifier(tokens)
@@ -1159,6 +1159,7 @@ def module_proc_stmt(tokens):
     tokens.expect('module')
     tokens.expect('procedure')
     with LockedIn(tokens):
+        optional_double_colon(tokens)
         procs = identifier_sequence(tokens)
         eos(tokens)
         return tokens.produce('module_proc_stmt', *procs[1:])
@@ -1183,6 +1184,18 @@ def interface_decl(tokens):
             optional_iface_name(tokens)
         eos(tokens)
         return tokens.produce('interface_decl', name, decls)
+
+@rule
+def abstract_interface_decl(tokens):
+    tokens.expect('abstract')
+    tokens.expect('interface')
+    with LockedIn(tokens):
+        eos(tokens)
+        decls = interface_body_block(tokens)
+        tokens.expect('end')
+        tokens.marker('interface')
+        eos(tokens)
+        return tokens.produce('abstract_interface_decl', decls)
 
 def imbue_stmt(prefix_rule, object_rule):
     object_sequence = comma_sequence(object_rule, None)
@@ -1247,15 +1260,62 @@ def equivalence_stmt(tokens):
         eos(tokens)
         return seq
 
+private_imbue_stmt = imbue_stmt(tag('private', 'private'), iface_name)
+
+def private_or_imbue_stmt(tokens):
+    try:
+        # As a common extension, many compilers allow 'private' statements
+        # as part of a module.
+        return private_stmt(tokens)
+    except NoMatch:
+        return private_imbue_stmt(tokens)
+
+_PROC_ATTR_HANDLERS = {
+    'public':      tag('public', 'public'),
+    'private':     tag('private', 'private'),
+    'bind':        bind_c,
+    'intent':      intent,
+    'intrinsic':   tag('intrinsic', 'intrinsic'),
+    'optional':    tag('optional', 'optional'),
+    'pointer':     tag('pointer', 'pointer'),
+    'nopass':      tag('nopass', 'nopass'),
+    'pass':        pass_attr,
+    }
+
+proc_attr = prefixes(_PROC_ATTR_HANDLERS)
+
+proc_attrs = attribute_sequence(proc_attr, 'proc_attrs')
+
+optional_init_point = optional(init_point)
+
+@rule
+def procedure(tokens):
+    name = identifier(tokens)
+    init = optional_init_point(tokens)
+    return tokens.produce('procedure', name, init)
+
+procedure_sequence = comma_sequence(procedure, 'procedure_list')
+
+def procedure_decl(tokens):
+    tokens.expect('procedure')
+    tokens.expect('(')
+    iface = optional_identifier(tokens)
+    tokens.expect(')')
+    attrs = proc_attrs(tokens)
+    procs = procedure_sequence(tokens)
+    return tokens.produce('procedure_decl', iface, attrs, procs)
+
 # TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
     'use':         use_stmt,
     'implicit':    implicit_stmt,
+    'abstract':    abstract_interface_decl,
     'interface':   interface_decl,
     'equivalence': equivalence_stmt,
+    'procedure':   procedure_decl,
 
     'public':      imbue_stmt(tag('public', 'public'), iface_name),
-    'private':     imbue_stmt(tag('private', 'private'), iface_name),
+    'private':     private_or_imbue_stmt,
     'parameter':   parameter_stmt,
     'external':    imbue_stmt(tag('external', 'external'), identifier),
     'intent':      imbue_stmt(intent, identifier),
@@ -1413,7 +1473,7 @@ def select_case(tokens):
     eos(tokens)
     execution_part(tokens)
 
-select_case_sequence = ws_sequence(select_case, 'select_case_list')
+select_case_sequence = block(select_case, 'select_case_list', fenced=False)
 
 @rule
 def select_case_construct(tokens):

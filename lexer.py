@@ -33,6 +33,8 @@ from __future__ import print_function
 import sys
 import re
 
+import lines
+
 # Python 2/3 compatibility
 if sys.version_info >= (3,):
     _string_like_types = str, bytes,
@@ -64,33 +66,15 @@ def tokenize_regex(regex, text):
     except (TypeError, IndexError) as e:
         raise LexerError(text, match.start())
 
-def _stub_regex():
-    """Return regular expression for stub part of continuation"""
-    endline = r"""(?:\r\n?|\n)$"""
-    comment = r"""(?:![^\r\n]*)"""
-    skip_ws = r"""[\t ]*"""
-    stub = r"""(?x)^
-                (?: '(?:''|[^'\r\n])*(?=&{skipws}{endline})
-                  | "(?:""|[^"\r\n])*(?=&{skipws}{endline})
-                  | [^\s&]*(?=&{skipws}{comment}?{endline})
-                  )
-            """.format(skipws=skip_ws, comment=comment, endline=endline)
-    return re.compile(stub)
 
 def _lexer_regex():
     """Return regular expression for parsing free-form Fortran 2008"""
-    endline = r"""(?:\r\n?|\n)$"""
+    endline = r"""(?:\n|\r\n?)"""
     comment = r"""(?:![^\r\n]*)"""
     skip_ws = r"""[\t ]*"""
     postquote = r"""(?!['"\w])"""
     sq_string = r"""'(?:''|[^'\r\n])*'{postquote}""".format(postquote=postquote)
     dq_string = r""""(?:""|[^"\r\n])*"{postquote}""".format(postquote=postquote)
-    sq_trunc = r"""'(?:''|[^'\r\n])*&{skipws}{endline}""" \
-                    .format(skipws=skip_ws, endline=endline)
-    dq_trunc = r""""(?:""|[^"\r\n])*&{skipws}{endline}""" \
-                    .format(skipws=skip_ws, endline=endline)
-    contd = r"""(?:[^\s&]*&{skipws}{comment}?{endline})""" \
-                    .format(skipws=skip_ws, comment=comment, endline=endline)
     postnum = r"""(?!['"&0-9A-Za-z]|\.[0-9])"""
     integer = r"""\d+{postnum}""".format(postnum=postnum)
     decimal = r"""(?:\d+\.\d*|\.\d+)"""
@@ -101,80 +85,76 @@ def _lexer_regex():
     octal = r"""[Oo](?:'[0-7]+'|"[0-7]+"){postq}""".format(postq=postquote)
     hexadec = r"""[Zz](?:'[0-9A-Fa-f]+'|"[0-9A-Fa-f]+"){postq}""" \
                 .format(postq=postquote)
-    operator = r"""\(/?|\)|[-+,:_%]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
+    operator = r"""\(/?|\)|[-+,:_%\[\]]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
-    preproc = r"""(?:\#|include[ \t])[^\r\n]+{endline}""".format(endline=endline)
     word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&])"""
     compound = r"""
-          (?: block(?=(?:data)\W)
-            | double(?=(?:precision)\W)
-            | else(?=(?:if|where)\W)
+          (?: block(?=(?:data)(?!\w))
+            | double(?=(?:precision)(?!\w))
+            | else(?=(?:if|where)(?!\w))
             | end(?=(?:associate|block|blockdata|critical|do|enum|file|forall
                       |function|if|interface|module|procedure|program|select
-                      |submodule|subroutine|type|where)\W)
-            | in(?=(?:out)\W)
-            | go(?=(?:to)\W)
-            | select(?=(?:case|type)\W)
+                      |submodule|subroutine|type|where)(?!\w))
+            | in(?=(?:out)(?!\w))
+            | go(?=(?:to)(?!\w))
+            | select(?=(?:case|type)(?!\w))
             )
           """
-    format = r"""format\s*\([^\r\n]+"""
     fortran_token = r"""(?ix)
-          ^({skipws}{preproc})                  #  1 preprocessor stmt
-        | {skipws}(?:
-            (;|{comment}?{endline})             #  2 end of statement
-          | ({sqstring} | {dqstring})           #  3 strings
-          | ({real})                            #  4 real
-          | ({int})                             #  5 ints
-          | ({binary} | {octal} | {hex})        #  6 radix literals
+          {skipws}(?:
+            (; | {comment}?{endline})           #  1 end of statement
+          | ({sqstring} | {dqstring})           #  2 strings
+          | ({real})                            #  3 real
+          | ({int})                             #  4 ints
+          | ({binary} | {octal} | {hex})        #  5 radix literals
           | \.\s* (?:
-              ( true | false )                  #  7 boolean
-            | ( {builtin_dot} )                 #  8 built-in dot operator
-            | ( {dotop} )                       #  9 custom dot operator
+              ( true | false )                  #  6 boolean
+            | ( {builtin_dot} )                 #  7 built-in dot operator
+            | ( {dotop} )                       #  8 custom dot operator
             ) \s*\.
-          | \( {skipws} (//?) {skipws} \)       # 10 bracketed slashes
-          | ({operator})                        # 11 symbolic operator
-          | ({format})                          # 12 format line
-          | ({compound} | {word})               # 13 word
-          | ({contd} | {sqtrunc} | {dqtrunc})   # (14 continuation)
+          | \( {skipws} (//?) {skipws} \)       #  9 bracketed slashes
+          | ({operator})                        # 10 symbolic operator
+          | ({compound} | {word})               # 11 word
           | (?=.)
           )
         """.format(
                 skipws=skip_ws, endline=endline, comment=comment,
-                preproc=preproc,
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                dotop=dotop, compound=compound, word=word, format=format,
-                contd=contd, sqtrunc=sq_trunc, dqtrunc=dq_trunc
+                dotop=dotop, compound=compound, word=word
                 )
 
     return re.compile(fortran_token)
 
 CAT_DOLLAR = 0
-CAT_PREPROC = 1
-CAT_EOS = 2
-CAT_STRING = 3
-CAT_FLOAT = 4
-CAT_INT = 5
-CAT_RADIX = 6
-CAT_BOOLEAN = 7
-CAT_BUILTIN_DOT = 8
-CAT_CUSTOM_DOT = 9
-CAT_BRACKETED_SLASH = 10
-CAT_SYMBOLIC_OP = 11
-CAT_FORMAT = 12
-CAT_WORD = 13
-_CAT_CONTINUATION = 14
+CAT_EOS = 1
+CAT_STRING = 2
+CAT_FLOAT = 3
+CAT_INT = 4
+CAT_RADIX = 5
+CAT_BOOLEAN = 6
+CAT_BUILTIN_DOT = 7
+CAT_CUSTOM_DOT = 8
+CAT_BRACKETED_SLASH = 9
+CAT_SYMBOLIC_OP = 10
+CAT_WORD = 11
+CAT_PREPROC = 12
+CAT_INCLUDE = 13
+CAT_FORMAT = 14
 
-CAT_NAMES = ('eof', 'preproc', 'eos', 'string', 'float', 'int', 'radix',
+CAT_NAMES = ('eof', 'eos', 'string', 'float', 'int', 'radix',
              'bool', 'dotop', 'custom_dotop', 'bracketed_slash', 'symop',
-             'format', 'word')
+             'word', 'preproc', 'include', 'format')
 
 LEXER_REGEX = _lexer_regex()
-STUB_REGEX = _stub_regex()
-SPILL_REGEX = re.compile("""(?xs)^[ \t]*&?(.*)$""")
-COMMENT_LINE_REGEX = re.compile("""(?xs)^[ \t]*!(.*)$""")
+
+LINECAT_TO_CAT = {
+    lines.LINECAT_PREPROC: CAT_PREPROC,
+    lines.LINECAT_INCLUDE: CAT_INCLUDE,
+    lines.LINECAT_FORMAT: CAT_FORMAT
+    }
 
 def _string_lexer_regex(quote):
     pattern = r"""(?x) ({quote}{quote}) | ([^{quote}]+)""".format(quote=quote)
@@ -218,86 +198,19 @@ def lex_free_form(buffer):
     # check for buffer
     if isinstance(buffer, _string_like_types):
         raise ValueError("Expect open file or other sequence of lines")
-    buffer = iter(buffer)
 
-    # For speed of access
     lexer_regex = LEXER_REGEX
-    stub_regex = STUB_REGEX
-    spill_regex = SPILL_REGEX
-    comment_line_regex = COMMENT_LINE_REGEX
-    cat_continuation = _CAT_CONTINUATION
+    linecat_to_cat = LINECAT_TO_CAT
 
-    # Iterate through lines of the file
-    for line in buffer:
-        tokens = list(tokenize_regex(lexer_regex, line))
-
-        # Continuation lines:
-        # Fortran allows complicated line continuations with '&', optional
-        # comments, and an optional '&' on the following line.  Worse, it also
-        # allows to split any token across multiple lines, which requires the
-        # lexer to re-read parts of the previous line.
-        while tokens[-1][0] == cat_continuation:
-            spill_line = next(buffer)
-            if comment_line_regex.match(spill_line):
-                continue
-            stub = stub_regex.match(tokens.pop()[1]).group(0)
-            spill = spill_regex.match(spill_line).group(1)
-            tokens += list(tokenize_regex(lexer_regex, stub + spill))
-
-        # Yield that stuff
-        for token_pair in tokens:
-            yield token_pair
-
-    # Make sure last line is terminated, then yield terminal token
-    yield (CAT_EOS, '\n')
-    yield (CAT_DOLLAR, '<$>')
-
-FIXED_CONTD_REGEX = re.compile(r'^[ ]{5}[^ 0]')
-
-def mend_fixed_form_lines(buffer, margin=72):
-    """Handle line continuation in fixed form fortran"""
-    # For speed of access
-    fixed_contd_regex = FIXED_CONTD_REGEX
-
-    # Iterate through lines of the file.  Fortran allows to split tokens
-    # across lines, which is why we build up the whole line before giving
-    # it to the tokenizer.
-    logical_line = None
-    for line in buffer:
-        line = line[:margin].rstrip()
-        if fixed_contd_regex.match(line):
-            # This is a continuation.
-            logical_line += line[6:]
-        else:
-            # This is a new line
-            if logical_line is not None:
-                yield logical_line + "\n"
-            logical_line = line
-
-    # Handle the last line
-    if logical_line is not None:
-        yield logical_line + "\n"
-
-def lex_fixed_form(buffer, margin=72):
-    """Perform lexical analysis for an opened fixed-form Fortran file."""
-    # check for buffer
-    if isinstance(buffer, _string_like_types):
-        raise ValueError("Expect open file or other sequence of lines")
-    buffer = iter(buffer)
-
-    # For speed of access
-    lexer_regex = LEXER_REGEX
-
-    for line in mend_fixed_form_lines(buffer, margin):
-        if line[0] in 'cC*':
-            # Comment line
-            yield (CAT_EOS, line)
-        else:
-            # Handle normal lines
+    for linecat, line in lines.free_form_lines(buffer):
+        try:
+            yield linecat_to_cat[linecat], line
+        except KeyError:
             for token_pair in tokenize_regex(lexer_regex, line):
                 yield token_pair
 
-    # Yield terminal token
+    # Make sure last line is terminated, then yield terminal token
+    yield (CAT_EOS, '\n')
     yield (CAT_DOLLAR, '<$>')
 
 def lex_snippet(fstring):
