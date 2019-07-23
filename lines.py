@@ -137,10 +137,10 @@ def free_form_lines(buffer):
 
 
 def _fixedform_line_regex():
-    line = """(?ix) ^
+    line = """(?isx) ^
         (?: [cC*!](.*)                                      # 1: comment
             | [ ]{5}[^ 0] (.*)                              # 2: continuation
-            | [ ]{6} [ \t]* (\#.*)                          # 3: preprocessor
+            | [ \t]* (\#.*)                                 # 3: preprocessor
             | [ ]{6} [ \t]* (include[ \t].*)                # 4: include line
             | ( [ ][\d ]{4}[ ] [ \t]* format[ \t]*\(.* )    # 5: format line
             | ( [ ][\d ]{4}[ ] [ \t]* .* | )                # 6: normal line
@@ -166,7 +166,7 @@ def fixed_form_lines(buffer, margin=72):
     stub = None
 
     for line in buffer:
-        line = line[:margin].rstrip()
+        line = line[:margin]
         match = FIXED_REGEX.match(line)
         discr = match.lastindex
 

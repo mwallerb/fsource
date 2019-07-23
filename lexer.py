@@ -193,7 +193,7 @@ def parse_radix(tok):
     base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
     return int(tok[2:-1], base)
 
-def lex_free_form(buffer):
+def lex_buffer(buffer, form='free'):
     """Perform lexical analysis for an opened free-form Fortran file."""
     # check for buffer
     if isinstance(buffer, _string_like_types):
@@ -201,8 +201,9 @@ def lex_free_form(buffer):
 
     lexer_regex = LEXER_REGEX
     linecat_to_cat = LINECAT_TO_CAT
+    lines_iter = lines.get_lines(form)
 
-    for linecat, line in lines.free_form_lines(buffer):
+    for linecat, line in lines_iter(buffer):
         try:
             yield linecat_to_cat[linecat], line
         except KeyError:
@@ -232,12 +233,6 @@ def pprint(lexer, out, filename=None):
         else:
             out.write(', ')
 
-def get_lexer(form='free'):
-    if form == 'free':
-        return lex_free_form
-    else:
-        return lex_fixed_form
-
 if __name__ == '__main__':
     import sys
     import argparse
@@ -253,14 +248,13 @@ if __name__ == '__main__':
                         default=True,
                         help='perform lexing but do not print result')
     args = parser.parse_args()
-    lexer = get_lexer(args.form)
 
     if args.output:
         for fname in args.files:
-            pprint(lexer(open(fname)), sys.stdout, fname)
+            pprint(lex_buffer(open(fname)), sys.stdout, fname)
     else:
         import time
         begin = time.time()
         for fname in args.files:
-            for _ in lexer(open(fname)): pass
+            for _ in lex_buffer(open(fname)): pass
         sys.stderr.write("elapsed: %g\n" % (time.time() - begin))

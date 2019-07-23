@@ -1754,10 +1754,10 @@ if __name__ == '__main__':
                         help='perform parsing but do not print result')
     args = parser.parse_args()
 
-    lex_fortran = lexer.get_lexer(args.form)
+    #lex_fortran = lexer.get_lexer(args.form)
     for fname in args.files:
         program = open(fname)
-        slexer = lex_fortran(program)
+        slexer = lexer.lex_buffer(program, args.form)
         tokens = TokenStream(slexer)
         ast = compilation_unit(tokens, fname)
         if args.output:
