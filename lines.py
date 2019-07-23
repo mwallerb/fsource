@@ -166,7 +166,7 @@ def fixed_form_lines(buffer, margin=72):
     stub = None
 
     for line in buffer:
-        line = line[:margin]
+        line = line[:margin].rstrip()
         match = FIXED_REGEX.match(line)
         discr = match.lastindex
 
@@ -177,21 +177,21 @@ def fixed_form_lines(buffer, margin=72):
             continue
         else:
             if stub and discr != FIXED_COMMENT:
-                yield cat, stub
+                yield cat, stub + "\n"
                 stub = None
 
         if discr == FIXED_OTHER:
             cat = LINECAT_NORMAL
             stub = match.group(FIXED_OTHER)
         elif discr == FIXED_COMMENT:
-            yield LINECAT_NORMAL, "!" + match.group(FIXED_COMMENT)
+            yield LINECAT_NORMAL, "!" + match.group(FIXED_COMMENT) + "\n"
         elif discr == FIXED_FORMAT:
             cat = LINECAT_FORMAT
             stub = match.group(FIXED_FORMAT)
         elif discr == FIXED_INCLUDE:
-            yield LINECAT_INCLUDE, match.group(FIXED_INCLUDE)
+            yield LINECAT_INCLUDE, match.group(FIXED_INCLUDE) + "\n"
         elif discr == FIXED_PREPROC:
-            yield LINECAT_PREPROC, match.group(FIXED_PREPROC)
+            yield LINECAT_PREPROC, match.group(FIXED_PREPROC) + "\n"
         else:
             raise RuntimeError("Invalid token")
 

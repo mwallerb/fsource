@@ -1627,7 +1627,6 @@ def assignment_stmt(tokens):
 @rule
 def format_stmt(tokens):
     tokens.expect_cat(lexer.CAT_FORMAT)
-    eos(tokens)
 
 @rule
 def execution_stmt(tokens):

@@ -251,7 +251,7 @@ if __name__ == '__main__':
 
     if args.output:
         for fname in args.files:
-            pprint(lex_buffer(open(fname)), sys.stdout, fname)
+            pprint(lex_buffer(open(fname), args.form), sys.stdout, fname)
     else:
         import time
         begin = time.time()
