@@ -35,7 +35,7 @@ def _freeform_line_regex():
                      )
             """
     line = r"""(?ix) ^[ \t]*
-            (?: ( {preproc} {endline} )         # 1 preprocessor stmt
+            (?: ( {preproc} ) {endline}         # 1 preprocessor stmt
               | ( {include} {endline} )         # 2 include line
               | ( {format} {endline} )          # 3 format stmt
               | ( {atom}* ) (?:                  # 4 whole line part
@@ -95,6 +95,7 @@ def free_form_lines(buffer):
     stub = ''
     trunc_str = ''
 
+    buffer = iter(buffer)
     for line in buffer:
         # Handle truncated lines
         if stub:
@@ -119,14 +120,10 @@ def free_form_lines(buffer):
             if discr == FREE_TRUNC_STRING_END:
                 trunc_str = match.group(FREE_TRUNC_STRING_END)
         elif discr == FREE_PREPROC:
-            trunc_str += match.group(FREE_PREPROC)
-            if trunc_str[-1] == '\\':
-                trunc_str = trunc_str[:-1]
-                stub = trunc_str
-            else:
-                yield LINECAT_PREPROC, trunc_str
-                stub = ''
-                trunc_str = ''
+            ppstmt = match.group(FREE_PREPROC)
+            while ppstmt[-1] == '\\':
+                ppstmt = ppstmt[:-1] + next(buffer).rstrip()
+            yield LINECAT_PREPROC, ppstmt + '\n'
         elif discr == FREE_FORMAT:
             yield LINECAT_FORMAT, line
         else:
@@ -191,7 +188,10 @@ def fixed_form_lines(buffer, margin=72):
         elif discr == FIXED_INCLUDE:
             yield LINECAT_INCLUDE, match.group(FIXED_INCLUDE) + "\n"
         elif discr == FIXED_PREPROC:
-            yield LINECAT_PREPROC, match.group(FIXED_PREPROC) + "\n"
+            ppstmt = match.group(FIXED_PREPROC)
+            while ppstmt[-1] == '\\':
+                ppstmt = ppstmt[:-1] + next(buffer).rstrip()
+            yield LINECAT_PREPROC, ppstmt + "\n"
         else:
             raise RuntimeError("Invalid token")
 

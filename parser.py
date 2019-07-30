@@ -854,7 +854,9 @@ def type_proc_decl(tokens):
             iface_name = None
         attrs = type_proc_attrs(tokens)
         procs = type_proc_sequence(tokens)
-        return tokens.produce('type_proc_decl', iface_name, attrs, procs)
+        # Flatten list
+        for proc in procs[1:]:
+            return tokens.produce('type_proc_decl', iface_name, attrs, *proc[1:])
 
 def generic_decl(tokens):
     tokens.expect('generic')

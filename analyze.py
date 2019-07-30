@@ -6,6 +6,14 @@ import copy
 import lexer
 import parser
 
+class Expr:
+    def __init__(self):
+        pass
+
+
+
+
+
 def ast_transformer(fn):
     "Make depth-first transformer of prefix-form abstract syntax tree"
     def ast_transform(ast):
@@ -15,10 +23,15 @@ def ast_transformer(fn):
             return ast
     return ast_transform
 
-def ast_dispatcher(type_map):
+def ast_dispatcher(type_map, fallback):
     "Make depth-first transformer by dispatching based on node type"
     def dispatch(hdr, *args):
-        return type_map[hdr](*args)
+        try:
+            entry = type_map[hdr]
+        except KeyError:
+            return fallback(hdr, *args)
+        else:
+            return entry(*args)
 
     return ast_transformer(dispatch)
 
@@ -28,8 +41,10 @@ def get_code(node):
         magic = node.__code__
     except AttributeError:
         if node is None:
-            return ""
-        return "!!!%s!!!" % str(node)
+            return " null "
+        if isinstance(node, str):
+            return str(node)
+        return "???"
     else:
         return magic()
 
@@ -45,7 +60,8 @@ class Ignored:
     def imbue_module(self, parent): pass
 
     def __code__(self):
-        return "<???" + ",".join(map(str, self.args)) + "???>"
+        return "?%s(%s)" % (self.args[0],
+                            ", ".join(map(get_code, self.args[1:])))
 
 class DimSpec:
     "Slice object in AST"
@@ -167,18 +183,19 @@ class Entity:
         return "{type}{attrs} :: {name}{shape}{kind} {init}\n".format(
                 type=get_code(self.type_),
                 attrs="".join(", " + get_code(a) for a in self.attrs),
-                name=self.name,
+                name=get_code(self.name),
                 shape=get_code(self.shape_p),
                 kind="*" + get_code(self.kind_p) if self.kind_p is not None else "",
                 init=get_code(self.init)
                 )
 
 class DerivedType:
-    def __init__(self, name, attrs, tags, decls):
+    def __init__(self, name, attrs, tags, decls, procs):
         self.name = name
         self.attrs = attrs
         self.tags = tags
         self.decls = decls
+        self.procs = procs
 
     def imbue_compilation_unit(self, unit):
         unit.modules[self.name] = self
@@ -197,9 +214,9 @@ class DerivedType:
 
     def __code__(self):
         return "TYPE{attrs} :: {name}\n{tags}{decls}END TYPE {name}\n" \
-               .format(name=self.name,
+               .format(name=get_code(self.name),
                        attrs="".join(", " + get_code(a) for a in self.attrs),
-                       tags="".join(get_code(t) + "\n" for a in self.tags),
+                       tags="".join(get_code(t) + "\n" for t in self.tags),
                        decls="".join(map(get_code, self.decls))
                        )
 
@@ -228,7 +245,7 @@ class Module:
 
     def __code__(self):
         return "MODULE {name}\n{decls}CONTAINS\n{cont}END MODULE {name}\n" \
-               .format(name=self.name,
+               .format(name=get_code(self.name),
                        decls="".join(map(get_code, self.decls)),
                        cont="".join(map(get_code, self.contained))
                        )
@@ -240,7 +257,7 @@ class Program(Module):
 
     def __code__(self):
         return "PROGRAM {name}\n{decls}CONTAINS\n{cont}END PROGRAM {name}\n" \
-               .format(name=self.name,
+               .format(name=get_code(self.name),
                        decls="".join(map(get_code, self.decls)),
                        cont="".join(map(get_code, self.contained))
                        )
@@ -279,9 +296,9 @@ class Subroutine:
     def __code__(self):
         return "{prefixes}SUBROUTINE {name}({args}) {bind_c}\n" \
                "{decls}\nEND SUBROUTINE {name}\n" \
-               .format(name=self.name,
+               .format(name=get_code(self.name),
                        prefixes="".join(get_code(p) + " " for p in self.prefixes),
-                       args=", ".join(self.argsnames),
+                       args=", ".join(map(get_code, self.argsnames)),
                        bind_c=get_code(self.bind_c),
                        decls="".join(map(get_code, self.decls)),
                        )
@@ -312,34 +329,34 @@ def idem(x): return x
 def sequence(*x): return x
 
 HANDLERS = {
-    'arg': Ignored,
-    'array': Ignored,
-    'ast_version': ast_version,
-    'bind_c': Ignored,
-    'bool': Ignored,
-    'call': Ignored,
-    'char_sel': Ignored,
-    'character_type': Ignored,
-    'explicit_dim': Ignored,
-    'filename': Ignored,
-    'float': Ignored,
+    #'arg': Ignored,
+    #'array': Ignored,
+    #'ast_version': ast_version,
+    #'bind_c': Ignored,
+    #'bool': Ignored,
+    #'call': Ignored,
+    #'char_sel': Ignored,
+    #'character_type': Ignored,
+    #'explicit_dim': Ignored,
+    #'filename': Ignored,
+    #'float': Ignored,
     'id': identifier,
-    'ref': Ignored,
-    'init_assign': Ignored,
-    'int': Ignored,
-    'integer_type': Ignored,
-    'interface_decl': Ignored,
-    'kind': Ignored,
-    'kind_sel': Ignored,
-    'logical_type': Ignored,
-    'neg': Ignored,
-    'only_list': Ignored,
-    'preproc_stmt': Ignored,
-    'real_type': Ignored,
-    'rename_list': Ignored,
-    'string': Ignored,
-    'type': Ignored,
-    'use_stmt': Ignored,
+    #'ref': Ignored,
+    #'init_assign': Ignored,
+    #'int': Ignored,
+    #'integer_type': Ignored,
+    #'interface_decl': Ignored,
+    #'kind': Ignored,
+    #'kind_sel': Ignored,
+    #'logical_type': Ignored,
+    #'neg': Ignored,
+    #'only_list': Ignored,
+    #'preproc_stmt': Ignored,
+    #'real_type': Ignored,
+    #'rename_list': Ignored,
+    #'string': Ignored,
+    #'type': Ignored,
+    #'use_stmt': Ignored,
 
     'compilation_unit': CompilationUnit,
     'entity_decl': Entity,
@@ -368,7 +385,7 @@ HANDLERS = {
     'interface_body': sequence,
 }
 
-my_dispatch = ast_dispatcher(HANDLERS)
+my_dispatch = ast_dispatcher(HANDLERS, Ignored)
 
 # ------------------
 
