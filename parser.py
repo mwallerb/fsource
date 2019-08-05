@@ -282,19 +282,6 @@ def inplace_array(open_delim, close_delim):
     return inplace_array_rule
 
 @rule
-def parens_expr(tokens):
-    tokens.expect('(')
-    inner_expr = expr(tokens)
-    if tokens.marker(','):
-        imag_part = expr(tokens)
-        tokens.expect(')')
-        return tokens.produce('complex', inner_expr, imag_part)
-    else:
-        tokens.expect(')')
-        return tokens.produce('parens', inner_expr)
-
-
-@rule
 def slice_(tokens):
     slice_begin = _optional_expr(tokens)
     tokens.expect(':')
@@ -329,7 +316,8 @@ def subscript_arg(tokens):
 subscript_sequence = comma_sequence(subscript_arg, 'sub_list', allow_empty=True)
 
 def lvalue(tokens):
-    # lvalue candidate, really
+    # lvalue is subject to stricter scrutiny, than an expression, since it
+    # is used in the assignment statement.
     result = id_ref(tokens)
     with LockedIn(tokens):
         while True:
@@ -383,13 +371,30 @@ def literal_handler(action):
         return tokens.produce(action, next(tokens)[1])
     return literal_handle
 
+def parens_expr_handler(tokens):
+    tokens.advance()
+    inner_expr = expr(tokens)
+    if tokens.marker(','):
+        imag_part = expr(tokens)
+        tokens.expect(')')
+        return tokens.produce('complex', inner_expr, imag_part)
+    else:
+        tokens.expect(')')
+        return tokens.produce('parens', inner_expr)
+
+def call_handler(tokens, lhs):
+    tokens.advance()
+    seq = subscript_sequence(tokens)
+    tokens.expect(')')
+    return tokens.produce('call', lhs, *seq[1:])
+
 class ExpressionHandler:
     def __init__(self):
         prefix_ops = {
             "not":    prefix_op_handler( 50, 'not_'),
             "+":      prefix_op_handler(110, 'pos'),
             "-":      prefix_op_handler(110, 'neg'),
-            "(":      parens_expr,
+            "(":      parens_expr_handler,
             "(/":     inplace_array('(/', '/)'),
             "[":      inplace_array('[', ']')
             }
@@ -411,6 +416,8 @@ class ExpressionHandler:
             "/":      ( 90, infix_op_handler( 91, 'div')),
             "**":     (100, infix_op_handler(100, 'pow')),
             "_":      (130, infix_op_handler(131, 'kind')),
+            "%":      (140, infix_op_handler(141, 'resolve')),
+            "(":      (140, call_handler),
             }
 
         # Fortran 90 operator aliases
@@ -428,7 +435,7 @@ class ExpressionHandler:
             lexer.CAT_RADIX:      literal_handler('radix'),
             lexer.CAT_BOOLEAN:    literal_handler('bool'),
             lexer.CAT_CUSTOM_DOT: custom_unary_handler(120),
-            lexer.CAT_WORD:       lvalue,
+            lexer.CAT_WORD:       literal_handler('ref'),
             }
         infix_cats = {
             lexer.CAT_CUSTOM_DOT: (10, custom_binary_handler(11))
