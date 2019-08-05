@@ -18,7 +18,7 @@ from __future__ import print_function
 import sys
 import re
 
-def _freeform_line_regex():
+def get_freeform_line_regex():
     """Discriminate line type"""
     ws = r"""[ \t]+"""
     endline = r"""(?:\n|\r\n?)"""
@@ -58,9 +58,7 @@ FREE_FULL_END = 5
 FREE_TRUNC_END = 6
 FREE_TRUNC_STRING_END = 7
 
-FREE_REGEX = _freeform_line_regex()
-
-def _freeform_contd_regex():
+def get_freeform_contd_regex():
     """Discriminate line type"""
     ws = r"""[ \t]+"""
     anything = r"""[^\r\n]+"""
@@ -77,9 +75,6 @@ def _freeform_contd_regex():
 CONTD_COMMENT = 1
 CONTD_SPILL = 2
 
-FF_CONTD_REGEX = _freeform_contd_regex()
-
-
 LINECAT_NORMAL = 1
 LINECAT_INCLUDE = 2
 LINECAT_FORMAT = 3
@@ -94,6 +89,8 @@ def free_form_lines(buffer):
     # it to the tokenizer.
     stub = ''
     trunc_str = ''
+    line_regex = get_freeform_line_regex()
+    contd_regex = get_freeform_contd_regex()
 
     buffer = iter(buffer)
     for line in buffer:
@@ -103,13 +100,13 @@ def free_form_lines(buffer):
                 line = trunc_str + line
                 trunc_str = ''
             else:
-                match = FF_CONTD_REGEX.match(line)
+                match = contd_regex.match(line)
                 if match.lastindex == CONTD_COMMENT:
                     continue
                 line = match.group(2)
 
         # Now parse current (potentially preprocessed) line
-        match = FREE_REGEX.match(line)
+        match = line_regex.match(line)
         discr = match.lastindex
         if discr == FREE_FULL_END:
             stub += match.group(FREE_WHOLE_PART) + match.group(FREE_FULL_END)
@@ -133,7 +130,7 @@ def free_form_lines(buffer):
         raise RuntimeError("line continuation marker followed by end of file")
 
 
-def _fixedform_line_regex():
+def get_fixedform_line_regex():
     line = """(?isx) ^
         (?: [cC*!](.*)                                      # 1: comment
             | [ ]{5}[^ 0] (.*)                              # 2: continuation
@@ -152,8 +149,6 @@ FIXED_INCLUDE = 4
 FIXED_FORMAT = 5
 FIXED_OTHER = 6
 
-FIXED_REGEX = _fixedform_line_regex()
-
 def fixed_form_lines(buffer, margin=72):
     """Handle line continuation in fixed form fortran"""
 
@@ -161,10 +156,11 @@ def fixed_form_lines(buffer, margin=72):
     # line, so we need to store the previous current line
     cat = None
     stub = None
+    line_regex = get_fixedform_line_regex()
 
     for line in buffer:
         line = line[:margin].rstrip()
-        match = FIXED_REGEX.match(line)
+        match = line_regex.match(line)
         discr = match.lastindex
 
         if discr == FIXED_CONTD:

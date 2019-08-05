@@ -67,7 +67,7 @@ def tokenize_regex(regex, text):
         raise LexerError(text, match.start())
 
 
-def _lexer_regex():
+def get_lexer_regex():
     """Return regular expression for parsing free-form Fortran 2008"""
     endline = r"""(?:\n|\r\n?)"""
     comment = r"""(?:![^\r\n]*)"""
@@ -148,8 +148,6 @@ CAT_NAMES = ('eof', 'eos', 'string', 'float', 'int', 'radix',
              'bool', 'dotop', 'custom_dotop', 'bracketed_slash', 'symop',
              'word', 'preproc', 'include', 'format')
 
-LEXER_REGEX = _lexer_regex()
-
 LINECAT_TO_CAT = {
     lines.LINECAT_PREPROC: CAT_PREPROC,
     lines.LINECAT_INCLUDE: CAT_INCLUDE,
@@ -199,7 +197,7 @@ def lex_buffer(buffer, form='free'):
     if isinstance(buffer, _string_like_types):
         raise ValueError("Expect open file or other sequence of lines")
 
-    lexer_regex = LEXER_REGEX
+    lexer_regex = get_lexer_regex()
     linecat_to_cat = LINECAT_TO_CAT
     lines_iter = lines.get_lines(form)
 
@@ -216,7 +214,7 @@ def lex_buffer(buffer, form='free'):
 
 def lex_snippet(fstring):
     """Perform lexical analysis of parts of a line"""
-    return tuple(tokenize_regex(LEXER_REGEX, fstring)) + ((CAT_DOLLAR, ''),)
+    return tuple(tokenize_regex(get_lexer_regex(), fstring)) + ((CAT_DOLLAR, ''),)
 
 def pprint(lexer, out, filename=None):
     """Make nicely formatted JSON output from lexer output"""
