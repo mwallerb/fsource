@@ -854,6 +854,7 @@ def type_proc_decl(tokens):
             iface_name = None
         attrs = type_proc_attrs(tokens)
         procs = type_proc_sequence(tokens)
+        eos(tokens)
         # Flatten list
         for proc in procs[1:]:
             return tokens.produce('type_proc_decl', iface_name, attrs, *proc[1:])
@@ -865,6 +866,7 @@ def generic_decl(tokens):
         name = iface_name(tokens)
         tokens.expect('=>')
         refs = identifier_sequence(tokens)
+        eos(tokens)
         return tokens.produce('generic_decl', name, attrs, refs)
 
 def final_decl(tokens):
@@ -872,6 +874,7 @@ def final_decl(tokens):
     with LockedIn(tokens):
         optional_double_colon(tokens)
         refs = identifier_sequence(tokens)
+        eos(tokens)
         return tokens.produce('final_decl', refs)
 
 _TYPE_CONTAINS_HANDLERS = {
@@ -894,6 +897,24 @@ def optional_procedures_block(tokens):
     else:
         return None
 
+def end_stmt(objtype, inner_type=None):
+    if inner_type is None:
+        inner_type = identifier
+
+    @rule
+    def end_stmt_rule(tokens):
+        tokens.expect('end')
+        tokens.expect(objtype)
+        try:
+            inner_type(tokens)
+        except NoMatch:
+            pass
+        eos(tokens)
+
+    return end_stmt_rule
+
+end_type_stmt = end_stmt('type')
+
 @rule
 def type_decl(tokens):
     tokens.expect('type')
@@ -904,10 +925,7 @@ def type_decl(tokens):
         tags = type_tag_block(tokens)
         decls = component_block(tokens)
         proc = optional_procedures_block(tokens)
-        tokens.expect('end')
-        if tokens.marker('type'):
-            optional_identifier(tokens)
-        eos(tokens)
+        end_type_stmt(tokens)
         return tokens.produce('type_decl', name, attrs, tags, decls, proc)
 
 @rule
@@ -1044,6 +1062,8 @@ def optional_contained_part(tokens):
     else:
         return tokens.produce('contained_block')
 
+end_subroutine_stmt = end_stmt('subroutine')
+
 @rule
 def subroutine_decl(tokens):
     # Header
@@ -1065,10 +1085,7 @@ def subroutine_decl(tokens):
         optional_contained_part(tokens)
 
         # Footer
-        tokens.expect('end')
-        if tokens.marker('subroutine'):
-            optional_identifier(tokens)
-        eos(tokens)
+        end_subroutine_stmt(tokens)
         return tokens.produce('subroutine_decl', name, prefixes, args, bind_,
                               declarations_)
 
@@ -1110,6 +1127,8 @@ func_suffix_sequence = ws_sequence(func_suffix, 'func_suffix_list')
 
 func_arg_sequence = comma_sequence(identifier, 'arg_list', allow_empty=True)
 
+end_function_stmt = end_stmt('function')
+
 @rule
 def function_decl(tokens):
     # Header
@@ -1129,10 +1148,7 @@ def function_decl(tokens):
         optional_contained_part(tokens)
 
         # Footer
-        tokens.expect('end')
-        if tokens.marker('function'):
-            optional_identifier(tokens)
-        eos(tokens)
+        end_function_stmt(tokens)
         return tokens.produce('function_decl', name, prefixes, args, suffixes,
                               declarations_)
 
@@ -1174,6 +1190,8 @@ def interface_body_stmt(tokens):
 
 interface_body_block = block(interface_body_stmt, 'interface_body')
 
+end_interface_stmt = end_stmt('interface', iface_name)
+
 @rule
 def interface_decl(tokens):
     tokens.expect('interface')
@@ -1181,10 +1199,7 @@ def interface_decl(tokens):
         name = optional_iface_name(tokens)
         eos(tokens)
         decls = interface_body_block(tokens)
-        tokens.expect('end')
-        if tokens.marker('interface'):
-            optional_iface_name(tokens)
-        eos(tokens)
+        end_interface_stmt(tokens)
         return tokens.produce('interface_decl', name, decls)
 
 @rule
@@ -1194,9 +1209,7 @@ def abstract_interface_decl(tokens):
     with LockedIn(tokens):
         eos(tokens)
         decls = interface_body_block(tokens)
-        tokens.expect('end')
-        tokens.marker('interface')
-        eos(tokens)
+        end_interface_stmt(tokens)
         return tokens.produce('abstract_interface_decl', decls)
 
 def imbue_stmt(prefix_rule, object_rule):
@@ -1384,6 +1397,8 @@ def ignore_stmt(tokens):
         if cat == lexer.CAT_EOS:
             return
 
+end_if_stmt = end_stmt('if')
+
 @rule
 def if_construct(tokens):
     optional_construct_tag(tokens)
@@ -1394,10 +1409,7 @@ def if_construct(tokens):
             execution_part(tokens)
             else_if_block_sequence(tokens)
             optional_else_block(tokens)
-            tokens.expect('end')
-            if tokens.marker('if'):
-                optional_identifier(tokens)
-            eos(tokens)
+            end_if_stmt(tokens)
         else:
             ignore_stmt(tokens)
 
@@ -1416,12 +1428,7 @@ def loop_ctrl(tokens):
 
 optional_loop_ctrl = optional(loop_ctrl)
 
-@rule
-def end_do_stmt(tokens):
-    tokens.expect('end')
-    if tokens.marker('do'):
-        optional_identifier(tokens)
-    eos(tokens)
+end_do_stmt = end_stmt('do')
 
 @rule
 def do_construct(tokens):
@@ -1477,6 +1484,8 @@ def select_case(tokens):
 
 select_case_sequence = block(select_case, 'select_case_list', fenced=False)
 
+end_select_stmt = end_stmt('select')
+
 @rule
 def select_case_construct(tokens):
     optional_construct_tag(tokens)
@@ -1488,10 +1497,7 @@ def select_case_construct(tokens):
         tokens.expect(')')
         eos(tokens)
         select_case_sequence(tokens)
-        tokens.expect('end')
-        if tokens.marker('select'):
-            optional_identifier(tokens)
-        eos(tokens)
+        end_select_stmt(tokens)
 
 @rule
 def type_prefix(tokens):
@@ -1525,6 +1531,8 @@ def forall_clause(tokens):
                 break
         tokens.expect(')')
 
+end_forall_stmt = end_stmt('forall')
+
 @rule
 def forall_construct(tokens):
     optional_construct_tag(tokens)
@@ -1537,10 +1545,7 @@ def forall_construct(tokens):
     else:
         # FORALL BLOCK
         execution_part(tokens)
-        tokens.expect('end')
-        if tokens.marker('forall'):
-            optional_identifier(tokens)
-        eos(tokens)
+        end_forall_stmt(tokens)
 
 @rule
 def where_clause(tokens):
@@ -1548,6 +1553,8 @@ def where_clause(tokens):
     tokens.expect('(')
     expr(tokens)
     tokens.expect(')')
+
+end_where_stmt = end_stmt('where')
 
 @rule
 def where_construct(tokens):
@@ -1569,10 +1576,7 @@ def where_construct(tokens):
                     tokens.expect(')')
                 optional_identifier(tokens)
                 execution_part(tokens)
-            tokens.expect('end')
-            if tokens.marker('where'):
-                optional_identifier(tokens)
-            eos(tokens)
+            end_where_stmt(tokens)
 
 CONSTRUCT_HANDLERS = {
     'if':         if_construct,
@@ -1650,6 +1654,8 @@ def execution_stmt(tokens):
 #        by naming a variable 'end'.
 execution_part = block(execution_stmt, 'execution_block', fenced=False)
 
+end_module_stmt = end_stmt('module')
+
 @rule
 def module_decl(tokens):
     tokens.expect('module')
@@ -1658,10 +1664,10 @@ def module_decl(tokens):
         eos(tokens)
         decls = fenced_declaration_part(tokens)
         cont = optional_contained_part(tokens)
-        tokens.expect('end')
-        if tokens.marker('module'):
-            optional_identifier(tokens)
+        end_module_stmt(tokens)
         return tokens.produce('module_decl', name, decls, cont)
+
+end_program_stmt = end_stmt('program')
 
 @rule
 def program_decl(tokens):
@@ -1672,9 +1678,7 @@ def program_decl(tokens):
         decls = declaration_part(tokens)
         execution_part(tokens)
         cont = optional_contained_part(tokens)
-        tokens.expect('end')
-        if tokens.marker('program'):
-            optional_identifier(tokens)
+        end_program_stmt(tokens)
         return tokens.produce('program_decl', name, decls, cont)
 
 @rule
