@@ -89,18 +89,6 @@ def get_lexer_regex():
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
     word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&])"""
-    compound = r"""
-          (?: block(?=(?:data)(?!\w))
-            | double(?=(?:precision)(?!\w))
-            | else(?=(?:if|where)(?!\w))
-            | end(?=(?:associate|block|blockdata|critical|do|enum|file|forall
-                      |function|if|interface|module|procedure|program|select
-                      |submodule|subroutine|type|where)(?!\w))
-            | in(?=(?:out)(?!\w))
-            | go(?=(?:to)(?!\w))
-            | select(?=(?:case|type)(?!\w))
-            )
-          """
     fortran_token = r"""(?ix)
           {skipws}(?:
             (; | {comment}?{endline})           #  1 end of statement
@@ -115,7 +103,7 @@ def get_lexer_regex():
             ) \s*\.
           | \( {skipws} (//?) {skipws} \)       #  9 bracketed slashes
           | ({operator})                        # 10 symbolic operator
-          | ({compound} | {word})               # 11 word
+          | ({word})                            # 11 word
           | (?=.)
           )
         """.format(
@@ -123,7 +111,7 @@ def get_lexer_regex():
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                dotop=dotop, compound=compound, word=word
+                dotop=dotop, word=word
                 )
 
     return re.compile(fortran_token)

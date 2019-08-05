@@ -193,6 +193,17 @@ def rule(fn):
             return value
     return rule_setup
 
+def composite(word1, word2):
+    comp = word1 + word2
+    @rule
+    def composite_rule(tokens):
+        if tokens.marker(word1):
+            tokens.expect(word2)
+        else:
+            tokens.expect(comp)
+
+    return composite_rule
+
 def eos(tokens):
     return tokens.expect_cat(lexer.CAT_EOS)
 
@@ -567,7 +578,11 @@ def _class_handler(tokens):
         tokens.expect(')')
         return ('class_', typename)
 
-def double_precision(tokens):
+def double_precision_type(tokens):
+    tokens.expect('doubleprecision')
+    return tokens.produce('real_type', 'double')
+
+def double_type(tokens):
     tokens.expect('double')
     if tokens.marker('precision'):
         return tokens.produce('real_type', 'double')
@@ -578,7 +593,8 @@ def double_precision(tokens):
 _TYPE_SPEC_HANDLERS = {
     'integer':   prefix('integer', optional(kind_selector), 'integer_type'),
     'real':      prefix('real', optional(kind_selector), 'real_type'),
-    'double':    double_precision,
+    'double':    double_type,
+    'doubleprecision': double_precision_type,
     'complex':   prefix('complex', optional(kind_selector), 'complex_type'),
     'character': prefix('character', optional(char_selector), 'character_type'),
     'logical':   prefix('logical', optional(kind_selector), 'logical_type'),
@@ -624,11 +640,15 @@ def intent(tokens):
     tokens.expect('intent')
     with LockedIn(tokens):
         tokens.expect('(')
-        in_ = tokens.marker('in')
-        out = tokens.marker('out')
+        if tokens.marker('inout'):
+            in_ = True
+            out = True
+        else:
+            in_ = tokens.marker('in')
+            out = tokens.marker('out')
+            if not (in_ or out):
+                raise ParserError("expecting in, out, or inout as intent.")
         tokens.expect(')')
-        if not in_ and not out:
-            raise ParserError("expecting in, out, or inout as intent.")
         return tokens.produce('intent', in_, out)
 
 _ENTITY_ATTR_HANDLERS = {
@@ -900,11 +920,11 @@ def optional_procedures_block(tokens):
 def end_stmt(objtype, inner_type=None):
     if inner_type is None:
         inner_type = identifier
+    end_comp = composite('end', objtype)
 
     @rule
     def end_stmt_rule(tokens):
-        tokens.expect('end')
-        tokens.expect(objtype)
+        end_comp(tokens)
         try:
             inner_type(tokens)
         except NoMatch:
@@ -1371,14 +1391,18 @@ def if_clause(tokens):
     expr(tokens)
     tokens.expect(')')
 
+else_if = composite('else', 'if')
+
 @rule
 def else_if_block(tokens):
-    tokens.expect('else')
-    if_clause(tokens)
-    tokens.expect('then')
+    else_if(tokens)
+    tokens.expect('(')
+    expr(tokens)
+    tokens.expect(')')
     optional_identifier(tokens)
     eos(tokens)
-    execution_part(tokens)
+    with LockedIn(tokens):
+        execution_part(tokens)
 
 else_if_block_sequence = ws_sequence(else_if_block, 'else_if_sequence')
 
@@ -1486,11 +1510,12 @@ select_case_sequence = block(select_case, 'select_case_list', fenced=False)
 
 end_select_stmt = end_stmt('select')
 
+select_case_tag = composite('select', 'case')
+
 @rule
 def select_case_construct(tokens):
     optional_construct_tag(tokens)
-    tokens.expect('select')
-    tokens.expect('case')
+    select_case_tag(tokens)
     with LockedIn(tokens):
         tokens.expect('(')
         expr(tokens)
@@ -1556,6 +1581,8 @@ def where_clause(tokens):
 
 end_where_stmt = end_stmt('where')
 
+else_where = composite('else', 'where')
+
 @rule
 def where_construct(tokens):
     optional_construct_tag(tokens)
@@ -1569,8 +1596,7 @@ def where_construct(tokens):
         else:
             # WHERE BLOCK
             execution_part(tokens)
-            while tokens.marker('else'):
-                tokens.expect('where')
+            while else_where(tokens):
                 if tokens.marker('('):
                     expr(tokens)
                     tokens.expect(')')
@@ -1604,6 +1630,7 @@ STMT_HANDLERS = {
     'flush':      ignore_stmt,
     'format':     ignore_stmt,
     'go':         ignore_stmt,
+    'goto':       ignore_stmt,
     'inquire':    ignore_stmt,
     'nullify':    ignore_stmt,
     'open':       ignore_stmt,
