@@ -242,5 +242,5 @@ if __name__ == '__main__':
         import time
         begin = time.time()
         for fname in args.files:
-            for _ in lex_buffer(open(fname)): pass
+            for _ in lex_buffer(open(fname), args.form): pass
         sys.stderr.write("elapsed: %g\n" % (time.time() - begin))
