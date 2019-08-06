@@ -924,14 +924,21 @@ def optional_procedures_block(tokens):
     else:
         return None
 
-def end_stmt(objtype, inner_type=None):
-    if inner_type is None:
+def end_stmt(objtype, require_type=False, name_type=None):
+    comp = 'end' + objtype
+    if name_type is None:
         inner_type = identifier
-    end_comp = composite('end', objtype)
 
     @rule
     def end_stmt_rule(tokens):
-        end_comp(tokens)
+        if tokens.marker('end'):
+            if not tokens.marker(objtype):
+                if require_type:
+                    raise NoMatch()
+                eos(tokens)
+                return None
+        elif not tokens.marker(comp):
+            raise NoMatch()
         try:
             inner_type(tokens)
         except NoMatch:
@@ -1089,7 +1096,7 @@ def optional_contained_part(tokens):
     else:
         return tokens.produce('contained_block')
 
-end_subroutine_stmt = end_stmt('subroutine')
+end_subroutine_stmt = end_stmt('subroutine', require_type=False)
 
 @rule
 def subroutine_decl(tokens):
@@ -1154,7 +1161,7 @@ func_suffix_sequence = ws_sequence(func_suffix, 'func_suffix_list')
 
 func_arg_sequence = comma_sequence(identifier, 'arg_list', allow_empty=True)
 
-end_function_stmt = end_stmt('function')
+end_function_stmt = end_stmt('function', require_type=False)
 
 @rule
 def function_decl(tokens):
@@ -1217,7 +1224,7 @@ def interface_body_stmt(tokens):
 
 interface_body_block = block(interface_body_stmt, 'interface_body')
 
-end_interface_stmt = end_stmt('interface', iface_name)
+end_interface_stmt = end_stmt('interface', name_type=iface_name)
 
 @rule
 def interface_decl(tokens):
@@ -1688,7 +1695,7 @@ def execution_stmt(tokens):
 #        by naming a variable 'end'.
 execution_part = block(execution_stmt, 'execution_block', fenced=False)
 
-end_module_stmt = end_stmt('module')
+end_module_stmt = end_stmt('module', require_type=False)
 
 @rule
 def module_decl(tokens):
@@ -1701,7 +1708,7 @@ def module_decl(tokens):
         end_module_stmt(tokens)
         return tokens.produce('module_decl', name, decls, cont)
 
-end_program_stmt = end_stmt('program')
+end_program_stmt = end_stmt('program', require_type=False)
 
 @rule
 def program_decl(tokens):
