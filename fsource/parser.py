@@ -28,8 +28,9 @@ improvements to speed it up:
 Author: Markus Wallerberger <mwallerb@umich.edu>
 """
 from __future__ import print_function
-import lexer
 import re
+
+from . import lexer
 
 class NoMatch(Exception):
     "Current rule does not match, try next one if available."
@@ -927,7 +928,7 @@ def optional_procedures_block(tokens):
 def end_stmt(objtype, require_type=False, name_type=None):
     comp = 'end' + objtype
     if name_type is None:
-        inner_type = identifier
+        name_type = identifier
 
     @rule
     def end_stmt_rule(tokens):
@@ -940,7 +941,7 @@ def end_stmt(objtype, require_type=False, name_type=None):
         elif not tokens.marker(comp):
             raise NoMatch()
         try:
-            inner_type(tokens)
+            name_type(tokens)
         except NoMatch:
             pass
         eos(tokens)
@@ -1784,6 +1785,7 @@ def pprint(ast, out, level=0):
         out.write(val)
 
 if __name__ == '__main__':
+    from . import aux
     import sys
     import json
     import argparse
@@ -1795,17 +1797,20 @@ if __name__ == '__main__':
                         const='fixed', default='free', help='Fixed form input')
     parser.add_argument('--free-form', dest='form', action='store_const',
                         const='free', help='Free form input')
-    parser.add_argument('--no-output', dest='output', action='store_false',
-                        default=True,
-                        help='perform parsing but do not print result')
+    parser.add_argument('--time', dest='output', action='store_const',
+                        const='time', default='json',
+                        help='perform lexing but do not print result')
     args = parser.parse_args()
 
     #lex_fortran = lexer.get_lexer(args.form)
+    rabbit = aux.Stopwatch()
     for fname in args.files:
         program = open(fname)
         slexer = lexer.lex_buffer(program, args.form)
         tokens = TokenStream(slexer)
         ast = compilation_unit(tokens, fname)
-        if args.output:
+        if args.output == 'json':
             pprint(ast, sys.stdout)
             print()
+    if args.output == 'time':
+        sys.stderr.write("elapsed: %g sec\n" % rabbit.total())

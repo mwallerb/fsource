@@ -3,8 +3,8 @@ from __future__ import print_function
 from collections import OrderedDict
 import copy
 
-import lexer
-import parser
+from . import lexer
+from . import parser
 
 class Expr:
     def __init__(self):

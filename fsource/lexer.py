@@ -33,7 +33,7 @@ from __future__ import print_function
 import sys
 import re
 
-import lines
+from . import lines
 
 # Python 2/3 compatibility
 if sys.version_info >= (3,):
@@ -67,7 +67,7 @@ def tokenize_regex(regex, text):
         raise LexerError(text, match.start())
 
 
-def get_lexer_regex():
+def get_lexer_regex(preproc=False):
     """Return regular expression for parsing free-form Fortran 2008"""
     endline = r"""(?:\n|\r\n?)"""
     comment = r"""(?:![^\r\n]*)"""
@@ -113,7 +113,6 @@ def get_lexer_regex():
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
                 dotop=dotop, word=word
                 )
-
     return re.compile(fortran_token)
 
 CAT_DOLLAR = 0
@@ -230,17 +229,17 @@ if __name__ == '__main__':
                         const='fixed', default='free', help='Fixed form input')
     parser.add_argument('--free-form', dest='form', action='store_const',
                         const='free', help='Free form input')
-    parser.add_argument('--no-output', dest='output', action='store_false',
-                        default=True,
+    parser.add_argument('--time', dest='output', action='store_const',
+                        const='time', default='json',
                         help='perform lexing but do not print result')
     args = parser.parse_args()
 
-    if args.output:
+    if args.output == 'json':
         for fname in args.files:
             pprint(lex_buffer(open(fname), args.form), sys.stdout, fname)
-    else:
-        import time
-        begin = time.time()
+    elif args.output == 'time':
+        from .aux import Stopwatch
+        rabbit = Stopwatch()
         for fname in args.files:
             for _ in lex_buffer(open(fname), args.form): pass
-        sys.stderr.write("elapsed: %g\n" % (time.time() - begin))
+        sys.stderr.write("elapsed: %g\n" % rabbit.total())
