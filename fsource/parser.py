@@ -1332,6 +1332,22 @@ def parameter_stmt(tokens):
         eos(tokens)
     return seq
 
+@rule
+def dimension_stmt_spec(tokens):
+    id_ = identifier(tokens)
+    shape_ = shape(tokens)
+    return tokens.produce('dimension_stmt_spec', id_, shape_)
+
+dimension_stmt_list = comma_sequence(dimension_stmt_spec, 'dimension_stmt')
+
+@rule
+def dimension_stmt(tokens):
+    tokens.expect('dimension')
+    optional_double_colon(tokens)
+    specs_ = dimension_stmt_list(tokens)
+    eos(tokens)
+    return specs_
+
 equivalence_object_sequence = comma_sequence(lvalue, 'equivalence_set')
 
 @rule
@@ -1396,6 +1412,17 @@ def procedure_decl(tokens):
     procs = procedure_sequence(tokens)
     return tokens.produce('procedure_decl', iface, attrs, procs)
 
+def ignore_stmt(tokens):
+    while True:
+        cat, token = next(tokens)
+        if cat == lexer.CAT_EOS:
+            return
+
+def data_stmt(tokens):
+    tokens.expect('data')
+    ignore_stmt(tokens)
+    return tokens.produce('data_stmt')
+
 # TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
     'use':         use_stmt,
@@ -1405,6 +1432,8 @@ _DECLARATION_HANDLERS = {
     'equivalence': equivalence_stmt,
     'procedure':   procedure_decl,
 
+    'dimension':   dimension_stmt,
+    'data':        data_stmt,
     'public':      imbue_stmt(tag('public', 'public'), iface_name),
     'private':     private_or_imbue_stmt,
     'parameter':   parameter_stmt,
@@ -1471,11 +1500,6 @@ def else_block(tokens):
 
 optional_else_block = optional(else_block)
 
-def ignore_stmt(tokens):
-    while True:
-        cat, token = next(tokens)
-        if cat == lexer.CAT_EOS:
-            return
 
 end_if_stmt = end_stmt('if')
 
@@ -1684,7 +1708,6 @@ STMT_HANDLERS = {
     'continue':   ignore_stmt,
     'cycle':      ignore_stmt,
     'close':      ignore_stmt,
-    'data':       ignore_stmt,
     'deallocate': ignore_stmt,
     'endfile':    ignore_stmt,
     'entry':      ignore_stmt,
