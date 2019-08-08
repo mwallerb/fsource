@@ -1,3 +1,12 @@
+Copyright 2019 Markus Wallerberger
+
+This code is released under the GNU Lesser General Public License,
+Version 3, and only that version.  A copy of the license text follows
+below.
+
+------
+
+
                    GNU LESSER GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
