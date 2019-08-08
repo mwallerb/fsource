@@ -165,6 +165,13 @@ def tag_stmt(expected, production_tag):
 
     return tag_rule
 
+def matches(rule, tokens):
+    try:
+        rule(tokens)
+        return True
+    except NoMatch:
+        return False
+
 def null_rule(tokens, produce=None):
     return produce
 
@@ -1633,6 +1640,15 @@ end_where_stmt = end_stmt('where')
 else_where = composite('else', 'where')
 
 @rule
+def else_where_clause(tokens):
+    else_where(tokens)
+    if tokens.marker('('):
+        expr(tokens)
+        tokens.expect(')')
+    optional_identifier(tokens)
+    eos(tokens)
+
+@rule
 def where_construct(tokens):
     optional_construct_tag(tokens)
     where_clause(tokens)
@@ -1645,14 +1661,11 @@ def where_construct(tokens):
         else:
             # WHERE BLOCK
             execution_part(tokens)
-            while else_where(tokens):
-                if tokens.marker('('):
-                    expr(tokens)
-                    tokens.expect(')')
-                optional_identifier(tokens)
+            while matches(else_where_clause, tokens):
                 execution_part(tokens)
             end_where_stmt(tokens)
 
+# ELSE WHERE
 CONSTRUCT_HANDLERS = {
     'if':         if_construct,
     'do':         do_construct,
