@@ -5,9 +5,7 @@ import re
 from setuptools import setup, find_packages
 
 HEREPATH = os.path.abspath(os.path.dirname(__file__))
-
 VERSION_RE = re.compile(r"^__version__\s*=\s*['\"]([^'\"]*)['\"]", re.M)
-
 
 def readfile(*parts):
     fullpath = os.path.join(HEREPATH, *parts)

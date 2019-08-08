@@ -1,3 +1,6 @@
+# Copyright 2019 Markus Wallerberger
+# Released under the GNU Lesser General Public License, Version 3 only.
+# See LICENSE.txt for permissions on usage, modification and distribution
 """
 Parser and abstract syntax tree generator for free-form Fortran.
 
@@ -24,7 +27,9 @@ improvements to speed it up:
 [1]: https://en.wikipedia.org/wiki/Recursive_descent_parser
 [2]: https://doi.org/10.1145/512927.512931
 
-Author: Markus Wallerberger <mwallerb@umich.edu>
+Copyright 2019 Markus Wallerberger
+Released under the GNU Lesser General Public License, Version 3 only.
+See LICENSE.txt for permissions on usage, modification and distribution
 """
 from __future__ import print_function
 import re
