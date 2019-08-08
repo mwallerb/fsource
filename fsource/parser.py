@@ -165,6 +165,9 @@ def tag_stmt(expected, production_tag):
 
     return tag_rule
 
+def null_rule(tokens, produce=None):
+    return produce
+
 def prefix(expected, my_rule, production_tag):
     @rule
     def prefix_rule(tokens):
@@ -616,6 +619,16 @@ _TYPE_SPEC_HANDLERS = {
 
 type_spec = prefixes(_TYPE_SPEC_HANDLERS)
 
+_NONPARAM_TYPE_SPEC_HANDLERS = {
+    'integer':   prefix('integer', null_rule, 'integer_type'),
+    'real':      prefix('real', null_rule, 'real_type'),
+    'complex':   prefix('complex', null_rule, 'complex_type'),
+    'character': prefix('character', null_rule, 'character_type'),
+    'logical':   prefix('logical', null_rule, 'logical_type'),
+    }
+
+nonparam_type_spec = prefixes(_NONPARAM_TYPE_SPEC_HANDLERS)
+
 @rule
 def lower_bound(tokens):
     lower = _optional_expr(tokens)
@@ -1052,12 +1065,29 @@ def letter_range(tokens):
 letter_range_sequence = comma_sequence(letter_range, 'letter_range_list')
 
 @rule
-def implicit_spec(tokens):
+def implicit_spec_param(tokens):
     type_ = type_spec(tokens)
     tokens.expect('(')
     ranges = letter_range_sequence(tokens)
     tokens.expect(')')
     return tokens.produce('implicit_spec', type_, ranges)
+
+@rule
+def implicit_spec_nonparam(tokens):
+    # This needs to be here because otherwise, IMPLICIT INTEGER(a-z) is
+    # interpreted as an INTEGER of kind (a-z), and the parsing fails when
+    # trying to read the letter range.
+    type_ = nonparam_type_spec(tokens)
+    tokens.expect('(')
+    ranges = letter_range_sequence(tokens)
+    tokens.expect(')')
+    return tokens.produce('implicit_spec', type_, ranges)
+
+def implicit_spec(tokens):
+    try:
+        return implicit_spec_param(tokens)
+    except NoMatch:
+        return implicit_spec_nonparam(tokens)
 
 implicit_spec_sequence = comma_sequence(implicit_spec, 'implicit_decl')
 
