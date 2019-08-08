@@ -1,20 +1,5 @@
-Parsing Fortran
-===============
-fsource parses Fortran in two main steps:
-
-  1. *Lexical analysis*: reads the free/fixed format Fortran file and turns it
-     into a sequence of *tokens*, which are the smallest units of text
-     understood by the parser.
-
-  2. *Parsing*: takes the stream of tokens from the lexer and matches it
-     against the grammatical rules of Fortran, generating a hierarchical
-     structure of items called an *abstract syntax tree* (AST).
-
-fsource allows you to control each of these steps individually, look at the
-output and modify them as needed.
-
 Lexical analysis
-----------------
+================
 The lexer or lexical analyser understands free-form and fixed-form Fortran
 source files, from version 77 up to version 2008.  You can call the lexer on
 free-form source files as follows:
@@ -69,22 +54,4 @@ Lexical analysis must deal with three ambiguities in the Fortran grammar:
     are illegal everywhere else, e.g., `3I6` or `ES13.2`.  The lexer works
     around this by returning the format line as single token of category
     `format`.
-
-Parsing
--------
-The parser takes the stream of tokens from the lexer and matches it against the
-grammatical rules of Fortran.   Most of the rules generate a node, and since
-rules form a hierarchy, the result is a tree structure called an _abstract
-syntax tree_ (AST).  You can call the parser as follows:
-
-    $ fsource parse [--fixed-form] FILENAME [FILENAME ...]
-
-For fixed-form source files, one must specify the `--fixed-form` option.
-
-The result is an abstract syntax tree, represented in JSON as an S-expression:
-each node is either a terminal or non-terminal node.  A terminal node usually
-represents a token and can either be `null`, `true`, `false`, or any string.
-A non-terminal node is a list `[name, ...]`, where `name` is a string
-describing the type of node and subsequent items (if any) are the nodes
-children.
 
