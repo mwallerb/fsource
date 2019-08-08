@@ -32,7 +32,7 @@ from __future__ import print_function
 import sys
 import re
 
-from . import lines
+from . import splicer
 
 # Python 2/3 compatibility
 if sys.version_info >= (3,):
@@ -135,9 +135,9 @@ CAT_NAMES = ('eof', 'eos', 'string', 'float', 'int', 'radix',
              'word', 'preproc', 'include', 'format')
 
 LINECAT_TO_CAT = {
-    lines.LINECAT_PREPROC: CAT_PREPROC,
-    lines.LINECAT_INCLUDE: CAT_INCLUDE,
-    lines.LINECAT_FORMAT: CAT_FORMAT
+    splicer.LINECAT_PREPROC: CAT_PREPROC,
+    splicer.LINECAT_INCLUDE: CAT_INCLUDE,
+    splicer.LINECAT_FORMAT: CAT_FORMAT
     }
 
 def _string_lexer_regex(quote):
@@ -185,7 +185,7 @@ def lex_buffer(buffer, form='free'):
 
     lexer_regex = get_lexer_regex()
     linecat_to_cat = LINECAT_TO_CAT
-    lines_iter = lines.get_lines(form)
+    lines_iter = splicer.get_splicer(form)
 
     for linecat, line in lines_iter(buffer):
         try:

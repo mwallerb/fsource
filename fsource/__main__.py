@@ -5,7 +5,7 @@ import sys
 import json
 
 from . import __version__
-from . import lines
+from . import splicer
 from . import lexer
 from . import parser
 
@@ -26,7 +26,7 @@ class Stopwatch:
 def get_parser():
     p = argparse.ArgumentParser(prog='fsource',
                                 description='Fortran analysis tool')
-    p.add_argument('command', choices=('lex','lines','parse'),
+    p.add_argument('command', choices=('splice','lex','parse'),
                    help='command to execute')
     p.add_argument('files', metavar='FILE', type=str, nargs='+',
                    help='files to parse')
@@ -41,13 +41,13 @@ def get_parser():
                    const='no', help='do not output anything')
     return p
 
-def cmd_lines(args):
-    lines = get_lines(args.form)
+def cmd_splice(args):
+    lines = splicer.get_splicer(args.form)
     for fname in args.files:
         contents = open(fname)
         if args.output == 'json':
             for cat, line in lines(contents):
-                print("%s: %s" % (lines.LINECAT_NAMES[cat], line), end='')
+                print("%s: %s" % (splicer.LINECAT_NAMES[cat], line), end='')
         else:
             for _ in lines(contents): pass
 
@@ -130,8 +130,8 @@ def main():
     p = get_parser()
     args = p.parse_args()
     rabbit = Stopwatch()
-    if args.command == 'lines':
-        cmd_lines(args)
+    if args.command == 'splice':
+        cmd_splice(args)
     elif args.command == 'lex':
         cmd_lex(args)
     elif args.command == 'parse':

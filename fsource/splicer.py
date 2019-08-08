@@ -81,8 +81,8 @@ LINECAT_PREPROC = 4
 
 LINECAT_NAMES = (None, 'line', 'include', 'format', 'preproc', 'comment')
 
-def free_form_lines(buffer):
-    """Mend lines in free-form Fortran file"""
+def splice_free_form(buffer):
+    """Splice lines in free-form Fortran file"""
     # Iterate through lines of the file.  Fortran allows to split tokens
     # across lines, which is why we build up the whole line before giving
     # it to the tokenizer.
@@ -148,8 +148,8 @@ FIXED_INCLUDE = 4
 FIXED_FORMAT = 5
 FIXED_OTHER = 6
 
-def fixed_form_lines(buffer, margin=72):
-    """Handle line continuation in fixed form fortran"""
+def splice_fixed_form(buffer, margin=72):
+    """Splice physical lines in fixed form fortran"""
 
     # The continuation markers at fixed-form lines are at the *following*
     # line, so we need to store the previous current line
@@ -194,10 +194,10 @@ def fixed_form_lines(buffer, margin=72):
     if stub is not None:
         yield cat, stub
 
-def get_lines(form='free'):
+def get_splicer(form='free'):
     if form == 'free':
-        return free_form_lines
+        return splice_free_form
     elif form == 'fixed':
-        return fixed_form_lines
+        return splice_fixed_form
     else:
         raise ValueError("form must be either 'free' or 'fixed'")
