@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Parser and abstract syntax tree generator for free-form Fortran.
 
@@ -1744,73 +1743,3 @@ def compilation_unit(tokens, filename=None):
     version = tokens.produce('ast_version', '0', '1')
     fname = tokens.produce('filename', filename)
     return tokens.produce('compilation_unit', version, fname, *units[1:])
-
-def pprint(ast, out, level=0):
-    from json.encoder import encode_basestring
-    block_elems = {
-        'compilation_unit',
-        'subroutine_decl',
-        'function_decl',
-        'interface_body',
-        'entity_decl',
-        'component_block',
-        'declaration_block',
-        'contained_block',
-        'execution_block',
-        'type_bound_procedures'
-        }
-    repl = {
-        True: 'true',
-        False: 'false',
-        None: 'null'
-    }
-
-    if isinstance(ast, tuple):
-        out.write("[" + encode_basestring(ast[0]))
-        if ast[0] in block_elems:
-            for elem in ast[1:]:
-                out.write(",\n" + "    " * (level + 1))
-                pprint(elem, out, level + 1)
-            out.write("\n" + "    " * level + "]")
-        else:
-            for elem in ast[1:]:
-                out.write(", ")
-                pprint(elem, out, level)
-            out.write("]")
-    else:
-        try:
-            val = repl[ast]
-        except KeyError:
-            val = encode_basestring(ast)
-        out.write(val)
-
-if __name__ == '__main__':
-    from . import aux
-    import sys
-    import json
-    import argparse
-
-    parser = argparse.ArgumentParser(description='AST for free-form Fortran')
-    parser.add_argument('files', metavar='FILE', type=str, nargs='+',
-                        help='files to parse')
-    parser.add_argument('--fixed-form', dest='form', action='store_const',
-                        const='fixed', default='free', help='Fixed form input')
-    parser.add_argument('--free-form', dest='form', action='store_const',
-                        const='free', help='Free form input')
-    parser.add_argument('--time', dest='output', action='store_const',
-                        const='time', default='json',
-                        help='perform lexing but do not print result')
-    args = parser.parse_args()
-
-    #lex_fortran = lexer.get_lexer(args.form)
-    rabbit = aux.Stopwatch()
-    for fname in args.files:
-        program = open(fname)
-        slexer = lexer.lex_buffer(program, args.form)
-        tokens = TokenStream(slexer)
-        ast = compilation_unit(tokens, fname)
-        if args.output == 'json':
-            pprint(ast, sys.stdout)
-            print()
-    if args.output == 'time':
-        sys.stderr.write("elapsed: %g sec\n" % rabbit.total())

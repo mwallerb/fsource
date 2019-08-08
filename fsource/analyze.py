@@ -12,8 +12,6 @@ class Expr:
 
 
 
-
-
 def ast_transformer(fn):
     "Make depth-first transformer of prefix-form abstract syntax tree"
     def ast_transform(ast):
@@ -41,9 +39,9 @@ def get_code(node):
         magic = node.__code__
     except AttributeError:
         if node is None:
-            return " null "
+            return " "
         if isinstance(node, str):
-            return str(node)
+            return node
         return "???"
     else:
         return magic()
@@ -60,7 +58,7 @@ class Ignored:
     def imbue_module(self, parent): pass
 
     def __code__(self):
-        return "?%s(%s)" % (self.args[0],
+        return "%s?(%s)" % (self.args[0],
                             ", ".join(map(get_code, self.args[1:])))
 
 class DimSpec:

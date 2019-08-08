@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Lexical analysis for free-form Fortran, up to version 2008.
 

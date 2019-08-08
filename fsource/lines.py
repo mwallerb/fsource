@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 """
 Line handling and preprocessing for free/fixed-form Fortran.
 
@@ -195,7 +194,6 @@ def fixed_form_lines(buffer, margin=72):
     if stub is not None:
         yield cat, stub
 
-
 def get_lines(form='free'):
     if form == 'free':
         return free_form_lines
@@ -203,28 +201,3 @@ def get_lines(form='free'):
         return fixed_form_lines
     else:
         raise ValueError("form must be either 'free' or 'fixed'")
-
-if __name__ == '__main__':
-    import sys
-    import argparse
-
-    parser = argparse.ArgumentParser(description='Preproc for free-form Fortran')
-    parser.add_argument('files', metavar='FILE', type=str, nargs='+',
-                        help='files to lex')
-    parser.add_argument('--fixed-form', dest='form', action='store_const',
-                        const='fixed', default='free', help='Fixed form input')
-    parser.add_argument('--free-form', dest='form', action='store_const',
-                        const='free', help='Free form input')
-    parser.add_argument('--no-output', dest='output', action='store_false',
-                        default=True,
-                        help='perform lexing but do not print result')
-    args = parser.parse_args()
-    lines = get_lines(args.form)
-
-    for fname in args.files:
-        contents = open(fname)
-        if args.output:
-            for cat, line in lines(contents):
-                print("%s: %s" % (LINECAT_NAMES[cat], line), end='')
-        else:
-            for _ in lines(contents): pass
