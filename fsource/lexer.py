@@ -189,7 +189,7 @@ def lex_buffer(buffer, form='free'):
     linecat_to_cat = LINECAT_TO_CAT
     lines_iter = splicer.get_splicer(form)
 
-    for linecat, line in lines_iter(buffer):
+    for lineno, linecat, line in lines_iter(buffer):
         try:
             yield linecat_to_cat[linecat], line
         except KeyError:

@@ -53,8 +53,9 @@ def cmd_splice(args):
     for fname in args.files:
         contents = open(fname)
         if args.output == 'json':
-            for cat, line in lines(contents):
-                print("%s: %s" % (splicer.LINECAT_NAMES[cat], line), end='')
+            for lineno, cat, line in lines(contents):
+                print("%d: %s: %s"
+                      % (lineno, splicer.LINECAT_NAMES[cat], line), end='')
         else:
             for _ in lines(contents): pass
 
