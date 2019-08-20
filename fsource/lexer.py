@@ -52,7 +52,7 @@ class LexerError(common.ParsingError):
     def error_type(self): return "lexer error"
 
 
-def tokenize_regex(regex, text):
+def tokenize_regex(regex, text, lineno=None):
     """Tokenizes text using the groups in the regex specified
 
     Expects a `regex`, where different capturing groups correspond to different
@@ -63,9 +63,9 @@ def tokenize_regex(regex, text):
     try:
         for match in regex.finditer(text):
             category = match.lastindex
-            yield category, match.group(category)
+            yield lineno, match.start(category), category, match.group(category)
     except IndexError as e:
-        raise LexerError(None, None, match.start(), match.end(), text,
+        raise LexerError(None, lineno, match.start(), match.end(), text,
                          "invalid token")
 
 
@@ -193,19 +193,18 @@ def lex_buffer(buffer, form='free'):
     fname = buffer.name
     for lineno, linecat, line in lines_iter(buffer):
         try:
-            yield linecat_to_cat[linecat], line
+            yield lineno, 0, linecat_to_cat[linecat], line
         except KeyError:
             try:
-                for token_pair in tokenize_regex(lexer_regex, line):
-                    yield token_pair
+                for token_tuple in tokenize_regex(lexer_regex, line, lineno):
+                    yield token_tuple
             except LexerError as e:
-                e.lineno = lineno
                 e.fname = fname
                 raise e
 
     # Make sure last line is terminated, then yield terminal token
-    yield (CAT_EOS, '\n')
-    yield (CAT_DOLLAR, '<$>')
+    yield lineno+1, 0, CAT_EOS, '\n'
+    yield lineno+1, 0, CAT_DOLLAR, '<$>'
 
 def lex_snippet(fstring):
     """Perform lexical analysis of parts of a line"""

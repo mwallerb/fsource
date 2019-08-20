@@ -86,19 +86,19 @@ class TokenStream:
         return (rule,) + args
 
 def expect(tokens, expected):
-    cat, token = tokens.peek()
+    token = tokens.peek()[3]
     if token.lower() != expected:
         raise NoMatch()
     tokens.advance()
 
 def expect_cat(tokens, expected):
-    cat, token = tokens.peek()
+    cat = tokens.peek()[2]
     if cat != expected:
         raise NoMatch()
-    return next(tokens)[1]
+    return next(tokens)[3]
 
 def marker(tokens, expected):
-    cat, token = tokens.peek()
+    token = tokens.peek()[3]
     if token.lower() == expected:
         tokens.advance()
         return True
@@ -181,7 +181,7 @@ def prefix(expected, my_rule, production_tag):
 
 def prefixes(handlers):
     def prefixes_rule(tokens):
-        cat, token = tokens.peek()
+        token = tokens.peek()[3]
         try:
             handler = handlers[token.lower()]
         except KeyError:
@@ -378,7 +378,7 @@ def literal_handler(action):
     # We don't need to check for the token type here, since we have already
     # done so at the dispatch phase for expr()
     def literal_handle(tokens):
-        return tokens.produce(action, next(tokens)[1])
+        return tokens.produce(action, next(tokens)[3])
     return literal_handle
 
 def parens_expr_handler(tokens):
@@ -482,14 +482,14 @@ EXPR_HANDLER = ExpressionHandler()
 
 def expr(tokens, min_glue=0):
     # Get prefix
-    handler = EXPR_HANDLER.get_prefix_handler(*tokens.peek())
+    handler = EXPR_HANDLER.get_prefix_handler(*tokens.peek()[2:])
     try:
         result = handler(tokens)
 
         # Cycle through appropriate infixes:
         while True:
             try:
-                glue, handler = EXPR_HANDLER.get_infix_handler(*tokens.peek())
+                glue, handler = EXPR_HANDLER.get_infix_handler(*tokens.peek()[2:])
             except NoMatch:
                 return result
             else:
@@ -819,7 +819,7 @@ def block(rule, production_tag='block', fenced=True):
     def block_rule(tokens, until_lineno=None):
         stmts = []
         while True:
-            cat, token = tokens.peek()
+            cat, token = tokens.peek()[2:]
             if cat == lexer.CAT_INT:
                 tokens.advance()
                 if int(token) == until_lineno:        # non-block do construct
@@ -1006,7 +1006,7 @@ def oper_spec(tokens):
             oper = expect_cat(tokens, lexer.CAT_BRACKETED_SLASH)
         except NoMatch:
             expect(tokens, '(')
-            cat, token = next(tokens)
+            cat, token = next(tokens)[2:]
             if cat == lexer.CAT_CUSTOM_DOT:
                 oper = tokens.produce('custom_op', token)
             elif cat == lexer.CAT_SYMBOLIC_OP or lexer.CAT_BUILTIN_DOT:
@@ -1409,7 +1409,7 @@ def procedure_decl(tokens):
 
 def ignore_stmt(tokens):
     while True:
-        cat, token = next(tokens)
+        cat = next(tokens)[2]
         if cat == lexer.CAT_EOS:
             return
 
@@ -1459,7 +1459,7 @@ fenced_declaration_part = block(declaration_stmt, 'declaration_block', fenced=Tr
 def construct_tag(tokens):
     expect_cat(tokens, lexer.CAT_WORD)
     expect(tokens, ':')
-    cat, token = tokens.peek()
+    cat, token = tokens.peek()[2:]
     return token.lower()
 
 optional_construct_tag = optional(construct_tag)
@@ -1729,7 +1729,7 @@ prefixed_stmt = prefixes(STMT_HANDLERS)
 @rule
 def assignment_stmt(tokens):
     lvalue(tokens)
-    _, oper = next(tokens)
+    oper = next(tokens)[3]
     if oper != '=' and oper != '=>':
         raise NoMatch()
     ignore_stmt(tokens)

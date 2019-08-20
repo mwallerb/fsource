@@ -71,7 +71,7 @@ def pprint_lex(mylexer, out, filename=None):
     out.write('[\n')
     out.write('["lex_version", "1.0"],\n')
     out.write('["filename", %s],\n' % encode_basestring(filename))
-    for cat, token in mylexer:
+    for _, _, cat, token in mylexer:
         out.write('["%s",%s]' % (lexer.CAT_NAMES[cat], encode_basestring(token)))
         if cat == lexer.CAT_EOS or cat == lexer.CAT_PREPROC:
             out.write(',\n')
