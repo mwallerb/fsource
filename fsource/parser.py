@@ -1083,7 +1083,7 @@ _letter_re = re.compile(r'^[a-zA-Z]$')
 @rule
 def letter_range(tokens):
     def letter():
-        cand = next(tokens)[1]
+        cand = next(tokens)[3]
         if _letter_re.match(cand):
             return cand.lower()
         else:
