@@ -875,6 +875,8 @@ def block(rule, production_tag='block', fenced=True):
 
 component_block = block(entity_decl, 'component_block')
 
+public_stmt =  tag_stmt('public', 'public')
+
 private_stmt = tag_stmt('private', 'private')
 
 sequence_stmt = tag_stmt('sequence', 'sequence')
@@ -1395,15 +1397,22 @@ def equivalence_stmt(tokens):
         eos(tokens)
         return seq
 
+public_imbue_stmt =  imbue_stmt(tag('public', 'public'), iface_name)
+
+def public_or_imbue_stmt(tokens):
+    try:
+        return public_stmt(tokens)
+    except NoMatch:
+        return public_imbue_stmt(tokens)
+
 private_imbue_stmt = imbue_stmt(tag('private', 'private'), iface_name)
 
 def private_or_imbue_stmt(tokens):
     try:
-        # As a common extension, many compilers allow 'private' statements
-        # as part of a module.
         return private_stmt(tokens)
     except NoMatch:
         return private_imbue_stmt(tokens)
+
 
 _PROC_ATTR_HANDLERS = {
     'public':      tag('public', 'public'),
@@ -1462,7 +1471,7 @@ _DECLARATION_HANDLERS = {
 
     'dimension':   dimension_stmt,
     'data':        data_stmt,
-    'public':      imbue_stmt(tag('public', 'public'), iface_name),
+    'public':      public_or_imbue_stmt,
     'private':     private_or_imbue_stmt,
     'parameter':   parameter_stmt,
     'external':    imbue_stmt(tag('external', 'external'), identifier),
