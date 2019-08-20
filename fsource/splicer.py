@@ -19,6 +19,21 @@ from __future__ import print_function
 import sys
 import re
 
+class SpliceError(Exception):
+    def __init__(self, fname, lineno, line, msg):
+        self.fname = fname
+        self.lineno = lineno
+        self.colno = 0
+        self.line = line
+        self.msg = msg
+
+    def errmsg(self):
+        return ("\n%s:%d: splice error: %s\n\n\t%s"
+                % (self.fname, self.lineno, self.msg, self.line))
+
+    def __str__(self):
+        return self.errmsg()
+
 def get_freeform_line_regex():
     """Discriminate line type"""
     ws = r"""[ \t]+"""
@@ -93,8 +108,9 @@ def splice_free_form(buffer):
     line_regex = get_freeform_line_regex()
     contd_regex = get_freeform_contd_regex()
 
+    fname = buffer.name
     buffer = iter(buffer)
-    for line in buffer:
+    for lineno, line in enumerate(buffer):
         # Handle truncated lines
         if stub:
             if trunc_str:
@@ -128,7 +144,8 @@ def splice_free_form(buffer):
             yield LINECAT_INCLUDE, line
 
     if stub or trunc_str:
-        raise RuntimeError("line continuation marker followed by end of file")
+        raise SpliceError(fname, lineno, line,
+                          "File ends with line continuation marker")
 
 
 def get_fixedform_line_regex():
@@ -159,14 +176,20 @@ def splice_fixed_form(buffer, margin=72):
     stub = None
     line_regex = get_fixedform_line_regex()
 
-    for line in buffer:
+    fname = buffer.name
+    buffer = iter(buffer)
+    for lineno, line in enumerate(buffer):
         line = line[:margin].rstrip()
         match = line_regex.match(line)
+        if not match:
+            raise SpliceError(fname, lineno, line, "invalid fixed-form line")
+
         discr = match.lastindex
 
         if discr == FIXED_CONTD:
             if not stub:
-                raise RuntimeError("No valid line to continue:\n" + line)
+                raise SpliceError(fname, lineno, line,
+                            "continuation marker without line to continue")
             stub += match.group(FIXED_CONTD)
             continue
         else:
@@ -184,13 +207,11 @@ def splice_fixed_form(buffer, margin=72):
             stub = match.group(FIXED_FORMAT)
         elif discr == FIXED_INCLUDE:
             yield LINECAT_INCLUDE, match.group(FIXED_INCLUDE) + "\n"
-        elif discr == FIXED_PREPROC:
+        else: # discr == FIXED_PREPROC
             ppstmt = match.group(FIXED_PREPROC)
             while ppstmt[-1] == '\\':
                 ppstmt = ppstmt[:-1] + next(buffer).rstrip()
             yield LINECAT_PREPROC, ppstmt + "\n"
-        else:
-            raise RuntimeError("Invalid token")
 
     # Handle last line
     if stub is not None:
