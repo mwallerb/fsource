@@ -206,7 +206,7 @@ def splice_fixed_form(buffer, margin=72):
 
     # Handle last line
     if stub is not None:
-        yield cat, stub
+        yield lineno, cat, stub
 
 def get_splicer(form='free'):
     if form == 'free':
