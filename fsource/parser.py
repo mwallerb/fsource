@@ -1059,7 +1059,7 @@ def only(tokens):
         else:
             return name
 
-only_sequence = comma_sequence(only, 'only_list')
+only_sequence = comma_sequence(only, 'only_list', allow_empty=True)
 
 @rule
 def use_stmt(tokens):
