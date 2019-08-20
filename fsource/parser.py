@@ -35,24 +35,52 @@ from __future__ import print_function
 import re
 
 from . import lexer
+from . import common
 
 class NoMatch(Exception):
     "Current rule does not match, try next one if available."
     pass
 
-class ParserError(RuntimeError):
+def _restore_line(tokens):
+    # HACK: restore line by concatenating tokens
+    row = tokens.peek()[0]
+    try:
+        start = tokens.pos - next(i for (i,(r,_,_,_)) in
+                        enumerate(tokens.tokens[tokens.pos-1::-1]) if r != row)
+    except StopIteration:
+        start = 0
+    try:
+        stop = tokens.pos + next(i for (i,(r,_,_,_)) in
+                        enumerate(tokens.tokens[tokens.pos:]) if r != row)
+    except StopIteration:
+        stop = len(tokens.tokens)
+
+    line = ''
+    for _, col, _, token in tokens.tokens[start:stop]:
+        line += ' ' * (col - len(line)) + token
+    return line
+
+
+class ParserError(common.ParsingError):
     "Current rule does not match even though it should, fail meaningfully"
+    @property
+    def error_type(self): return "parser error"
+
     def __init__(self, tokens, msg):
-        RuntimeError.__init__(self, "parsing error: %s\nnext tokens:%s"
-                              % (msg, tokens.tokens[tokens.pos:tokens.pos+20]))
+        row, col, cat, token = tokens.peek()
+        line = _restore_line(tokens)
+
+        common.ParsingError.__init__(self, tokens.fname, row, col,
+                                     col+len(token), line, msg)
 
 # CONTEXT
 
 class TokenStream:
-    def __init__(self, tokens, pos=0):
+    def __init__(self, tokens, fname=None, pos=0):
         if isinstance(tokens, lexer._string_like_types):
             tokens = lexer.lex_snippet(tokens)
 
+        self.fname = fname
         self.tokens = tuple(tokens)
         self.pos = pos
         self.stack = []
@@ -195,7 +223,7 @@ def rule(fn):
         tokens.push()
         try:
             value = fn(tokens, *args)
-        except:
+        except NoMatch:
             tokens.backtrack()
             raise
         else:
@@ -225,7 +253,7 @@ class LockedIn:
 
     def __exit__(self, exc_type, exc_val, traceback):
         if exc_type is NoMatch:
-            raise ParserError(self.tokens, "Expecting token")
+            raise ParserError(self.tokens, "invalid token")
 
 def int_(tokens):
     return tokens.produce('int', expect_cat(tokens, lexer.CAT_INT))

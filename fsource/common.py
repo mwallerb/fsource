@@ -30,9 +30,9 @@ class ParsingError(Exception):
             errstr += str(self.colbegin + 1) + ":"
         errstr += " " + self.error_type
         if self.msg is not None:
-            errstr += ": " + self.msg
+            errstr += ": " + self.msg + "\n"
         if self.line is not None:
-            errstr += "\n|\n|\t%s" % self.line
+            errstr += "|\n|\t%s" % self.line
             if self.colbegin is not None:
                 errstr += ("|\t" + " "*self.colbegin + "^"
                            + "~"*(self.colend - self.colbegin) + "\n")

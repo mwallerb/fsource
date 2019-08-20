@@ -134,14 +134,18 @@ def pprint_parser(ast, out, level=0):
         out.write(val)
 
 def cmd_parse(args):
-    for fname in args.files:
-        program = open(fname)
-        slexer = lexer.lex_buffer(program, args.form)
-        tokens = parser.TokenStream(slexer)
-        ast = parser.compilation_unit(tokens, fname)
-        if args.output == 'json':
-            pprint_parser(ast, sys.stdout)
-            print()
+    try:
+        for fname in args.files:
+            program = open(fname)
+            slexer = lexer.lex_buffer(program, args.form)
+            tokens = parser.TokenStream(slexer, fname=fname)
+            ast = parser.compilation_unit(tokens, fname)
+            if args.output == 'json':
+                pprint_parser(ast, sys.stdout)
+                print()
+    except common.ParsingError as e:
+        sys.stdout.flush()
+        sys.stderr.write("\n\n" + e.errmsg())
 
 def main():
     p = get_parser()
