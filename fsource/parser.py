@@ -35,24 +35,52 @@ from __future__ import print_function
 import re
 
 from . import lexer
+from . import common
 
 class NoMatch(Exception):
     "Current rule does not match, try next one if available."
     pass
 
-class ParserError(RuntimeError):
+def _restore_line(tokens):
+    # HACK: restore line by concatenating tokens
+    row = tokens.peek()[0]
+    try:
+        start = tokens.pos - next(i for (i,(r,_,_,_)) in
+                        enumerate(tokens.tokens[tokens.pos-1::-1]) if r != row)
+    except StopIteration:
+        start = 0
+    try:
+        stop = tokens.pos + next(i for (i,(r,_,_,_)) in
+                        enumerate(tokens.tokens[tokens.pos:]) if r != row)
+    except StopIteration:
+        stop = len(tokens.tokens)
+
+    line = ''
+    for _, col, _, token in tokens.tokens[start:stop]:
+        line += ' ' * (col - len(line)) + token
+    return line
+
+
+class ParserError(common.ParsingError):
     "Current rule does not match even though it should, fail meaningfully"
+    @property
+    def error_type(self): return "parser error"
+
     def __init__(self, tokens, msg):
-        RuntimeError.__init__(self, "parsing error: %s\nnext tokens:%s"
-                              % (msg, tokens.tokens[tokens.pos:tokens.pos+20]))
+        row, col, cat, token = tokens.peek()
+        line = _restore_line(tokens)
+
+        common.ParsingError.__init__(self, tokens.fname, row, col,
+                                     col+len(token), line, msg)
 
 # CONTEXT
 
 class TokenStream:
-    def __init__(self, tokens, pos=0):
+    def __init__(self, tokens, fname=None, pos=0):
         if isinstance(tokens, lexer._string_like_types):
             tokens = lexer.lex_snippet(tokens)
 
+        self.fname = fname
         self.tokens = tuple(tokens)
         self.pos = pos
         self.stack = []
@@ -85,30 +113,25 @@ class TokenStream:
     def produce(self, rule, *args):
         return (rule,) + args
 
-    # FIXME: compatibility - remove
+def expect(tokens, expected):
+    token = tokens.peek()[3]
+    if token.lower() != expected:
+        raise NoMatch()
+    tokens.advance()
 
-    def expect(self, expected):
-        cat, token = self.peek()
-        if token.lower() != expected:
-            raise NoMatch()
-        self.advance()
+def expect_cat(tokens, expected):
+    cat = tokens.peek()[2]
+    if cat != expected:
+        raise NoMatch()
+    return next(tokens)[3]
 
-    def expect_cat(self, expected):
-        cat, token = self.peek()
-        if cat != expected:
-            raise NoMatch()
-        return next(self)[1]
-
-    def next_is(self, expected):
-        cat, token = self.peek()
-        return token.lower() == expected
-
-    def marker(self, expected):
-        if self.next_is(expected):
-            self.advance()
-            return True
-        else:
-            return False
+def marker(tokens, expected):
+    token = tokens.peek()[3]
+    if token.lower() == expected:
+        tokens.advance()
+        return True
+    else:
+        return False
 
 def comma_sequence(rule, production_tag, allow_empty=False):
     def comma_sequence_rule(tokens):
@@ -120,7 +143,7 @@ def comma_sequence(rule, production_tag, allow_empty=False):
                 return tokens.produce(production_tag)
             raise
         try:
-            while tokens.marker(','):
+            while marker(tokens, ','):
                 vals.append(rule(tokens))
         except NoMatch:
             raise ParserError(tokens, "Expecting item in comma-separated list")
@@ -151,7 +174,7 @@ def optional(rule, *args):
 def tag(expected, production_tag):
     @rule
     def tag_rule(tokens):
-        tokens.expect(expected)
+        expect(tokens, expected)
         return (production_tag,)
 
     return tag_rule
@@ -159,7 +182,7 @@ def tag(expected, production_tag):
 def tag_stmt(expected, production_tag):
     @rule
     def tag_rule(tokens):
-        tokens.expect(expected)
+        expect(tokens, expected)
         eos(tokens)
         return (production_tag,)
 
@@ -178,7 +201,7 @@ def null_rule(tokens, produce=None):
 def prefix(expected, my_rule, production_tag):
     @rule
     def prefix_rule(tokens):
-        tokens.expect(expected)
+        expect(tokens, expected)
         value = my_rule(tokens)
         return (production_tag, value)
 
@@ -186,7 +209,7 @@ def prefix(expected, my_rule, production_tag):
 
 def prefixes(handlers):
     def prefixes_rule(tokens):
-        cat, token = tokens.peek()
+        token = tokens.peek()[3]
         try:
             handler = handlers[token.lower()]
         except KeyError:
@@ -200,7 +223,7 @@ def rule(fn):
         tokens.push()
         try:
             value = fn(tokens, *args)
-        except:
+        except NoMatch:
             tokens.backtrack()
             raise
         else:
@@ -212,49 +235,50 @@ def composite(word1, word2):
     comp = word1 + word2
     @rule
     def composite_rule(tokens):
-        if tokens.marker(word1):
-            tokens.expect(word2)
+        if marker(tokens, word1):
+            expect(tokens, word2)
         else:
-            tokens.expect(comp)
+            expect(tokens, comp)
 
     return composite_rule
 
 def eos(tokens):
-    return tokens.expect_cat(lexer.CAT_EOS)
+    return expect_cat(tokens, lexer.CAT_EOS)
 
 class LockedIn:
-    def __init__(self, tokens):
+    def __init__(self, tokens, err):
         self.tokens = tokens
+        self.err = err
 
     def __enter__(self): pass
 
     def __exit__(self, exc_type, exc_val, traceback):
         if exc_type is NoMatch:
-            raise ParserError(self.tokens, "Expecting token")
+            raise ParserError(self.tokens, self.err)
 
 def int_(tokens):
-    return tokens.produce('int', tokens.expect_cat(lexer.CAT_INT))
+    return tokens.produce('int', expect_cat(tokens, lexer.CAT_INT))
 
 def string_(tokens):
-    return tokens.produce('string', tokens.expect_cat(lexer.CAT_STRING))
+    return tokens.produce('string', expect_cat(tokens, lexer.CAT_STRING))
 
 def identifier(tokens):
-    return tokens.produce('id', tokens.expect_cat(lexer.CAT_WORD))
+    return tokens.produce('id', expect_cat(tokens, lexer.CAT_WORD))
 
 def id_ref(tokens):
-    return tokens.produce('ref', tokens.expect_cat(lexer.CAT_WORD))
+    return tokens.produce('ref', expect_cat(tokens, lexer.CAT_WORD))
 
 def custom_op(tokens):
-    return tokens.produce('custom_op', tokens.expect_cat(lexer.CAT_CUSTOM_DOT))
+    return tokens.produce('custom_op', expect_cat(tokens, lexer.CAT_CUSTOM_DOT))
 
 @rule
 def do_ctrl(tokens):
     dovar = identifier(tokens)
-    tokens.expect('=')
+    expect(tokens, '=')
     start = expr(tokens)
-    tokens.expect(',')
+    expect(tokens, ',')
     stop = expr(tokens)
-    if tokens.marker(','):
+    if marker(tokens, ','):
         step = expr(tokens)
     else:
         step = None
@@ -263,46 +287,46 @@ def do_ctrl(tokens):
 @rule
 def implied_do(tokens):
     args = []
-    tokens.expect('(')
+    expect(tokens, '(')
     args.append(expr(tokens))
-    tokens.expect(',')
-    with LockedIn(tokens):
+    expect(tokens, ',')
+    with LockedIn(tokens, "invalid implied do"):
         while True:
             try:
                 do_ctrl_result = do_ctrl(tokens)
             except NoMatch:
                 args.append(expr(tokens))
-                tokens.expect(',')
+                expect(tokens, ',')
             else:
-                tokens.expect(')')
+                expect(tokens, ')')
                 return tokens.produce('impl_do', do_ctrl_result, *args)
 
 def inplace_array(open_delim, close_delim):
     @rule
     def inplace_array_rule(tokens):
         seq = []
-        tokens.expect(open_delim)
-        with LockedIn(tokens):
-            if tokens.marker(close_delim):
+        expect(tokens, open_delim)
+        with LockedIn(tokens, "invalid inplace array"):
+            if marker(tokens, close_delim):
                 return tokens.produce('array')
             while True:
                 try:
                     seq.append(implied_do(tokens))
                 except NoMatch:
                     seq.append(expr(tokens))
-                if tokens.marker(close_delim):
+                if marker(tokens, close_delim):
                     return tokens.produce('array', *seq)
-                tokens.expect(',')
+                expect(tokens, ',')
 
     return inplace_array_rule
 
 @rule
 def slice_(tokens):
     slice_begin = _optional_expr(tokens)
-    tokens.expect(':')
-    with LockedIn(tokens):
+    expect(tokens, ':')
+    with LockedIn(tokens, "invalid slice object"):
         slice_end = _optional_expr(tokens)
-        if tokens.marker(":"):
+        if marker(tokens, ":"):
             slice_stride = expr(tokens)
         else:
             slice_stride = None
@@ -311,7 +335,7 @@ def slice_(tokens):
 @rule
 def key_prefix(tokens):
     key = identifier(tokens)
-    tokens.expect('=')
+    expect(tokens, '=')
     return key
 
 optional_key_prefix = optional(key_prefix)
@@ -334,13 +358,13 @@ def lvalue(tokens):
     # lvalue is subject to stricter scrutiny, than an expression, since it
     # is used in the assignment statement.
     result = id_ref(tokens)
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid lvalue"):
         while True:
-            if tokens.marker('('):
+            if marker(tokens, '('):
                 seq = subscript_sequence(tokens)
-                tokens.expect(')')
+                expect(tokens, ')')
                 result = tokens.produce('call', result, *seq[1:])
-            if tokens.marker('%'):
+            if marker(tokens, '%'):
                 dependant = id_ref(tokens)
                 result = tokens.produce('resolve', result, dependant)
             else:
@@ -383,24 +407,24 @@ def literal_handler(action):
     # We don't need to check for the token type here, since we have already
     # done so at the dispatch phase for expr()
     def literal_handle(tokens):
-        return tokens.produce(action, next(tokens)[1])
+        return tokens.produce(action, next(tokens)[3])
     return literal_handle
 
 def parens_expr_handler(tokens):
     tokens.advance()
     inner_expr = expr(tokens)
-    if tokens.marker(','):
+    if marker(tokens, ','):
         imag_part = expr(tokens)
-        tokens.expect(')')
+        expect(tokens, ')')
         return tokens.produce('complex', inner_expr, imag_part)
     else:
-        tokens.expect(')')
+        expect(tokens, ')')
         return tokens.produce('parens', inner_expr)
 
 def call_handler(tokens, lhs):
     tokens.advance()
     seq = subscript_sequence(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
     return tokens.produce('call', lhs, *seq[1:])
 
 class ExpressionHandler:
@@ -487,14 +511,14 @@ EXPR_HANDLER = ExpressionHandler()
 
 def expr(tokens, min_glue=0):
     # Get prefix
-    handler = EXPR_HANDLER.get_prefix_handler(*tokens.peek())
+    handler = EXPR_HANDLER.get_prefix_handler(*tokens.peek()[2:])
     try:
         result = handler(tokens)
 
         # Cycle through appropriate infixes:
         while True:
             try:
-                glue, handler = EXPR_HANDLER.get_infix_handler(*tokens.peek())
+                glue, handler = EXPR_HANDLER.get_infix_handler(*tokens.peek()[2:])
             except NoMatch:
                 return result
             else:
@@ -510,41 +534,41 @@ _optional_expr = optional(expr)
 
 @rule
 def kind_selector(tokens):
-    if tokens.marker('*'):
-        with LockedIn(tokens):
+    if marker(tokens, '*'):
+        with LockedIn(tokens, "invalid star kind"):
             kind_ = int_(tokens)
     else:
-        tokens.expect('(')
-        with LockedIn(tokens):
-            if tokens.marker('kind'):
-                tokens.expect('=')
+        expect(tokens, '(')
+        with LockedIn(tokens, "invalid kind selector"):
+            if marker(tokens, 'kind'):
+                expect(tokens, '=')
             kind_ = expr(tokens)
-            tokens.expect(')')
+            expect(tokens, ')')
     return tokens.produce('kind_sel', kind_)
 
 @rule
 def keyword_arg(tokens, choices=None):
-    sel = tokens.expect_cat(lexer.CAT_WORD).lower()
-    tokens.expect('=')
+    sel = expect_cat(tokens, lexer.CAT_WORD).lower()
+    expect(tokens, '=')
     if sel not in choices:
         raise NoMatch()
     return sel
 
 @rule
 def char_len(tokens):
-    if tokens.marker('*'):
+    if marker(tokens, '*'):
         return '*'
-    if tokens.marker(':'):
+    if marker(tokens, ':'):
         return ':'
     return expr(tokens)
 
 @rule
 def char_len_suffix(tokens):
-    tokens.expect('*')
-    with LockedIn(tokens):
-        if tokens.marker('('):
+    expect(tokens, '*')
+    with LockedIn(tokens, "invalid character length suffix"):
+        if marker(tokens, '('):
             len_ = char_len(tokens)
-            tokens.expect(')')
+            expect(tokens, ')')
         else:
             len_ = int_(tokens)
         return len_
@@ -559,15 +583,15 @@ def char_selector(tokens):
     try:
         len_ = char_len_suffix(tokens)
     except NoMatch:
-        tokens.expect('(')
-        with LockedIn(tokens):
+        expect(tokens, '(')
+        with LockedIn(tokens, "invalid character selector"):
             sel = _optional_len_kind_kwd(tokens)
             if sel == 'len' or sel is None:
                 len_ = char_len(tokens)
             else:
                 kind = expr(tokens)
 
-            if tokens.marker(','):
+            if marker(tokens, ','):
                 sel = _optional_len_kind_kwd(tokens)
                 print(sel)
                 if sel is None:
@@ -577,39 +601,39 @@ def char_selector(tokens):
                 else:
                     kind = expr(tokens)
 
-            tokens.expect(')')
+            expect(tokens, ')')
 
     return tokens.produce('char_sel', len_, kind)
 
 def _typename_handler(tokens):
-    tokens.expect('type')
-    tokens.expect('(')
-    with LockedIn(tokens):
+    expect(tokens, 'type')
+    expect(tokens, '(')
+    with LockedIn(tokens, "invalid derived type specifier"):
         typename = identifier(tokens)
-        tokens.expect(')')
+        expect(tokens, ')')
         return ('type', typename)
 
 def _class_handler(tokens):
-    tokens.expect('class')
-    tokens.expect('(')
-    with LockedIn(tokens):
-        if tokens.marker('*'):
+    expect(tokens, 'class')
+    expect(tokens, '(')
+    with LockedIn(tokens, "invalid class specifier"):
+        if marker(tokens, '*'):
             typename = None
         else:
             typename = identifier(tokens)
-        tokens.expect(')')
+        expect(tokens, ')')
         return ('class_', typename)
 
 def double_precision_type(tokens):
-    tokens.expect('doubleprecision')
+    expect(tokens, 'doubleprecision')
     return tokens.produce('real_type', 'double')
 
 def double_type(tokens):
-    tokens.expect('double')
-    if tokens.marker('precision'):
+    expect(tokens, 'double')
+    if marker(tokens, 'precision'):
         return tokens.produce('real_type', 'double')
     else:
-        tokens.expect('complex')
+        expect(tokens, 'complex')
         return tokens.produce('complex_type', 'double')
 
 _TYPE_SPEC_HANDLERS = {
@@ -639,7 +663,7 @@ nonparam_type_spec = prefixes(_NONPARAM_TYPE_SPEC_HANDLERS)
 @rule
 def lower_bound(tokens):
     lower = _optional_expr(tokens)
-    tokens.expect(':')
+    expect(tokens, ':')
     return lower
 
 optional_lower_bound = optional(lower_bound)
@@ -647,7 +671,7 @@ optional_lower_bound = optional(lower_bound)
 @rule
 def dim_spec(tokens):
     lower = optional_lower_bound(tokens)
-    if tokens.marker('*'):
+    if marker(tokens, '*'):
         # Implied dimension
         return tokens.produce('implicit_dim', lower, '*')
     try:
@@ -662,25 +686,25 @@ dimspec_sequence = comma_sequence(dim_spec, 'shape')
 
 @rule
 def shape(tokens):
-    tokens.expect('(')
+    expect(tokens, '(')
     dims = dimspec_sequence(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
     return dims
 
 @rule
 def intent(tokens):
-    tokens.expect('intent')
-    with LockedIn(tokens):
-        tokens.expect('(')
-        if tokens.marker('inout'):
+    expect(tokens, 'intent')
+    with LockedIn(tokens, "invalid intent"):
+        expect(tokens, '(')
+        if marker(tokens, 'inout'):
             in_ = True
             out = True
         else:
-            in_ = tokens.marker('in')
-            out = tokens.marker('out')
+            in_ = marker(tokens, 'in')
+            out = marker(tokens, 'out')
             if not (in_ or out):
                 raise ParserError("expecting in, out, or inout as intent.")
-        tokens.expect(')')
+        expect(tokens, ')')
         return tokens.produce('intent', in_, out)
 
 _ENTITY_ATTR_HANDLERS = {
@@ -705,8 +729,8 @@ entity_attr = prefixes(_ENTITY_ATTR_HANDLERS)
 @rule
 def double_colon(tokens):
     # FIXME this is not great
-    tokens.expect(':')
-    tokens.expect(':')
+    expect(tokens, ':')
+    expect(tokens, ':')
 
 optional_double_colon = optional(double_colon)
 
@@ -714,12 +738,14 @@ def attribute_sequence(attr_rule, production_tag):
     @rule
     def attribute_sequence_rule(tokens):
         attrs = []
-        while tokens.marker(','):
-            attrs.append(attr_rule(tokens))
-        try:
-            double_colon(tokens)
-        except NoMatch:
-            if attrs: raise ParserError("Expecting ::")
+        if marker(tokens, ','):
+            with LockedIn(tokens, 'invalid attribute'):
+                attrs.append(attr_rule(tokens))
+                while marker(tokens, ','):
+                    attrs.append(attr_rule(tokens))
+                double_colon(tokens)
+        else:
+            optional_double_colon(tokens)
         return tokens.produce(production_tag, *attrs)
 
     return attribute_sequence_rule
@@ -727,14 +753,14 @@ def attribute_sequence(attr_rule, production_tag):
 entity_attrs = attribute_sequence(entity_attr, 'entity_attrs')
 
 def init_assign(tokens):
-    tokens.expect('=')
-    with LockedIn(tokens):
+    expect(tokens, '=')
+    with LockedIn(tokens, "invalid assignment"):
         init = expr(tokens)
         return tokens.produce('init_assign', init)
 
 def init_point(tokens):
-    tokens.expect('=>')
-    with LockedIn(tokens):
+    expect(tokens, '=>')
+    with LockedIn(tokens, "invalid pointer assignment"):
         init = expr(tokens)
         return tokens.produce('init_point', init)
 
@@ -779,24 +805,24 @@ def entity_ref(tokens):
 
 @rule
 def bind_c(tokens):
-    tokens.expect('bind')
-    tokens.expect('(')
-    tokens.expect('c')
-    if tokens.marker(','):
-        tokens.expect('name')
-        tokens.expect('=')
+    expect(tokens, 'bind')
+    expect(tokens, '(')
+    expect(tokens, 'c')
+    if marker(tokens, ','):
+        expect(tokens, 'name')
+        expect(tokens, '=')
         name = expr(tokens)
     else:
         name = None
-    tokens.expect(')')
+    expect(tokens, ')')
     return tokens.produce('bind_c', name)
 
 def extends(tokens):
-    tokens.expect('extends')
-    with LockedIn(tokens):
-        tokens.expect('(')
+    expect(tokens, 'extends')
+    with LockedIn(tokens, "invalid extends"):
+        expect(tokens, '(')
         name = identifier(tokens)
-        tokens.expect(')')
+        expect(tokens, ')')
         return tokens.produce('extends', name)
 
 optional_bind_c = optional(bind_c)
@@ -814,7 +840,7 @@ type_attr = prefixes(_TYPE_ATTR_HANDLERS)
 type_attrs = attribute_sequence(type_attr, 'type_attrs')
 
 def preproc_stmt(tokens):
-    return ('preproc_stmt', tokens.expect_cat(lexer.CAT_PREPROC))
+    return ('preproc_stmt', expect_cat(tokens, lexer.CAT_PREPROC))
 
 _BLOCK_DELIM = { 'end', 'else', 'contains', 'case' }
 
@@ -824,7 +850,7 @@ def block(rule, production_tag='block', fenced=True):
     def block_rule(tokens, until_lineno=None):
         stmts = []
         while True:
-            cat, token = tokens.peek()
+            cat, token = tokens.peek()[2:]
             if cat == lexer.CAT_INT:
                 tokens.advance()
                 if int(token) == until_lineno:        # non-block do construct
@@ -865,10 +891,10 @@ type_tag_block = block(type_tag, 'type_tags', fenced=False)
 optional_identifier = optional(identifier)
 
 def pass_attr(tokens):
-    tokens.expect('pass')
-    if tokens.marker('('):
+    expect(tokens, 'pass')
+    if marker(tokens, '('):
         ident = identifier(tokens)
-        tokens.expect(')')
+        expect(tokens, ')')
     else:
         ident = None
     return tokens.produce('pass', identifier)
@@ -888,7 +914,7 @@ type_proc_attrs = attribute_sequence(type_proc_attr, 'type_proc_attrs')
 
 def type_proc(tokens):
     name = identifier(tokens)
-    if tokens.marker('=>'):
+    if marker(tokens, '=>'):
         ref = identifier(tokens)
     else:
         ref = None
@@ -897,11 +923,11 @@ def type_proc(tokens):
 type_proc_sequence = comma_sequence(type_proc, 'type_proc_list')
 
 def type_proc_decl(tokens):
-    tokens.expect('procedure')
-    with LockedIn(tokens):
-        if tokens.marker('('):
+    expect(tokens, 'procedure')
+    with LockedIn(tokens, "invalid type-bound procedure declaration"):
+        if marker(tokens, '('):
             iface_name = identifier(tokens)
-            tokens.expect(')')
+            expect(tokens, ')')
         else:
             iface_name = None
         attrs = type_proc_attrs(tokens)
@@ -912,18 +938,18 @@ def type_proc_decl(tokens):
             return tokens.produce('type_proc_decl', iface_name, attrs, *proc[1:])
 
 def generic_decl(tokens):
-    tokens.expect('generic')
-    with LockedIn(tokens):
+    expect(tokens, 'generic')
+    with LockedIn(tokens, "invalid generic declaration"):
         attrs = type_proc_attrs(tokens)
         name = iface_name(tokens)
-        tokens.expect('=>')
+        expect(tokens, '=>')
         refs = identifier_sequence(tokens)
         eos(tokens)
         return tokens.produce('generic_decl', name, attrs, refs)
 
 def final_decl(tokens):
-    tokens.expect('final')
-    with LockedIn(tokens):
+    expect(tokens, 'final')
+    with LockedIn(tokens, "invalid final declaration"):
         optional_double_colon(tokens)
         refs = identifier_sequence(tokens)
         eos(tokens)
@@ -942,7 +968,7 @@ type_contains_block = block(type_contains_stmt)
 optional_private_stmt = optional(private_stmt)
 
 def optional_procedures_block(tokens):
-    if tokens.marker('contains'):
+    if marker(tokens, 'contains'):
         private = optional_private_stmt(tokens)
         conts = type_contains_block(tokens)
         return ('type_bound_procedures', private, *conts[1:])
@@ -956,13 +982,13 @@ def end_stmt(objtype, require_type=False, name_type=None):
 
     @rule
     def end_stmt_rule(tokens):
-        if tokens.marker('end'):
-            if not tokens.marker(objtype):
+        if marker(tokens, 'end'):
+            if not marker(tokens, objtype):
                 if require_type:
                     raise NoMatch()
                 eos(tokens)
                 return None
-        elif not tokens.marker(comp):
+        elif not marker(tokens, comp):
             raise NoMatch()
         try:
             name_type(tokens)
@@ -976,10 +1002,10 @@ end_type_stmt = end_stmt('type')
 
 @rule
 def type_decl(tokens):
-    tokens.expect('type')
+    expect(tokens, 'type')
     attrs = type_attrs(tokens)
     name = identifier(tokens)
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid type declaration"):
         eos(tokens)
         tags = type_tag_block(tokens)
         decls = component_block(tokens)
@@ -990,7 +1016,7 @@ def type_decl(tokens):
 @rule
 def rename(tokens):
     alias = identifier(tokens)
-    tokens.expect('=>')
+    expect(tokens, '=>')
     name = identifier(tokens)
     return tokens.produce('rename', alias, name)
 
@@ -998,27 +1024,27 @@ rename_sequence = comma_sequence(rename, 'rename_list')
 
 @rule
 def oper_spec(tokens):
-    if tokens.marker('assignment'):
-        tokens.expect('(')
-        tokens.expect('=')
-        tokens.expect(')')
+    if marker(tokens, 'assignment'):
+        expect(tokens, '(')
+        expect(tokens, '=')
+        expect(tokens, ')')
         return tokens.produce('oper_spec', '=')
     else:
-        tokens.expect('operator')
+        expect(tokens, 'operator')
         try:
             # It is impossible for the lexer to disambiguate between an empty
             # in-place array (//) and bracketed slashes, so we handle it here:
-            oper = tokens.expect_cat(lexer.CAT_BRACKETED_SLASH)
+            oper = expect_cat(tokens, lexer.CAT_BRACKETED_SLASH)
         except NoMatch:
-            tokens.expect('(')
-            cat, token = next(tokens)
+            expect(tokens, '(')
+            cat, token = next(tokens)[2:]
             if cat == lexer.CAT_CUSTOM_DOT:
                 oper = tokens.produce('custom_op', token)
             elif cat == lexer.CAT_SYMBOLIC_OP or lexer.CAT_BUILTIN_DOT:
                 oper = token
             else:
                 raise NoMatch()
-            tokens.expect(')')
+            expect(tokens, ')')
         return tokens.produce('oper_spec', oper)
 
 @rule
@@ -1027,7 +1053,7 @@ def only(tokens):
         return oper_spec(tokens)
     except NoMatch:
         name = identifier(tokens)
-        if tokens.marker('=>'):
+        if marker(tokens, '=>'):
             target = identifier(tokens)
             return tokens.produce('rename', name, target)
         else:
@@ -1037,15 +1063,15 @@ only_sequence = comma_sequence(only, 'only_list')
 
 @rule
 def use_stmt(tokens):
-    tokens.expect('use')
-    with LockedIn(tokens):
+    expect(tokens, 'use')
+    with LockedIn(tokens, "invalid use statement"):
         name = identifier(tokens)
         clauses = tokens.produce('rename_list')   # default empty rename list
         is_only = False
-        if tokens.marker(','):
-            if tokens.marker('only'):
+        if marker(tokens, ','):
+            if marker(tokens, 'only'):
                 is_only = True
-                tokens.expect(':')
+                expect(tokens, ':')
                 clauses = only_sequence(tokens)
             else:
                 clauses = rename_sequence(tokens)
@@ -1065,7 +1091,7 @@ def letter_range(tokens):
 
     start = letter()
     end = start
-    if tokens.marker('-'):
+    if marker(tokens, '-'):
         end = letter()
     return tokens.produce('letter_range', start, end)
 
@@ -1074,9 +1100,9 @@ letter_range_sequence = comma_sequence(letter_range, 'letter_range_list')
 @rule
 def implicit_spec_param(tokens):
     type_ = type_spec(tokens)
-    tokens.expect('(')
+    expect(tokens, '(')
     ranges = letter_range_sequence(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
     return tokens.produce('implicit_spec', type_, ranges)
 
 @rule
@@ -1085,9 +1111,9 @@ def implicit_spec_nonparam(tokens):
     # interpreted as an INTEGER of kind (a-z), and the parsing fails when
     # trying to read the letter range.
     type_ = nonparam_type_spec(tokens)
-    tokens.expect('(')
+    expect(tokens, '(')
     ranges = letter_range_sequence(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
     return tokens.produce('implicit_spec', type_, ranges)
 
 def implicit_spec(tokens):
@@ -1100,9 +1126,9 @@ implicit_spec_sequence = comma_sequence(implicit_spec, 'implicit_decl')
 
 @rule
 def implicit_stmt(tokens):
-    tokens.expect('implicit')
-    with LockedIn(tokens):
-        if tokens.marker('none'):
+    expect(tokens, 'implicit')
+    with LockedIn(tokens, "invalid implicit statement"):
+        if marker(tokens, 'none'):
             eos(tokens)
             return tokens.produce('implicit_none')
         else:
@@ -1112,7 +1138,7 @@ def implicit_stmt(tokens):
 
 @rule
 def dummy_arg(tokens):
-    if tokens.marker('*'):
+    if marker(tokens, '*'):
         return '*'
     else:
         return identifier(tokens)
@@ -1131,8 +1157,8 @@ sub_prefix_sequence = ws_sequence(sub_prefix, 'sub_prefix_list')
 
 def optional_contained_part(tokens):
     # contains statement
-    if tokens.marker('contains'):
-        with LockedIn(tokens):
+    if marker(tokens, 'contains'):
+        with LockedIn(tokens, "invalid declaration in contained part"):
             eos(tokens)
             return contained_block(tokens)
     else:
@@ -1144,17 +1170,18 @@ end_subroutine_stmt = end_stmt('subroutine', require_type=False)
 def subroutine_decl(tokens):
     # Header
     prefixes = sub_prefix_sequence(tokens)
-    tokens.expect('subroutine')
-    with LockedIn(tokens):
+    expect(tokens, 'subroutine')
+    with LockedIn(tokens, "invalid subroutine declaration"):
         name = identifier(tokens)
-        if tokens.marker('('):
+        if marker(tokens, '('):
             args = dummy_arg_sequence(tokens)
-            tokens.expect(')')
+            expect(tokens, ')')
         else:
             args = tokens.produce('arg_list')   # empty args
         bind_ = optional_bind_c(tokens)
         eos(tokens)
 
+    with LockedIn(tokens, "malformed statement inside subroutine"):
         # Body
         declarations_ = declaration_part(tokens)
         execution_part(tokens)
@@ -1186,10 +1213,10 @@ func_prefix_sequence = ws_sequence(func_prefix, 'func_prefix_list')
 
 @rule
 def result(tokens):
-    tokens.expect('result')
-    tokens.expect('(')
+    expect(tokens, 'result')
+    expect(tokens, '(')
     res = identifier(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
     return ('result', res)
 
 @rule
@@ -1209,15 +1236,16 @@ end_function_stmt = end_stmt('function', require_type=False)
 def function_decl(tokens):
     # Header
     prefixes = func_prefix_sequence(tokens)
-    tokens.expect('function')
-    with LockedIn(tokens):
+    expect(tokens, 'function')
+    with LockedIn(tokens, "invalid function declaration"):
         name = identifier(tokens)
-        tokens.expect('(')
+        expect(tokens, '(')
         args = func_arg_sequence(tokens)
-        tokens.expect(')')
+        expect(tokens, ')')
         suffixes = func_suffix_sequence(tokens)
         eos(tokens)
 
+    with LockedIn(tokens, "malformed statement inside function"):
         # Body
         declarations_ = declaration_part(tokens)
         execution_part(tokens)
@@ -1250,9 +1278,9 @@ identifier_sequence = comma_sequence(identifier, 'identifier_list')
 
 @rule
 def module_proc_stmt(tokens):
-    tokens.expect('module')
-    tokens.expect('procedure')
-    with LockedIn(tokens):
+    expect(tokens, 'module')
+    expect(tokens, 'procedure')
+    with LockedIn(tokens, "invalid module procedure statement"):
         optional_double_colon(tokens)
         procs = identifier_sequence(tokens)
         eos(tokens)
@@ -1270,8 +1298,8 @@ end_interface_stmt = end_stmt('interface', name_type=iface_name)
 
 @rule
 def interface_decl(tokens):
-    tokens.expect('interface')
-    with LockedIn(tokens):
+    expect(tokens, 'interface')
+    with LockedIn(tokens, "invalid interface declaration"):
         name = optional_iface_name(tokens)
         eos(tokens)
         decls = interface_body_block(tokens)
@@ -1280,9 +1308,9 @@ def interface_decl(tokens):
 
 @rule
 def abstract_interface_decl(tokens):
-    tokens.expect('abstract')
-    tokens.expect('interface')
-    with LockedIn(tokens):
+    expect(tokens, 'abstract')
+    expect(tokens, 'interface')
+    with LockedIn(tokens, "invalid abstract interface declaration"):
         eos(tokens)
         decls = interface_body_block(tokens)
         end_interface_stmt(tokens)
@@ -1292,7 +1320,7 @@ def imbue_stmt(prefix_rule, object_rule):
     object_sequence = comma_sequence(object_rule, None)
     def imbue_stmt_rule(tokens):
         prefix = prefix_rule(tokens)
-        with LockedIn(tokens):
+        with LockedIn(tokens, "invalid imbue statement"):
             optional_double_colon(tokens)
             vars = object_sequence(tokens)
             eos(tokens)
@@ -1304,7 +1332,7 @@ imbue_save_stmt = imbue_stmt(tag('save', 'save'), identifier)
 
 @rule
 def save_all_stmt(tokens):
-    tokens.expect('save')
+    expect(tokens, 'save')
     eos(tokens)
     return tokens.produce('save_all')
 
@@ -1324,11 +1352,11 @@ param_init_sequence = comma_sequence(param_init, 'parameter_stmt')
 
 @rule
 def parameter_stmt(tokens):
-    tokens.expect('parameter')
-    with LockedIn(tokens):
-        tokens.expect('(')
+    expect(tokens, 'parameter')
+    with LockedIn(tokens, "invalid parameter statement"):
+        expect(tokens, '(')
         seq = param_init_sequence(tokens)
-        tokens.expect(')')
+        expect(tokens, ')')
         eos(tokens)
     return seq
 
@@ -1342,7 +1370,7 @@ dimension_stmt_list = comma_sequence(dimension_stmt_spec, 'dimension_stmt')
 
 @rule
 def dimension_stmt(tokens):
-    tokens.expect('dimension')
+    expect(tokens, 'dimension')
     optional_double_colon(tokens)
     specs_ = dimension_stmt_list(tokens)
     eos(tokens)
@@ -1352,17 +1380,17 @@ equivalence_object_sequence = comma_sequence(lvalue, 'equivalence_set')
 
 @rule
 def equivalence_set(tokens):
-    tokens.expect('(')
+    expect(tokens, '(')
     seq = equivalence_object_sequence(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
     return seq
 
 equivalence_set_sequence = comma_sequence(equivalence_set, 'equivalence_stmt')
 
 @rule
 def equivalence_stmt(tokens):
-    tokens.expect('equivalence')
-    with LockedIn(tokens):
+    expect(tokens, 'equivalence')
+    with LockedIn(tokens, "invalid equivalence statement"):
         seq = equivalence_set_sequence(tokens)
         eos(tokens)
         return seq
@@ -1404,22 +1432,22 @@ def procedure(tokens):
 procedure_sequence = comma_sequence(procedure, 'procedure_list')
 
 def procedure_decl(tokens):
-    tokens.expect('procedure')
-    tokens.expect('(')
+    expect(tokens, 'procedure')
+    expect(tokens, '(')
     iface = optional_identifier(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
     attrs = proc_attrs(tokens)
     procs = procedure_sequence(tokens)
     return tokens.produce('procedure_decl', iface, attrs, procs)
 
 def ignore_stmt(tokens):
     while True:
-        cat, token = next(tokens)
+        cat = next(tokens)[2]
         if cat == lexer.CAT_EOS:
             return
 
 def data_stmt(tokens):
-    tokens.expect('data')
+    expect(tokens, 'data')
     ignore_stmt(tokens)
     return tokens.produce('data_stmt')
 
@@ -1462,38 +1490,38 @@ fenced_declaration_part = block(declaration_stmt, 'declaration_block', fenced=Tr
 
 @rule
 def construct_tag(tokens):
-    tokens.expect_cat(lexer.CAT_WORD)
-    tokens.expect(':')
-    cat, token = tokens.peek()
+    expect_cat(tokens, lexer.CAT_WORD)
+    expect(tokens, ':')
+    cat, token = tokens.peek()[2:]
     return token.lower()
 
 optional_construct_tag = optional(construct_tag)
 
 @rule
 def if_clause(tokens):
-    tokens.expect('if')
-    tokens.expect('(')
+    expect(tokens, 'if')
+    expect(tokens, '(')
     expr(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
 
 else_if = composite('else', 'if')
 
 @rule
 def else_if_block(tokens):
     else_if(tokens)
-    tokens.expect('(')
+    expect(tokens, '(')
     expr(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
     optional_identifier(tokens)
     eos(tokens)
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid else-if block"):
         execution_part(tokens)
 
 else_if_block_sequence = ws_sequence(else_if_block, 'else_if_sequence')
 
 @rule
 def else_block(tokens):
-    tokens.expect('else')
+    expect(tokens, 'else')
     optional_identifier(tokens)
     eos(tokens)
     execution_part(tokens)
@@ -1507,8 +1535,8 @@ end_if_stmt = end_stmt('if')
 def if_construct(tokens):
     optional_construct_tag(tokens)
     if_clause(tokens)
-    with LockedIn(tokens):
-        if tokens.marker('then'):
+    with LockedIn(tokens, "invalid if construct"):
+        if marker(tokens, 'then'):
             eos(tokens)
             execution_part(tokens)
             else_if_block_sequence(tokens)
@@ -1519,10 +1547,10 @@ def if_construct(tokens):
 
 @rule
 def while_ctrl(tokens):
-    tokens.expect('while')
-    tokens.expect('(')
+    expect(tokens, 'while')
+    expect(tokens, '(')
     expr(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
 
 def loop_ctrl(tokens):
     try:
@@ -1537,13 +1565,13 @@ end_do_stmt = end_stmt('do')
 @rule
 def do_construct(tokens):
     optional_construct_tag(tokens)
-    tokens.expect('do')
-    with LockedIn(tokens):
+    expect(tokens, 'do')
+    with LockedIn(tokens, "invalid do construct"):
         try:
             until_lineno = int(int_(tokens)[1])
         except NoMatch:
             # BLOCK DO CONSTRUCT
-            tokens.marker(',')
+            marker(tokens, ',')
             optional_loop_ctrl(tokens)
             eos(tokens)
             execution_part(tokens)
@@ -1551,7 +1579,7 @@ def do_construct(tokens):
         else:
             # NONBLOCK DO CONSTRUCT
             # TODO: nested non-block do constructs with shared end label
-            tokens.marker(',')
+            marker(tokens, ',')
             optional_loop_ctrl(tokens)
             eos(tokens)
             execution_part(tokens, until_lineno)
@@ -1563,7 +1591,7 @@ def do_construct(tokens):
 @rule
 def case_slice(tokens):
     _optional_expr(tokens)
-    tokens.expect(':')
+    expect(tokens, ':')
     _optional_expr(tokens)
 
 def case_range(tokens):
@@ -1576,13 +1604,13 @@ case_range_sequence = comma_sequence(case_range, 'case_range_list')
 
 @rule
 def select_case(tokens):
-    tokens.expect('case')
-    if tokens.marker('default'):
+    expect(tokens, 'case')
+    if marker(tokens, 'default'):
         pass
     else:
-        tokens.expect('(')
+        expect(tokens, '(')
         case_range_sequence(tokens)
-        tokens.expect(')')
+        expect(tokens, ')')
     eos(tokens)
     execution_part(tokens)
 
@@ -1596,10 +1624,10 @@ select_case_tag = composite('select', 'case')
 def select_case_construct(tokens):
     optional_construct_tag(tokens)
     select_case_tag(tokens)
-    with LockedIn(tokens):
-        tokens.expect('(')
+    with LockedIn(tokens, "invalid select case construct"):
+        expect(tokens, '(')
         expr(tokens)
-        tokens.expect(')')
+        expect(tokens, ')')
         eos(tokens)
         select_case_sequence(tokens)
         end_select_stmt(tokens)
@@ -1614,27 +1642,27 @@ optional_type_prefix = optional(type_prefix)
 @rule
 def forall_select(tokens):
     identifier(tokens)
-    tokens.expect('=')
+    expect(tokens, '=')
     expr(tokens)
-    tokens.expect(':')
+    expect(tokens, ':')
     expr(tokens)
-    if tokens.marker(':'):
+    if marker(tokens, ':'):
         expr(tokens)
 
 @rule
 def forall_clause(tokens):
-    tokens.expect('forall')
-    with LockedIn(tokens):
-        tokens.expect('(')
+    expect(tokens, 'forall')
+    with LockedIn(tokens, "invalid forall clause"):
+        expect(tokens, '(')
         optional_type_prefix(tokens)
         forall_select(tokens)
-        while tokens.marker(','):
+        while marker(tokens, ','):
             try:
                 forall_select(tokens)
             except NoMatch:
                 expr(tokens)
                 break
-        tokens.expect(')')
+        expect(tokens, ')')
 
 end_forall_stmt = end_stmt('forall')
 
@@ -1654,10 +1682,10 @@ def forall_construct(tokens):
 
 @rule
 def where_clause(tokens):
-    tokens.expect('where')
-    tokens.expect('(')
+    expect(tokens, 'where')
+    expect(tokens, '(')
     expr(tokens)
-    tokens.expect(')')
+    expect(tokens, ')')
 
 end_where_stmt = end_stmt('where')
 
@@ -1666,9 +1694,9 @@ else_where = composite('else', 'where')
 @rule
 def else_where_clause(tokens):
     else_where(tokens)
-    if tokens.marker('('):
+    if marker(tokens, '('):
         expr(tokens)
-        tokens.expect(')')
+        expect(tokens, ')')
     optional_identifier(tokens)
     eos(tokens)
 
@@ -1676,7 +1704,7 @@ def else_where_clause(tokens):
 def where_construct(tokens):
     optional_construct_tag(tokens)
     where_clause(tokens)
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid where construct"):
         try:
             eos(tokens)
         except NoMatch:
@@ -1734,7 +1762,7 @@ prefixed_stmt = prefixes(STMT_HANDLERS)
 @rule
 def assignment_stmt(tokens):
     lvalue(tokens)
-    _, oper = next(tokens)
+    oper = next(tokens)[3]
     if oper != '=' and oper != '=>':
         raise NoMatch()
     ignore_stmt(tokens)
@@ -1744,7 +1772,7 @@ def assignment_stmt(tokens):
 
 @rule
 def format_stmt(tokens):
-    tokens.expect_cat(lexer.CAT_FORMAT)
+    expect_cat(tokens, lexer.CAT_FORMAT)
 
 @rule
 def execution_stmt(tokens):
@@ -1770,10 +1798,12 @@ end_module_stmt = end_stmt('module', require_type=False)
 
 @rule
 def module_decl(tokens):
-    tokens.expect('module')
-    with LockedIn(tokens):
+    expect(tokens, 'module')
+    with LockedIn(tokens, "invalid module declaration"):
         name = identifier(tokens)
         eos(tokens)
+
+    with LockedIn(tokens, "malformed statement inside module"):
         decls = fenced_declaration_part(tokens)
         cont = optional_contained_part(tokens)
         end_module_stmt(tokens)
@@ -1783,10 +1813,12 @@ end_program_stmt = end_stmt('program', require_type=False)
 
 @rule
 def program_decl(tokens):
-    tokens.expect('program')
-    with LockedIn(tokens):
+    expect(tokens, 'program')
+    with LockedIn(tokens, "invalid program declaration"):
         name = identifier(tokens)
         eos(tokens)
+
+    with LockedIn(tokens, "malformed statement inside program"):
         decls = declaration_part(tokens)
         execution_part(tokens)
         cont = optional_contained_part(tokens)
@@ -1810,7 +1842,7 @@ program_unit_sequence = block(program_unit, 'program_unit_list', fenced=False)
 @rule
 def compilation_unit(tokens, filename=None):
     units = program_unit_sequence(tokens)
-    tokens.expect_cat(lexer.CAT_DOLLAR)
+    expect_cat(tokens, lexer.CAT_DOLLAR)
     version = tokens.produce('ast_version', '0', '1')
     fname = tokens.produce('filename', filename)
     return tokens.produce('compilation_unit', version, fname, *units[1:])

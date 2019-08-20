@@ -15,6 +15,7 @@ from . import __version__
 from . import splicer
 from . import lexer
 from . import parser
+from . import common
 
 class Stopwatch:
     def __init__(self, time=time.time):
@@ -50,13 +51,18 @@ def get_parser():
 
 def cmd_splice(args):
     lines = splicer.get_splicer(args.form)
-    for fname in args.files:
-        contents = open(fname)
-        if args.output == 'json':
-            for cat, line in lines(contents):
-                print("%s: %s" % (splicer.LINECAT_NAMES[cat], line), end='')
-        else:
-            for _ in lines(contents): pass
+    try:
+        for fname in args.files:
+            contents = open(fname)
+            if args.output == 'json':
+                for lineno, cat, line in lines(contents):
+                    print("%d: %s: %s"
+                        % (lineno, splicer.LINECAT_NAMES[cat], line), end='')
+            else:
+                for _ in lines(contents): pass
+    except common.ParsingError as e:
+        sys.stdout.flush()
+        sys.stderr.write("\n" + e.errmsg())
 
 def pprint_lex(mylexer, out, filename=None):
     """Make nicely formatted JSON output from lexer output"""
@@ -65,7 +71,7 @@ def pprint_lex(mylexer, out, filename=None):
     out.write('[\n')
     out.write('["lex_version", "1.0"],\n')
     out.write('["filename", %s],\n' % encode_basestring(filename))
-    for cat, token in mylexer:
+    for _, _, cat, token in mylexer:
         out.write('["%s",%s]' % (lexer.CAT_NAMES[cat], encode_basestring(token)))
         if cat == lexer.CAT_EOS or cat == lexer.CAT_PREPROC:
             out.write(',\n')
@@ -75,13 +81,17 @@ def pprint_lex(mylexer, out, filename=None):
             out.write(', ')
 
 def cmd_lex(args):
-    if args.output == 'json':
-        for fname in args.files:
-            pprint_lex(lexer.lex_buffer(open(fname), args.form), sys.stdout,
-                       fname)
-    else:
-        for fname in args.files:
-            for _ in lexer.lex_buffer(open(fname), args.form): pass
+    try:
+        if args.output == 'json':
+            for fname in args.files:
+                pprint_lex(lexer.lex_buffer(open(fname), args.form), sys.stdout,
+                        fname)
+        else:
+            for fname in args.files:
+                for _ in lexer.lex_buffer(open(fname), args.form): pass
+    except common.ParsingError as e:
+        sys.stdout.flush()
+        sys.stderr.write("\n\n" + e.errmsg())
 
 def pprint_parser(ast, out, level=0):
     """Make nicely formatted JSON output from parser output"""
@@ -124,14 +134,18 @@ def pprint_parser(ast, out, level=0):
         out.write(val)
 
 def cmd_parse(args):
-    for fname in args.files:
-        program = open(fname)
-        slexer = lexer.lex_buffer(program, args.form)
-        tokens = parser.TokenStream(slexer)
-        ast = parser.compilation_unit(tokens, fname)
-        if args.output == 'json':
-            pprint_parser(ast, sys.stdout)
-            print()
+    try:
+        for fname in args.files:
+            program = open(fname)
+            slexer = lexer.lex_buffer(program, args.form)
+            tokens = parser.TokenStream(slexer, fname=fname)
+            ast = parser.compilation_unit(tokens, fname)
+            if args.output == 'json':
+                pprint_parser(ast, sys.stdout)
+                print()
+    except common.ParsingError as e:
+        sys.stdout.flush()
+        sys.stderr.write("\n\n" + e.errmsg())
 
 def main():
     p = get_parser()

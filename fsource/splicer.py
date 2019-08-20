@@ -19,6 +19,16 @@ from __future__ import print_function
 import sys
 import re
 
+from . import common
+
+class SpliceError(common.ParsingError):
+    @property
+    def error_type(self): return "splice error"
+
+    def __init__(self, fname, lineno, line, msg):
+        common.ParsingError.__init__(self, fname, lineno, None, None, line, msg)
+
+
 def get_freeform_line_regex():
     """Discriminate line type"""
     ws = r"""[ \t]+"""
@@ -93,8 +103,9 @@ def splice_free_form(buffer):
     line_regex = get_freeform_line_regex()
     contd_regex = get_freeform_contd_regex()
 
-    buffer = iter(buffer)
-    for line in buffer:
+    fname = buffer.name
+    buffer_iter = enumerate(buffer)
+    for lineno, line in buffer_iter:
         # Handle truncated lines
         if stub:
             if trunc_str:
@@ -111,7 +122,7 @@ def splice_free_form(buffer):
         discr = match.lastindex
         if discr == FREE_FULL_END:
             stub += match.group(FREE_WHOLE_PART) + match.group(FREE_FULL_END)
-            yield LINECAT_NORMAL, stub
+            yield lineno, LINECAT_NORMAL, stub
             stub = ''
         elif discr >= FREE_TRUNC_END:
             stub += match.group(FREE_WHOLE_PART)
@@ -119,16 +130,15 @@ def splice_free_form(buffer):
                 trunc_str = match.group(FREE_TRUNC_STRING_END)
         elif discr == FREE_PREPROC:
             ppstmt = match.group(FREE_PREPROC)
-            while ppstmt[-1] == '\\':
-                ppstmt = ppstmt[:-1] + next(buffer).rstrip()
-            yield LINECAT_PREPROC, ppstmt + '\n'
+            yield lineno, LINECAT_PREPROC, ppstmt + '\n'
         elif discr == FREE_FORMAT:
-            yield LINECAT_FORMAT, line
+            yield lineno, LINECAT_FORMAT, line
         else:
-            yield LINECAT_INCLUDE, line
+            yield lineno, LINECAT_INCLUDE, line
 
     if stub or trunc_str:
-        raise RuntimeError("line continuation marker followed by end of file")
+        raise SpliceError(fname, lineno, line,
+                          "File ends with line continuation marker")
 
 
 def get_fixedform_line_regex():
@@ -159,42 +169,44 @@ def splice_fixed_form(buffer, margin=72):
     stub = None
     line_regex = get_fixedform_line_regex()
 
-    for line in buffer:
+    fname = buffer.name
+    buffer = iter(buffer)
+    for lineno, line in enumerate(buffer):
         line = line[:margin].rstrip()
         match = line_regex.match(line)
+        if not match:
+            raise SpliceError(fname, lineno, line, "invalid fixed-form line")
+
         discr = match.lastindex
 
         if discr == FIXED_CONTD:
             if not stub:
-                raise RuntimeError("No valid line to continue:\n" + line)
+                raise SpliceError(fname, lineno, line,
+                            "continuation marker without line to continue")
             stub += match.group(FIXED_CONTD)
             continue
         else:
             if stub and discr != FIXED_COMMENT:
-                yield cat, stub + "\n"
+                yield lineno, cat, stub + "\n"
                 stub = None
 
         if discr == FIXED_OTHER:
             cat = LINECAT_NORMAL
             stub = match.group(FIXED_OTHER)
         elif discr == FIXED_COMMENT:
-            yield LINECAT_NORMAL, "!" + match.group(FIXED_COMMENT) + "\n"
+            yield lineno, LINECAT_NORMAL, "!" + match.group(FIXED_COMMENT) + "\n"
         elif discr == FIXED_FORMAT:
             cat = LINECAT_FORMAT
             stub = match.group(FIXED_FORMAT)
         elif discr == FIXED_INCLUDE:
-            yield LINECAT_INCLUDE, match.group(FIXED_INCLUDE) + "\n"
-        elif discr == FIXED_PREPROC:
+            yield lineno, LINECAT_INCLUDE, match.group(FIXED_INCLUDE) + "\n"
+        else: # discr == FIXED_PREPROC
             ppstmt = match.group(FIXED_PREPROC)
-            while ppstmt[-1] == '\\':
-                ppstmt = ppstmt[:-1] + next(buffer).rstrip()
-            yield LINECAT_PREPROC, ppstmt + "\n"
-        else:
-            raise RuntimeError("Invalid token")
+            yield lineno, LINECAT_PREPROC, ppstmt + "\n"
 
     # Handle last line
     if stub is not None:
-        yield cat, stub
+        yield lineno, cat, stub
 
 def get_splicer(form='free'):
     if form == 'free':
