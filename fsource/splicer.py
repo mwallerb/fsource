@@ -19,20 +19,15 @@ from __future__ import print_function
 import sys
 import re
 
-class SpliceError(Exception):
+from . import common
+
+class SpliceError(common.ParsingError):
+    @property
+    def error_type(self): return "splice error"
+
     def __init__(self, fname, lineno, line, msg):
-        self.fname = fname
-        self.lineno = lineno
-        self.colno = 0
-        self.line = line
-        self.msg = msg
+        common.ParsingError.__init__(self, fname, lineno, None, None, line, msg)
 
-    def errmsg(self):
-        return ("\n%s:%d: splice error: %s\n\n\t%s"
-                % (self.fname, self.lineno, self.msg, self.line))
-
-    def __str__(self):
-        return self.errmsg()
 
 def get_freeform_line_regex():
     """Discriminate line type"""

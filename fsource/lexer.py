@@ -34,6 +34,7 @@ from __future__ import print_function
 import sys
 import re
 
+from . import common
 from . import splicer
 
 # Python 2/3 compatibility
@@ -45,12 +46,11 @@ else:
     _string_like_types = basestring,
     _maketrans = string.maketrans
 
-class LexerError(RuntimeError):
-    def __init__(self, text, pos):
-        self.text = text
-        self.pos = pos
-        RuntimeError.__init__(self,
-            "Lexer error at character %d:\n%s" % (pos, text[pos:pos+70]))
+
+class LexerError(common.ParsingError):
+    @property
+    def error_type(self): return "lexer error"
+
 
 def tokenize_regex(regex, text):
     """Tokenizes text using the groups in the regex specified
@@ -64,8 +64,9 @@ def tokenize_regex(regex, text):
         for match in regex.finditer(text):
             category = match.lastindex
             yield category, match.group(category)
-    except (TypeError, IndexError) as e:
-        raise LexerError(text, match.start())
+    except IndexError as e:
+        raise LexerError(None, None, match.start(), match.end(), text,
+                         "invalid token")
 
 
 def get_lexer_regex(preproc=False):
@@ -105,7 +106,7 @@ def get_lexer_regex(preproc=False):
           | \( {skipws} (//?) {skipws} \)       #  9 bracketed slashes
           | ({operator})                        # 10 symbolic operator
           | ({word})                            # 11 word
-          | (?=.)
+          | [^ \t]+                             #    invalid token
           )
         """.format(
                 skipws=skip_ws, endline=endline, comment=comment,
@@ -189,12 +190,18 @@ def lex_buffer(buffer, form='free'):
     linecat_to_cat = LINECAT_TO_CAT
     lines_iter = splicer.get_splicer(form)
 
+    fname = buffer.name
     for lineno, linecat, line in lines_iter(buffer):
         try:
             yield linecat_to_cat[linecat], line
         except KeyError:
-            for token_pair in tokenize_regex(lexer_regex, line):
-                yield token_pair
+            try:
+                for token_pair in tokenize_regex(lexer_regex, line):
+                    yield token_pair
+            except LexerError as e:
+                e.lineno = lineno
+                e.fname = fname
+                raise e
 
     # Make sure last line is terminated, then yield terminal token
     yield (CAT_EOS, '\n')
