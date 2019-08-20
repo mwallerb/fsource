@@ -39,7 +39,7 @@ def get_freeform_line_regex():
     include = r"""include{ws}{anything}""".format(ws=ws, anything=anything)
     preproc = r"""\#{anything}""".format(anything=anything)
     atom = r"""(?: [^!&'"\r\n] | '(?:''|[^'\r\n])*' | "(?:""|[^"\r\n])*" )"""
-    format = r"""{lineno}{ws}format{ws}\({anything}""".format(
+    format = r"""{lineno}{ws}format[ \t]*\({anything}""".format(
                     ws=ws, anything=anything, lineno=lineno)
     truncstr = r"""(?: '(?:''|[^'\r\n])*
                      | "(?:""|[^"\r\n])*
