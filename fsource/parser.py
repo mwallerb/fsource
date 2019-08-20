@@ -246,14 +246,15 @@ def eos(tokens):
     return expect_cat(tokens, lexer.CAT_EOS)
 
 class LockedIn:
-    def __init__(self, tokens):
+    def __init__(self, tokens, err):
         self.tokens = tokens
+        self.err = err
 
     def __enter__(self): pass
 
     def __exit__(self, exc_type, exc_val, traceback):
         if exc_type is NoMatch:
-            raise ParserError(self.tokens, "invalid token")
+            raise ParserError(self.tokens, self.err)
 
 def int_(tokens):
     return tokens.produce('int', expect_cat(tokens, lexer.CAT_INT))
@@ -289,7 +290,7 @@ def implied_do(tokens):
     expect(tokens, '(')
     args.append(expr(tokens))
     expect(tokens, ',')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid implied do"):
         while True:
             try:
                 do_ctrl_result = do_ctrl(tokens)
@@ -305,7 +306,7 @@ def inplace_array(open_delim, close_delim):
     def inplace_array_rule(tokens):
         seq = []
         expect(tokens, open_delim)
-        with LockedIn(tokens):
+        with LockedIn(tokens, "invalid inplace array"):
             if marker(tokens, close_delim):
                 return tokens.produce('array')
             while True:
@@ -323,7 +324,7 @@ def inplace_array(open_delim, close_delim):
 def slice_(tokens):
     slice_begin = _optional_expr(tokens)
     expect(tokens, ':')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid slice object"):
         slice_end = _optional_expr(tokens)
         if marker(tokens, ":"):
             slice_stride = expr(tokens)
@@ -357,7 +358,7 @@ def lvalue(tokens):
     # lvalue is subject to stricter scrutiny, than an expression, since it
     # is used in the assignment statement.
     result = id_ref(tokens)
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid lvalue"):
         while True:
             if marker(tokens, '('):
                 seq = subscript_sequence(tokens)
@@ -534,11 +535,11 @@ _optional_expr = optional(expr)
 @rule
 def kind_selector(tokens):
     if marker(tokens, '*'):
-        with LockedIn(tokens):
+        with LockedIn(tokens, "invalid star kind"):
             kind_ = int_(tokens)
     else:
         expect(tokens, '(')
-        with LockedIn(tokens):
+        with LockedIn(tokens, "invalid kind selector"):
             if marker(tokens, 'kind'):
                 expect(tokens, '=')
             kind_ = expr(tokens)
@@ -564,7 +565,7 @@ def char_len(tokens):
 @rule
 def char_len_suffix(tokens):
     expect(tokens, '*')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid character length suffix"):
         if marker(tokens, '('):
             len_ = char_len(tokens)
             expect(tokens, ')')
@@ -583,7 +584,7 @@ def char_selector(tokens):
         len_ = char_len_suffix(tokens)
     except NoMatch:
         expect(tokens, '(')
-        with LockedIn(tokens):
+        with LockedIn(tokens, "invalid character selector"):
             sel = _optional_len_kind_kwd(tokens)
             if sel == 'len' or sel is None:
                 len_ = char_len(tokens)
@@ -607,7 +608,7 @@ def char_selector(tokens):
 def _typename_handler(tokens):
     expect(tokens, 'type')
     expect(tokens, '(')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid derived type specifier"):
         typename = identifier(tokens)
         expect(tokens, ')')
         return ('type', typename)
@@ -615,7 +616,7 @@ def _typename_handler(tokens):
 def _class_handler(tokens):
     expect(tokens, 'class')
     expect(tokens, '(')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid class specifier"):
         if marker(tokens, '*'):
             typename = None
         else:
@@ -693,7 +694,7 @@ def shape(tokens):
 @rule
 def intent(tokens):
     expect(tokens, 'intent')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid intent"):
         expect(tokens, '(')
         if marker(tokens, 'inout'):
             in_ = True
@@ -737,12 +738,14 @@ def attribute_sequence(attr_rule, production_tag):
     @rule
     def attribute_sequence_rule(tokens):
         attrs = []
-        while marker(tokens, ','):
-            attrs.append(attr_rule(tokens))
-        try:
-            double_colon(tokens)
-        except NoMatch:
-            if attrs: raise ParserError("Expecting ::")
+        if marker(tokens, ','):
+            with LockedIn(tokens, 'invalid attribute'):
+                attrs.append(attr_rule(tokens))
+                while marker(tokens, ','):
+                    attrs.append(attr_rule(tokens))
+                double_colon(tokens)
+        else:
+            optional_double_colon(tokens)
         return tokens.produce(production_tag, *attrs)
 
     return attribute_sequence_rule
@@ -751,13 +754,13 @@ entity_attrs = attribute_sequence(entity_attr, 'entity_attrs')
 
 def init_assign(tokens):
     expect(tokens, '=')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid assignment"):
         init = expr(tokens)
         return tokens.produce('init_assign', init)
 
 def init_point(tokens):
     expect(tokens, '=>')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid pointer assignment"):
         init = expr(tokens)
         return tokens.produce('init_point', init)
 
@@ -816,7 +819,7 @@ def bind_c(tokens):
 
 def extends(tokens):
     expect(tokens, 'extends')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid extends"):
         expect(tokens, '(')
         name = identifier(tokens)
         expect(tokens, ')')
@@ -921,7 +924,7 @@ type_proc_sequence = comma_sequence(type_proc, 'type_proc_list')
 
 def type_proc_decl(tokens):
     expect(tokens, 'procedure')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid type-bound procedure declaration"):
         if marker(tokens, '('):
             iface_name = identifier(tokens)
             expect(tokens, ')')
@@ -936,7 +939,7 @@ def type_proc_decl(tokens):
 
 def generic_decl(tokens):
     expect(tokens, 'generic')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid generic declaration"):
         attrs = type_proc_attrs(tokens)
         name = iface_name(tokens)
         expect(tokens, '=>')
@@ -946,7 +949,7 @@ def generic_decl(tokens):
 
 def final_decl(tokens):
     expect(tokens, 'final')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid final declaration"):
         optional_double_colon(tokens)
         refs = identifier_sequence(tokens)
         eos(tokens)
@@ -1002,7 +1005,7 @@ def type_decl(tokens):
     expect(tokens, 'type')
     attrs = type_attrs(tokens)
     name = identifier(tokens)
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid type declaration"):
         eos(tokens)
         tags = type_tag_block(tokens)
         decls = component_block(tokens)
@@ -1061,7 +1064,7 @@ only_sequence = comma_sequence(only, 'only_list')
 @rule
 def use_stmt(tokens):
     expect(tokens, 'use')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid use statement"):
         name = identifier(tokens)
         clauses = tokens.produce('rename_list')   # default empty rename list
         is_only = False
@@ -1124,7 +1127,7 @@ implicit_spec_sequence = comma_sequence(implicit_spec, 'implicit_decl')
 @rule
 def implicit_stmt(tokens):
     expect(tokens, 'implicit')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid implicit statement"):
         if marker(tokens, 'none'):
             eos(tokens)
             return tokens.produce('implicit_none')
@@ -1155,7 +1158,7 @@ sub_prefix_sequence = ws_sequence(sub_prefix, 'sub_prefix_list')
 def optional_contained_part(tokens):
     # contains statement
     if marker(tokens, 'contains'):
-        with LockedIn(tokens):
+        with LockedIn(tokens, "invalid declaration in contained part"):
             eos(tokens)
             return contained_block(tokens)
     else:
@@ -1168,7 +1171,7 @@ def subroutine_decl(tokens):
     # Header
     prefixes = sub_prefix_sequence(tokens)
     expect(tokens, 'subroutine')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid subroutine declaration"):
         name = identifier(tokens)
         if marker(tokens, '('):
             args = dummy_arg_sequence(tokens)
@@ -1178,6 +1181,7 @@ def subroutine_decl(tokens):
         bind_ = optional_bind_c(tokens)
         eos(tokens)
 
+    with LockedIn(tokens, "malformed statement inside subroutine"):
         # Body
         declarations_ = declaration_part(tokens)
         execution_part(tokens)
@@ -1233,7 +1237,7 @@ def function_decl(tokens):
     # Header
     prefixes = func_prefix_sequence(tokens)
     expect(tokens, 'function')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid function declaration"):
         name = identifier(tokens)
         expect(tokens, '(')
         args = func_arg_sequence(tokens)
@@ -1241,6 +1245,7 @@ def function_decl(tokens):
         suffixes = func_suffix_sequence(tokens)
         eos(tokens)
 
+    with LockedIn(tokens, "malformed statement inside function"):
         # Body
         declarations_ = declaration_part(tokens)
         execution_part(tokens)
@@ -1275,7 +1280,7 @@ identifier_sequence = comma_sequence(identifier, 'identifier_list')
 def module_proc_stmt(tokens):
     expect(tokens, 'module')
     expect(tokens, 'procedure')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid module procedure statement"):
         optional_double_colon(tokens)
         procs = identifier_sequence(tokens)
         eos(tokens)
@@ -1294,7 +1299,7 @@ end_interface_stmt = end_stmt('interface', name_type=iface_name)
 @rule
 def interface_decl(tokens):
     expect(tokens, 'interface')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid interface declaration"):
         name = optional_iface_name(tokens)
         eos(tokens)
         decls = interface_body_block(tokens)
@@ -1305,7 +1310,7 @@ def interface_decl(tokens):
 def abstract_interface_decl(tokens):
     expect(tokens, 'abstract')
     expect(tokens, 'interface')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid abstract interface declaration"):
         eos(tokens)
         decls = interface_body_block(tokens)
         end_interface_stmt(tokens)
@@ -1315,7 +1320,7 @@ def imbue_stmt(prefix_rule, object_rule):
     object_sequence = comma_sequence(object_rule, None)
     def imbue_stmt_rule(tokens):
         prefix = prefix_rule(tokens)
-        with LockedIn(tokens):
+        with LockedIn(tokens, "invalid imbue statement"):
             optional_double_colon(tokens)
             vars = object_sequence(tokens)
             eos(tokens)
@@ -1348,7 +1353,7 @@ param_init_sequence = comma_sequence(param_init, 'parameter_stmt')
 @rule
 def parameter_stmt(tokens):
     expect(tokens, 'parameter')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid parameter statement"):
         expect(tokens, '(')
         seq = param_init_sequence(tokens)
         expect(tokens, ')')
@@ -1385,7 +1390,7 @@ equivalence_set_sequence = comma_sequence(equivalence_set, 'equivalence_stmt')
 @rule
 def equivalence_stmt(tokens):
     expect(tokens, 'equivalence')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid equivalence statement"):
         seq = equivalence_set_sequence(tokens)
         eos(tokens)
         return seq
@@ -1509,7 +1514,7 @@ def else_if_block(tokens):
     expect(tokens, ')')
     optional_identifier(tokens)
     eos(tokens)
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid else-if block"):
         execution_part(tokens)
 
 else_if_block_sequence = ws_sequence(else_if_block, 'else_if_sequence')
@@ -1530,7 +1535,7 @@ end_if_stmt = end_stmt('if')
 def if_construct(tokens):
     optional_construct_tag(tokens)
     if_clause(tokens)
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid if construct"):
         if marker(tokens, 'then'):
             eos(tokens)
             execution_part(tokens)
@@ -1561,7 +1566,7 @@ end_do_stmt = end_stmt('do')
 def do_construct(tokens):
     optional_construct_tag(tokens)
     expect(tokens, 'do')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid do construct"):
         try:
             until_lineno = int(int_(tokens)[1])
         except NoMatch:
@@ -1619,7 +1624,7 @@ select_case_tag = composite('select', 'case')
 def select_case_construct(tokens):
     optional_construct_tag(tokens)
     select_case_tag(tokens)
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid select case construct"):
         expect(tokens, '(')
         expr(tokens)
         expect(tokens, ')')
@@ -1647,7 +1652,7 @@ def forall_select(tokens):
 @rule
 def forall_clause(tokens):
     expect(tokens, 'forall')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid forall clause"):
         expect(tokens, '(')
         optional_type_prefix(tokens)
         forall_select(tokens)
@@ -1699,7 +1704,7 @@ def else_where_clause(tokens):
 def where_construct(tokens):
     optional_construct_tag(tokens)
     where_clause(tokens)
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid where construct"):
         try:
             eos(tokens)
         except NoMatch:
@@ -1794,9 +1799,11 @@ end_module_stmt = end_stmt('module', require_type=False)
 @rule
 def module_decl(tokens):
     expect(tokens, 'module')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid module declaration"):
         name = identifier(tokens)
         eos(tokens)
+
+    with LockedIn(tokens, "malformed statement inside module"):
         decls = fenced_declaration_part(tokens)
         cont = optional_contained_part(tokens)
         end_module_stmt(tokens)
@@ -1807,9 +1814,11 @@ end_program_stmt = end_stmt('program', require_type=False)
 @rule
 def program_decl(tokens):
     expect(tokens, 'program')
-    with LockedIn(tokens):
+    with LockedIn(tokens, "invalid program declaration"):
         name = identifier(tokens)
         eos(tokens)
+
+    with LockedIn(tokens, "malformed statement inside program"):
         decls = declaration_part(tokens)
         execution_part(tokens)
         cont = optional_contained_part(tokens)
