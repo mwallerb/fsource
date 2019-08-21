@@ -7,4 +7,4 @@ See LICENSE.txt for permissions on usage, modification and distribution
 """
 from __future__ import print_function
 
-__version__ = "0.2"
+__version__ = "0.3.1"
