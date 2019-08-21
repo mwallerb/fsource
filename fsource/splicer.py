@@ -145,7 +145,7 @@ def splice_free_form(buffer):
 
 
 def get_fixedform_line_regex():
-    line = """(?isx) ^
+    line = r"""(?isx) ^
         (?: [cC*!](.*)                                      # 1: comment
             | [ ]{5}[^ 0] (.*)                              # 2: continuation
             | [ \t]* (\#.*)                                 # 3: preprocessor
