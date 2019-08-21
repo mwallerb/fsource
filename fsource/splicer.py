@@ -106,16 +106,16 @@ def splice_free_form(buffer):
     fname = buffer.name
     buffer_iter = enumerate(buffer)
     for lineno, line in buffer_iter:
-        # Handle truncated lines
+        # Handle lines that have been truncated
+        if trunc_str:
+            line = trunc_str + line
+            trunc_str = ''
+        # Handle proper stub lines
         if stub:
-            if trunc_str:
-                line = trunc_str + line
-                trunc_str = ''
-            else:
-                match = contd_regex.match(line)
-                if match.lastindex == CONTD_COMMENT:
-                    continue
-                line = match.group(2)
+            match = contd_regex.match(line)
+            if match.lastindex == CONTD_COMMENT:
+                continue
+            line = match.group(2)
 
         # Now parse current (potentially preprocessed) line
         match = line_regex.match(line)
@@ -130,7 +130,10 @@ def splice_free_form(buffer):
                 trunc_str = match.group(FREE_TRUNC_STRING_END)
         elif discr == FREE_PREPROC:
             ppstmt = match.group(FREE_PREPROC)
-            yield lineno, LINECAT_PREPROC, ppstmt + '\n'
+            if ppstmt[-1] == '\\':
+                trunc_str = ppstmt[:-1]
+            else:
+                yield lineno, LINECAT_PREPROC, ppstmt + '\n'
         elif discr == FREE_FORMAT:
             yield lineno, LINECAT_FORMAT, line
         else:
@@ -202,6 +205,9 @@ def splice_fixed_form(buffer, margin=72):
             yield lineno, LINECAT_INCLUDE, match.group(FIXED_INCLUDE) + "\n"
         else: # discr == FIXED_PREPROC
             ppstmt = match.group(FIXED_PREPROC)
+            if ppstmt[-1] == '\\':
+                raise SpliceError(fname, lineno, line,
+                    "Preprocessor continuations not supported in fixed form")
             yield lineno, LINECAT_PREPROC, ppstmt + "\n"
 
     # Handle last line
