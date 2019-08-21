@@ -39,7 +39,7 @@ def get_parser():
     p.add_argument('files', metavar='FILE', type=str, nargs='+',
                    help='files to parse')
     p.add_argument('--fixed-form', dest='form', action='store_const',
-                   const='fixed', default='free', help='Fixed form input')
+                   const='fixed', default=None, help='Fixed form input')
     p.add_argument('--free-form', dest='form', action='store_const',
                    const='free', help='Free form input')
     p.add_argument('--time', dest='output', action='store_const',
@@ -49,10 +49,18 @@ def get_parser():
                    const='no', help='do not output anything')
     return p
 
+def get_form(fname, force_form):
+    if force_form is None:
+        is_free, _ = common.guess_form(fname)
+        return is_free
+    else:
+        return force_form
+
 def cmd_splice(args):
-    lines = splicer.get_splicer(args.form)
     try:
         for fname in args.files:
+            form = get_form(fname, args.form)
+            lines = splicer.get_splicer(form)
             contents = open(fname)
             if args.output == 'json':
                 for lineno, cat, line in lines(contents):
@@ -82,13 +90,13 @@ def pprint_lex(mylexer, out, filename=None):
 
 def cmd_lex(args):
     try:
-        if args.output == 'json':
-            for fname in args.files:
-                pprint_lex(lexer.lex_buffer(open(fname), args.form), sys.stdout,
-                        fname)
-        else:
-            for fname in args.files:
-                for _ in lexer.lex_buffer(open(fname), args.form): pass
+        for fname in args.files:
+            form = get_form(fname, args.form)
+            mylexer = lexer.lex_buffer(open(fname), form)
+            if args.output == 'json':
+                pprint_lex(mylexer, sys.stdout, fname)
+            else:
+                for _ in mylexer: pass
     except common.ParsingError as e:
         sys.stdout.flush()
         sys.stderr.write("\n\n" + e.errmsg())
@@ -136,8 +144,8 @@ def pprint_parser(ast, out, level=0):
 def cmd_parse(args):
     try:
         for fname in args.files:
-            program = open(fname)
-            slexer = lexer.lex_buffer(program, args.form)
+            form = get_form(fname, args.form)
+            slexer = lexer.lex_buffer(open(fname), form)
             tokens = parser.TokenStream(slexer, fname=fname)
             ast = parser.compilation_unit(tokens, fname)
             if args.output == 'json':
@@ -151,14 +159,17 @@ def main():
     p = get_parser()
     args = p.parse_args()
     rabbit = Stopwatch()
-    if args.command == 'splice':
-        cmd_splice(args)
-    elif args.command == 'lex':
-        cmd_lex(args)
-    elif args.command == 'parse':
-        cmd_parse(args)
-    if args.output == 'time':
-        sys.stderr.write("Elapsed: %g sec\n" % rabbit.total())
+    try:
+        if args.command == 'splice':
+            cmd_splice(args)
+        elif args.command == 'lex':
+            cmd_lex(args)
+        elif args.command == 'parse':
+            cmd_parse(args)
+        if args.output == 'time':
+            sys.stderr.write("Elapsed: %g sec\n" % rabbit.total())
+    except IOError as e:
+        p.error(e)
 
 if __name__ == '__main__':
     main()
