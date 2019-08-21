@@ -224,29 +224,3 @@ def pprint(lexer, out, filename=None):
             out.write('\n]\n')
         else:
             out.write(', ')
-
-if __name__ == '__main__':
-    import sys
-    import argparse
-
-    parser = argparse.ArgumentParser(description='Lexer for free-form Fortran')
-    parser.add_argument('files', metavar='FILE', type=str, nargs='+',
-                        help='files to lex')
-    parser.add_argument('--fixed-form', dest='form', action='store_const',
-                        const='fixed', default='free', help='Fixed form input')
-    parser.add_argument('--free-form', dest='form', action='store_const',
-                        const='free', help='Free form input')
-    parser.add_argument('--time', dest='output', action='store_const',
-                        const='time', default='json',
-                        help='perform lexing but do not print result')
-    args = parser.parse_args()
-
-    if args.output == 'json':
-        for fname in args.files:
-            pprint(lex_buffer(open(fname), args.form), sys.stdout, fname)
-    elif args.output == 'time':
-        from .aux import Stopwatch
-        rabbit = Stopwatch()
-        for fname in args.files:
-            for _ in lex_buffer(open(fname), args.form): pass
-        sys.stderr.write("elapsed: %g\n" % rabbit.total())
