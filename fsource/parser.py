@@ -1394,7 +1394,7 @@ def equivalence_stmt(tokens):
         eos(tokens)
         return seq
 
-public_imbue_stmt =  imbue_stmt(tag('public', 'public'), iface_name)
+public_imbue_stmt = imbue_stmt(tag('public', 'public'), iface_name)
 
 def public_or_imbue_stmt(tokens):
     try:

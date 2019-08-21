@@ -48,7 +48,7 @@ setup(
         'Programming Language :: Python :: 2',
         'Programming Language :: Python :: 2.7',
         'Programming Language :: Python :: 3',
-    ],
+        ],
 
     url='https://github.com/mwallerb/fsource',
     author='Markus Wallerberger',
@@ -58,12 +58,12 @@ setup(
     install_requires=[],
     extras_require={
         'dev': ['pytest'],
-    },
+        },
 
     packages=find_packages(exclude=['bin', 'contrib', 'doc', 'test']),
     entry_points={
         'console_scripts': [
             'fsource=fsource.__main__:main',
-        ],
-    },
-)
+            ],
+        },
+    )
