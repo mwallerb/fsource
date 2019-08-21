@@ -1,6 +1,3 @@
-# Copyright 2019 Markus Wallerberger
-# Released under the GNU Lesser General Public License, Version 3 only.
-# See LICENSE.txt for permissions on usage, modification and distribution
 """
 Parser and abstract syntax tree generator for free-form Fortran.
 
