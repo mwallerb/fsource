@@ -8,8 +8,11 @@ See LICENSE.txt for permissions on usage, modification and distribution
 from __future__ import print_function
 import re
 
+
 class ParsingError(Exception):
+    """Base exception class for parsing errors"""
     def __init__(self, fname, lineno, colbegin, colend, line, msg):
+        """Construct new parsing exception"""
         self.fname = fname
         self.lineno = lineno
         self.colbegin = colbegin
@@ -19,9 +22,11 @@ class ParsingError(Exception):
 
     @property
     def error_type(self):
+        """Type of parsing error"""
         return "error"
 
     def errmsg(self):
+        """Error message for fancy-printing in command line interface"""
         errstr = ""
         if self.fname is not None:
             errstr += self.fname + ":"
@@ -35,8 +40,8 @@ class ParsingError(Exception):
         if self.line is not None:
             errstr += "|\n|\t%s" % self.line
             if self.colbegin is not None:
-                errstr += ("|\t" + " "*self.colbegin + "^"
-                           + "~"*(self.colend - self.colbegin) + "\n")
+                errstr += ("|\t" + " " * self.colbegin + "^"
+                           + "~" * (self.colend - self.colbegin) + "\n")
         return errstr
 
     def __str__(self):
@@ -52,14 +57,15 @@ def _extension_switch_re():
                  )"""
     return re.compile(r"""(?x) \.{exts}$""".format(exts=exts))
 
+
 def guess_form(fname):
+    """Guess source form format from file name"""
     guesser = _extension_switch_re()
     match = guesser.search(fname)
     if not match:
         raise ValueError("Unable to guess whether file is fixed or free form")
 
     discr = match.lastindex - 1
-    form= 'free' if discr & 2 else 'fixed'
+    form = 'free' if discr & 2 else 'fixed'
     is_preproc = bool(discr & 1)
     return form, is_preproc
-

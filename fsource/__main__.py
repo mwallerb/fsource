@@ -17,24 +17,31 @@ from . import lexer
 from . import parser
 from . import common
 
+
 class Stopwatch:
+    """Keeps track of elapsed time since construction"""
     def __init__(self, time=time.time):
+        """Initialize object and start stopwatch"""
         self.time = time
         self.previous = time()
         self.initial = self.previous
 
     def click(self):
+        """Start new lap and return time of current lap"""
         elapsed = self.time() - self.previous
         self.previous += elapsed
         return elapsed
 
     def total(self):
+        """Return total elapsed time"""
         return self.time() - self.initial
 
+
 def get_parser():
+    """Return argument parser"""
     p = argparse.ArgumentParser(prog='fsource',
                                 description='Fortran analysis tool')
-    p.add_argument('command', choices=('splice','lex','parse'),
+    p.add_argument('command', choices=('splice', 'lex', 'parse'),
                    help='command to execute')
     p.add_argument('files', metavar='FILE', type=str, nargs='+',
                    help='files to parse')
@@ -49,14 +56,18 @@ def get_parser():
                    const='no', help='do not output anything')
     return p
 
+
 def get_form(fname, force_form):
+    """Discern source form (fixed/free) from parameter and file name"""
     if force_form is None:
         is_free, _ = common.guess_form(fname)
         return is_free
     else:
         return force_form
 
+
 def cmd_splice(args):
+    """splice subcommand handler"""
     try:
         for fname in args.files:
             form = get_form(fname, args.form)
@@ -65,22 +76,23 @@ def cmd_splice(args):
             if args.output == 'json':
                 for lineno, cat, line in lines(contents):
                     print("%d: %s: %s"
-                        % (lineno, splicer.LINECAT_NAMES[cat], line), end='')
+                          % (lineno, splicer.LINECAT_NAMES[cat], line), end='')
             else:
                 for _ in lines(contents): pass
     except common.ParsingError as e:
         sys.stdout.flush()
         sys.stderr.write("\n" + e.errmsg())
 
+
 def pprint_lex(mylexer, out, filename=None):
     """Make nicely formatted JSON output from lexer output"""
-    encode_basestring = json.encoder.encode_basestring
+    encode_string = json.encoder.encode_basestring
 
     out.write('[\n')
     out.write('["lex_version", "1.0"],\n')
-    out.write('["filename", %s],\n' % encode_basestring(filename))
+    out.write('["filename", %s],\n' % encode_string(filename))
     for _, _, cat, token in mylexer:
-        out.write('["%s",%s]' % (lexer.CAT_NAMES[cat], encode_basestring(token)))
+        out.write('["%s",%s]' % (lexer.CAT_NAMES[cat], encode_string(token)))
         if cat == lexer.CAT_EOS or cat == lexer.CAT_PREPROC:
             out.write(',\n')
         elif cat == lexer.CAT_DOLLAR:
@@ -88,7 +100,9 @@ def pprint_lex(mylexer, out, filename=None):
         else:
             out.write(', ')
 
+
 def cmd_lex(args):
+    """lex subcommand handler"""
     try:
         for fname in args.files:
             form = get_form(fname, args.form)
@@ -100,6 +114,7 @@ def cmd_lex(args):
     except common.ParsingError as e:
         sys.stdout.flush()
         sys.stderr.write("\n\n" + e.errmsg())
+
 
 def pprint_parser(ast, out, level=0):
     """Make nicely formatted JSON output from parser output"""
@@ -141,7 +156,9 @@ def pprint_parser(ast, out, level=0):
             val = encode_basestring(ast)
         out.write(val)
 
+
 def cmd_parse(args):
+    """parse subcommand handler"""
     try:
         for fname in args.files:
             form = get_form(fname, args.form)
@@ -155,7 +172,9 @@ def cmd_parse(args):
         sys.stdout.flush()
         sys.stderr.write("\n\n" + e.errmsg())
 
+
 def main():
+    """main entry point"""
     p = get_parser()
     args = p.parse_args()
     rabbit = Stopwatch()
@@ -170,6 +189,7 @@ def main():
             sys.stderr.write("Elapsed: %g sec\n" % rabbit.total())
     except IOError as e:
         p.error(e)
+
 
 if __name__ == '__main__':
     main()

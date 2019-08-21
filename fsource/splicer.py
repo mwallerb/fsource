@@ -21,12 +21,15 @@ import re
 
 from . import common
 
+
 class SpliceError(common.ParsingError):
+    """Error in line splicing"""
     @property
     def error_type(self): return "splice error"
 
     def __init__(self, fname, lineno, line, msg):
-        common.ParsingError.__init__(self, fname, lineno, None, None, line, msg)
+        common.ParsingError.__init__(self, fname, lineno, None, None, line,
+                                     msg)
 
 
 def get_freeform_line_regex():
@@ -46,20 +49,21 @@ def get_freeform_line_regex():
                      )
             """
     line = r"""(?ix) ^[ \t]*
-            (?: ( {preproc} ) {endline}         # 1 preprocessor stmt
-              | ( {include} {endline} )         # 2 include line
-              | ( {format} {endline} )          # 3 format stmt
-              | ( {atom}* ) (?:                  # 4 whole line part
-                  ( {comment}? {endline} )           # 5 full line end
-                | ( & [ \t]* {comment}? {endline} )  # 6 truncated line end
-                | ( {truncstr} ) &[ \t]* {endline}   # 7 truncated string line end
-                )
-              ) $
-            """.format(preproc=preproc, include=include, format=format,
-                       anything=anything, atom=atom, truncstr=truncstr,
-                       comment=comment, endline=endline)
+        (?: ( {preproc} ) {endline}                  # 1 preprocessor stmt
+            | ( {include} {endline} )                # 2 include line
+            | ( {format} {endline} )                 # 3 format stmt
+            | ( {atom}* ) (?:                        # 4 whole line part
+                  ( {comment}? {endline} )             # 5 full line end
+                | ( & [ \t]* {comment}? {endline} )    # 6 truncated line end
+                | ( {truncstr} ) &[ \t]* {endline}     # 7 truncated string end
+              )
+            ) $
+        """.format(preproc=preproc, include=include, format=format,
+                   anything=anything, atom=atom, truncstr=truncstr,
+                   comment=comment, endline=endline)
 
     return re.compile(line)
+
 
 FREE_PREPROC = 1
 FREE_INCLUDE = 2
@@ -69,8 +73,9 @@ FREE_FULL_END = 5
 FREE_TRUNC_END = 6
 FREE_TRUNC_STRING_END = 7
 
+
 def get_freeform_contd_regex():
-    """Discriminate line type"""
+    """Discriminate line type for free-form file"""
     ws = r"""[ \t]+"""
     anything = r"""[^\r\n]+"""
     endline = r"""(?:\n|\r\n?)"""
@@ -83,6 +88,7 @@ def get_freeform_contd_regex():
             """.format(anything=anything, comment=comment, endline=endline)
     return re.compile(line)
 
+
 CONTD_COMMENT = 1
 CONTD_SPILL = 2
 
@@ -92,6 +98,7 @@ LINECAT_FORMAT = 3
 LINECAT_PREPROC = 4
 
 LINECAT_NAMES = (None, 'line', 'include', 'format', 'preproc', 'comment')
+
 
 def splice_free_form(buffer):
     """Splice lines in free-form Fortran file"""
@@ -145,6 +152,7 @@ def splice_free_form(buffer):
 
 
 def get_fixedform_line_regex():
+    """Discriminate line type for fixed-form file"""
     line = r"""(?isx) ^
         (?: [cC*!](.*)                                      # 1: comment
             | [ ]{5}[^ 0] (.*)                              # 2: continuation
@@ -156,6 +164,7 @@ def get_fixedform_line_regex():
             """
     return re.compile(line)
 
+
 FIXED_COMMENT = 1
 FIXED_CONTD = 2
 FIXED_PREPROC = 3
@@ -163,9 +172,9 @@ FIXED_INCLUDE = 4
 FIXED_FORMAT = 5
 FIXED_OTHER = 6
 
+
 def splice_fixed_form(buffer, margin=72):
     """Splice physical lines in fixed form fortran"""
-
     # The continuation markers at fixed-form lines are at the *following*
     # line, so we need to store the previous current line
     cat = None
@@ -203,18 +212,21 @@ def splice_fixed_form(buffer, margin=72):
             stub = match.group(FIXED_FORMAT)
         elif discr == FIXED_INCLUDE:
             yield lineno, LINECAT_INCLUDE, match.group(FIXED_INCLUDE) + "\n"
-        else: # discr == FIXED_PREPROC
+        else:  # discr == FIXED_PREPROC
             ppstmt = match.group(FIXED_PREPROC)
             if ppstmt[-1] == '\\':
                 raise SpliceError(fname, lineno, line,
-                    "Preprocessor continuations not supported in fixed form")
+                                  "Preprocessor continuations not supported "
+                                  "in fixed form")
             yield lineno, LINECAT_PREPROC, ppstmt + "\n"
 
     # Handle last line
     if stub is not None:
         yield lineno, cat, stub
 
+
 def get_splicer(form='free'):
+    """Get splice routine based on file form"""
     if form == 'free':
         return splice_free_form
     elif form == 'fixed':

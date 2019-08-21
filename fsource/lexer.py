@@ -62,8 +62,8 @@ def tokenize_regex(regex, text, lineno=None):
     """
     try:
         for match in regex.finditer(text):
-            category = match.lastindex
-            yield lineno, match.start(category), category, match.group(category)
+            cat = match.lastindex
+            yield lineno, match.start(cat), cat, match.group(cat)
     except IndexError as e:
         raise LexerError(None, lineno, match.start(), match.end(), text,
                          "invalid token")
@@ -74,19 +74,19 @@ def get_lexer_regex(preproc=False):
     endline = r"""(?:\n|\r\n?)"""
     comment = r"""(?:![^\r\n]*)"""
     skip_ws = r"""[\t ]*"""
-    postquote = r"""(?!['"\w])"""
-    sq_string = r"""'(?:''|[^'\r\n])*'{postquote}""".format(postquote=postquote)
-    dq_string = r""""(?:""|[^"\r\n])*"{postquote}""".format(postquote=postquote)
+    postq = r"""(?!['"\w])"""
+    dq_string = r""""(?:""|[^"\r\n])*"{postq}""".format(postq=postq)
+    sq_string = r"""'(?:''|[^'\r\n])*'{postq}""".format(postq=postq)
     postnum = r"""(?!['"&0-9A-Za-z]|\.[0-9])"""
     integer = r"""\d+{postnum}""".format(postnum=postnum)
     decimal = r"""(?:\d+\.\d*|\.\d+)"""
     exponent = r"""(?:[dDeE][-+]?\d+)"""
     real = r"""(?:{decimal}{exponent}?|\d+{exponent}){postnum}""" \
-                .format(decimal=decimal, exponent=exponent, postnum=postnum)
-    binary = r"""[Bb](?:'[01]+'|"[01]+"){postq}""".format(postq=postquote)
-    octal = r"""[Oo](?:'[0-7]+'|"[0-7]+"){postq}""".format(postq=postquote)
+           .format(decimal=decimal, exponent=exponent, postnum=postnum)
+    binary = r"""[Bb](?:'[01]+'|"[01]+"){postq}""".format(postq=postq)
+    octal = r"""[Oo](?:'[0-7]+'|"[0-7]+"){postq}""".format(postq=postq)
     hexadec = r"""[Zz](?:'[0-9A-Fa-f]+'|"[0-9A-Fa-f]+"){postq}""" \
-                .format(postq=postquote)
+              .format(postq=postq)
     operator = r"""\(/?|\)|[-+,:_%\[\]]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
@@ -117,6 +117,7 @@ def get_lexer_regex(preproc=False):
                 )
     return re.compile(fortran_token)
 
+
 CAT_DOLLAR = 0
 CAT_EOS = 1
 CAT_STRING = 2
@@ -143,15 +144,18 @@ LINECAT_TO_CAT = {
     splicer.LINECAT_FORMAT: CAT_FORMAT
     }
 
+
 def _string_lexer_regex(quote):
     pattern = r"""(?x) ({quote}{quote}) | ([^{quote}]+)""".format(quote=quote)
     return re.compile(pattern)
 
+
 def _string_lexer_actions():
     return (None,
-        lambda tok: tok[0],
-        lambda tok: tok,
-        )
+            lambda tok: tok[0],
+            lambda tok: tok,
+            )
+
 
 STRING_LEXER_REGEX = {
     "'": _string_lexer_regex("'"),
@@ -159,26 +163,32 @@ STRING_LEXER_REGEX = {
     }
 STRING_LEXER_ACTIONS = _string_lexer_actions()
 
+
 def parse_string(tok):
     """Translates a Fortran string literal to a Python string"""
     actions = STRING_LEXER_ACTIONS
     return "".join(actions[cat](token) for (cat, token)
                    in tokenize_regex(STRING_LEXER_REGEX[tok[0]], tok[1:-1]))
 
+
 CHANGE_D_TO_E = _maketrans('dD', 'eE')
+
 
 def parse_float(tok):
     """Translates a Fortran real literal to a Python float"""
     return float(tok.translate(CHANGE_D_TO_E))
 
+
 def parse_bool(tok):
     """Translates a Fortran boolean literal to a Python boolean"""
-    return {'true': True, 'false': False }[tok.lower()]
+    return {'true': True, 'false': False}[tok.lower()]
+
 
 def parse_radix(tok):
     """Parses a F03-style x'***' literal"""
     base = {'b': 2, 'o': 8, 'z': 16}[tok[0].lower()]
     return int(tok[2:-1], base)
+
 
 def lex_buffer(buffer, form='free'):
     """Perform lexical analysis for an opened free-form Fortran file."""
@@ -206,9 +216,12 @@ def lex_buffer(buffer, form='free'):
     yield lineno+1, 0, CAT_EOS, '\n'
     yield lineno+1, 0, CAT_DOLLAR, '<$>'
 
+
 def lex_snippet(fstring):
     """Perform lexical analysis of parts of a line"""
-    return tuple(tokenize_regex(get_lexer_regex(), fstring)) + ((CAT_DOLLAR, ''),)
+    return tuple(tokenize_regex(get_lexer_regex(), fstring)) \
+           + ((CAT_DOLLAR, ''),)
+
 
 def pprint(lexer, out, filename=None):
     """Make nicely formatted JSON output from lexer output"""
