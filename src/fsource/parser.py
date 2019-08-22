@@ -37,7 +37,6 @@ from . import common
 
 class NoMatch(Exception):
     "Current rule does not match, try next one if available."
-    pass
 
 def _restore_line(tokens):
     # HACK: restore line by concatenating tokens
@@ -75,7 +74,7 @@ class ParserError(common.ParsingError):
 
 class TokenStream:
     def __init__(self, tokens, fname=None, pos=0):
-        if isinstance(tokens, lexer.string_like_types):
+        if isinstance(tokens, str):
             tokens = lexer.lex_snippet(tokens)
 
         self.fname = fname

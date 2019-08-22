@@ -40,11 +40,9 @@ from . import splicer
 # Python 2/3 compatibility
 if sys.version_info >= (3,):
     _str_maketrans = str
-    string_like_types = str
 else:
     import string
     _str_maketrans = string
-    string_like_types = basestring,
 
 _maketrans = _str_maketrans.maketrans
 
@@ -194,7 +192,7 @@ def parse_radix(tok):
 def lex_buffer(mybuffer, form=None):
     """Perform lexical analysis for an opened free-form Fortran file."""
     # check for buffer
-    if isinstance(mybuffer, string_like_types):
+    if isinstance(mybuffer, str):
         raise ValueError("Expect open file or other sequence of lines")
     if form is None:
         form, _ = common.guess_form(mybuffer.name)
