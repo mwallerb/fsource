@@ -67,4 +67,5 @@ setup(
             'fsource=fsource.__main__:main',
             ],
         },
+    zip_safe=True,      # reconsider when adding data files
     )
