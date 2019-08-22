@@ -25,7 +25,7 @@ def extract_version(*parts):
     return match.group(1)
 
 LONG_DESCRIPTION = readfile('README.md')
-VERSION = extract_version('fsource', '__init__.py')
+VERSION = extract_version('src', 'fsource', '__init__.py')
 
 setup(
     name='fsource',
@@ -60,7 +60,8 @@ setup(
         'dev': ['pytest'],
         },
 
-    packages=find_packages(exclude=['bin', 'contrib', 'doc', 'test']),
+    package_dir={'': 'src'},
+    packages=find_packages(where='src'),
     entry_points={
         'console_scripts': [
             'fsource=fsource.__main__:main',
