@@ -966,7 +966,7 @@ def optional_procedures_block(tokens):
     if marker(tokens, 'contains'):
         private = optional_private_stmt(tokens)
         conts = type_contains_block(tokens)
-        return ('type_bound_procedures', private, *conts[1:])
+        return tokens.produce('type_bound_procedures', private, *conts[1:])
     else:
         return None
 
