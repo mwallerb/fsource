@@ -57,7 +57,7 @@ setup(
     python_requires='>=2.7, <4',
     install_requires=[],
     extras_require={
-        'dev': ['pytest', 'tox'],
+        'dev': ['pytest'],
         },
 
     package_dir={'': 'src'},
