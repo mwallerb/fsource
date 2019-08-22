@@ -31,6 +31,7 @@ See LICENSE.txt for permissions on usage, modification and distribution
 from __future__ import print_function
 import re
 
+from . import __version_tuple__
 from . import lexer
 from . import common
 
@@ -789,10 +790,7 @@ def entity_decl(tokens):
     attrs_ = entity_attrs(tokens)
     entities = entity_sequence(tokens)
     eos(tokens)
-
-    # Flatten out entity list for simplicity of handling:
-    for e in entities[1:]:
-        return tokens.produce('entity_decl', type_, attrs_, *e[1:])
+    return tokens.produce('entity_decl', type_, attrs_, entities)
 
 @rule
 def entity_ref(tokens):
@@ -932,9 +930,7 @@ def type_proc_decl(tokens):
         attrs = type_proc_attrs(tokens)
         procs = type_proc_sequence(tokens)
         eos(tokens)
-        # Flatten list
-        for proc in procs[1:]:
-            return tokens.produce('type_proc_decl', iface_name, attrs, *proc[1:])
+        return tokens.produce('type_proc_decl', iface_name, attrs, procs)
 
 def generic_decl(tokens):
     expect(tokens, 'generic')
@@ -1849,6 +1845,6 @@ program_unit_sequence = block(program_unit, 'program_unit_list', fenced=False)
 def compilation_unit(tokens, filename=None):
     units = program_unit_sequence(tokens)
     expect_cat(tokens, lexer.CAT_DOLLAR)
-    version = tokens.produce('ast_version', '0', '1')
+    version = tokens.produce('ast_version', *map(str, __version_tuple__))
     fname = tokens.produce('filename', filename)
     return tokens.produce('compilation_unit', version, fname, *units[1:])

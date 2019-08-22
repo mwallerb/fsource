@@ -125,6 +125,7 @@ def pprint_parser(ast, out, level=0):
         'function_decl',
         'interface_body',
         'entity_decl',
+        'entity_list',
         'component_block',
         'declaration_block',
         'contained_block',
