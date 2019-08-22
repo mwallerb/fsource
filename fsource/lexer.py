@@ -190,11 +190,13 @@ def parse_radix(tok):
     return int(tok[2:-1], base)
 
 
-def lex_buffer(buffer, form='free'):
+def lex_buffer(buffer, form=None):
     """Perform lexical analysis for an opened free-form Fortran file."""
     # check for buffer
     if isinstance(buffer, _string_like_types):
         raise ValueError("Expect open file or other sequence of lines")
+    if form is None:
+        form, _ = common.guess_form(buffer.name)
 
     lexer_regex = get_lexer_regex()
     linecat_to_cat = LINECAT_TO_CAT
