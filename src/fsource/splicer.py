@@ -16,7 +16,6 @@ Released under the GNU Lesser General Public License, Version 3 only.
 See LICENSE.txt for permissions on usage, modification and distribution
 """
 from __future__ import print_function
-import sys
 import re
 
 from . import common
@@ -42,7 +41,7 @@ def get_freeform_line_regex():
     include = r"""include{ws}{anything}""".format(ws=ws, anything=anything)
     preproc = r"""\#{anything}""".format(anything=anything)
     atom = r"""(?: [^!&'"\r\n] | '(?:''|[^'\r\n])*' | "(?:""|[^"\r\n])*" )"""
-    format = r"""{lineno}{ws}format[ \t]*\({anything}""".format(
+    format_ = r"""{lineno}{ws}format[ \t]*\({anything}""".format(
                     ws=ws, anything=anything, lineno=lineno)
     truncstr = r"""(?: '(?:''|[^'\r\n])*
                      | "(?:""|[^"\r\n])*
@@ -58,9 +57,9 @@ def get_freeform_line_regex():
                 | ( {truncstr} ) &[ \t]* {endline}     # 7 truncated string end
               )
             ) $
-        """.format(preproc=preproc, include=include, format=format,
-                   anything=anything, atom=atom, truncstr=truncstr,
-                   comment=comment, endline=endline)
+        """.format(preproc=preproc, include=include, format=format_,
+                   atom=atom, truncstr=truncstr, comment=comment,
+                   endline=endline)
 
     return re.compile(line)
 
@@ -76,7 +75,6 @@ FREE_TRUNC_STRING_END = 7
 
 def get_freeform_contd_regex():
     """Discriminate line type for free-form file"""
-    ws = r"""[ \t]+"""
     anything = r"""[^\r\n]+"""
     endline = r"""(?:\n|\r\n?)"""
     comment = r"""(?:![^\r\n]*)"""
@@ -100,7 +98,7 @@ LINECAT_PREPROC = 4
 LINECAT_NAMES = (None, 'line', 'include', 'format', 'preproc', 'comment')
 
 
-def splice_free_form(buffer):
+def splice_free_form(mybuffer):
     """Splice lines in free-form Fortran file"""
     # Iterate through lines of the file.  Fortran allows to split tokens
     # across lines, which is why we build up the whole line before giving
@@ -110,9 +108,9 @@ def splice_free_form(buffer):
     line_regex = get_freeform_line_regex()
     contd_regex = get_freeform_contd_regex()
 
-    fname = buffer.name
-    buffer_iter = enumerate(buffer)
-    for lineno, line in buffer_iter:
+    fname = mybuffer.name
+    lineno = 0
+    for lineno, line in enumerate(mybuffer):
         # Handle lines that have been truncated
         if trunc_str:
             line = trunc_str + line
@@ -173,7 +171,7 @@ FIXED_FORMAT = 5
 FIXED_OTHER = 6
 
 
-def splice_fixed_form(buffer, margin=72):
+def splice_fixed_form(mybuffer, margin=72):
     """Splice physical lines in fixed form fortran"""
     # The continuation markers at fixed-form lines are at the *following*
     # line, so we need to store the previous current line
@@ -181,9 +179,9 @@ def splice_fixed_form(buffer, margin=72):
     stub = None
     line_regex = get_fixedform_line_regex()
 
-    fname = buffer.name
-    buffer = iter(buffer)
-    for lineno, line in enumerate(buffer):
+    fname = mybuffer.name
+    lineno = 0
+    for lineno, line in enumerate(mybuffer):
         line = line[:margin].rstrip()
         match = line_regex.match(line)
         if not match:

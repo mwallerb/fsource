@@ -13,6 +13,7 @@ class ParsingError(Exception):
     """Base exception class for parsing errors"""
     def __init__(self, fname, lineno, colbegin, colend, line, msg):
         """Construct new parsing exception"""
+        Exception.__init__(self)
         self.fname = fname
         self.lineno = lineno
         self.colbegin = colbegin

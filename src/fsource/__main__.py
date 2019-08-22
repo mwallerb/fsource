@@ -20,10 +20,10 @@ from . import common
 
 class Stopwatch:
     """Keeps track of elapsed time since construction"""
-    def __init__(self, time=time.time):
+    def __init__(self, mytime=time.time):
         """Initialize object and start stopwatch"""
-        self.time = time
-        self.previous = time()
+        self.time = mytime
+        self.previous = mytime()
         self.initial = self.previous
 
     def click(self):

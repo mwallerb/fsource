@@ -65,7 +65,7 @@ class ParserError(common.ParsingError):
     def error_type(self): return "parser error"
 
     def __init__(self, tokens, msg):
-        row, col, cat, token = tokens.peek()
+        row, col, _, token = tokens.peek()
         line = _restore_line(tokens)
 
         common.ParsingError.__init__(self, tokens.fname, row, col,
@@ -75,7 +75,7 @@ class ParserError(common.ParsingError):
 
 class TokenStream:
     def __init__(self, tokens, fname=None, pos=0):
-        if isinstance(tokens, lexer._string_like_types):
+        if isinstance(tokens, lexer.string_like_types):
             tokens = lexer.lex_snippet(tokens)
 
         self.fname = fname
@@ -108,8 +108,8 @@ class TokenStream:
     def commit(self):
         self.stack.pop()
 
-    def produce(self, rule, *args):
-        return (rule,) + args
+    def produce(self, header, *args):
+        return (header,) + args
 
 def expect(tokens, expected):
     token = tokens.peek()[3]
@@ -131,39 +131,39 @@ def marker(tokens, expected):
     else:
         return False
 
-def comma_sequence(rule, production_tag, allow_empty=False):
+def comma_sequence(inner_rule, production_tag, allow_empty=False):
     def comma_sequence_rule(tokens):
         vals = []
         try:
-            vals.append(rule(tokens))
+            vals.append(inner_rule(tokens))
         except NoMatch:
             if allow_empty:
                 return tokens.produce(production_tag)
             raise
         try:
             while marker(tokens, ','):
-                vals.append(rule(tokens))
+                vals.append(inner_rule(tokens))
         except NoMatch:
             raise ParserError(tokens, "Expecting item in comma-separated list")
         return tokens.produce(production_tag, *vals)
 
     return comma_sequence_rule
 
-def ws_sequence(rule, production_tag):
+def ws_sequence(inner_rule, production_tag):
     def ws_sequence_rule(tokens):
         items = []
         try:
             while True:
-                items.append(rule(tokens))
+                items.append(inner_rule(tokens))
         except NoMatch:
             return tokens.produce(production_tag, *items)
 
     return ws_sequence_rule
 
-def optional(rule, *args):
+def optional(inner_rule, *args):
     def optional_rule(tokens):
         try:
-            return rule(tokens, *args)
+            return inner_rule(tokens, *args)
         except NoMatch:
             return None
 
@@ -186,14 +186,14 @@ def tag_stmt(expected, production_tag):
 
     return tag_rule
 
-def matches(rule, tokens):
+def matches(rule_, tokens):
     try:
-        rule(tokens)
+        rule_(tokens)
         return True
     except NoMatch:
         return False
 
-def null_rule(tokens, produce=None):
+def null_rule(_tokens, produce=None):
     return produce
 
 def prefix(expected, my_rule, production_tag):
@@ -369,7 +369,7 @@ def lvalue(tokens):
                 break
         return result
 
-def prefix_op_handler(subglue, action, custom=False):
+def prefix_op_handler(subglue, action):
     def prefix_op_handle(tokens):
         tokens.advance()
         operand = expr(tokens, subglue)
@@ -701,7 +701,7 @@ def intent(tokens):
             in_ = marker(tokens, 'in')
             out = marker(tokens, 'out')
             if not (in_ or out):
-                raise ParserError("expecting in, out, or inout as intent.")
+                raise ParserError(tokens, "null intent")
         expect(tokens, ')')
         return tokens.produce('intent', in_, out)
 
@@ -839,7 +839,7 @@ def preproc_stmt(tokens):
 
 _BLOCK_DELIM = { 'end', 'else', 'contains', 'case' }
 
-def block(rule, production_tag='block', fenced=True):
+def block(inner_rule, production_tag='block', fenced=True):
     # Fortran blocks are delimited by one of these words, so we can use
     # them in failing fast
     def block_rule(tokens, until_lineno=None):
@@ -858,7 +858,7 @@ def block(rule, production_tag='block', fenced=True):
                 break
             else:
                 try:
-                    stmts.append(rule(tokens))
+                    stmts.append(inner_rule(tokens))
                 except NoMatch:
                     if fenced:
                         raise ParserError(tokens,
@@ -894,7 +894,7 @@ def pass_attr(tokens):
         expect(tokens, ')')
     else:
         ident = None
-    return tokens.produce('pass', identifier)
+    return tokens.produce('pass', ident)
 
 _TYPE_PROC_ATTR_HANDLERS = {
     'deferred':        tag('deferred', 'deferred'),
@@ -923,14 +923,14 @@ def type_proc_decl(tokens):
     expect(tokens, 'procedure')
     with LockedIn(tokens, "invalid type-bound procedure declaration"):
         if marker(tokens, '('):
-            iface_name = identifier(tokens)
+            name = identifier(tokens)
             expect(tokens, ')')
         else:
-            iface_name = None
+            name = None
         attrs = type_proc_attrs(tokens)
         procs = type_proc_sequence(tokens)
         eos(tokens)
-        return tokens.produce('type_proc_decl', iface_name, attrs, procs)
+        return tokens.produce('type_proc_decl', name, attrs, procs)
 
 def generic_decl(tokens):
     expect(tokens, 'generic')
@@ -1062,10 +1062,8 @@ def use_stmt(tokens):
     with LockedIn(tokens, "invalid use statement"):
         name = identifier(tokens)
         clauses = tokens.produce('rename_list')   # default empty rename list
-        is_only = False
         if marker(tokens, ','):
             if marker(tokens, 'only'):
-                is_only = True
                 expect(tokens, ':')
                 clauses = only_sequence(tokens)
             else:
@@ -1164,7 +1162,7 @@ end_subroutine_stmt = end_stmt('subroutine', require_type=False)
 @rule
 def subroutine_decl(tokens):
     # Header
-    prefixes = sub_prefix_sequence(tokens)
+    prefixes_ = sub_prefix_sequence(tokens)
     expect(tokens, 'subroutine')
     with LockedIn(tokens, "invalid subroutine declaration"):
         name = identifier(tokens)
@@ -1184,7 +1182,7 @@ def subroutine_decl(tokens):
 
         # Footer
         end_subroutine_stmt(tokens)
-        return tokens.produce('subroutine_decl', name, prefixes, args, bind_,
+        return tokens.produce('subroutine_decl', name, prefixes_, args, bind_,
                               declarations_)
 
 
@@ -1207,7 +1205,7 @@ def func_prefix(tokens):
 func_prefix_sequence = ws_sequence(func_prefix, 'func_prefix_list')
 
 @rule
-def result(tokens):
+def result_suffix(tokens):
     expect(tokens, 'result')
     expect(tokens, '(')
     res = identifier(tokens)
@@ -1217,7 +1215,7 @@ def result(tokens):
 @rule
 def func_suffix(tokens):
     try:
-        return result(tokens)
+        return result_suffix(tokens)
     except NoMatch:
         return bind_c(tokens)
 
@@ -1230,7 +1228,7 @@ end_function_stmt = end_stmt('function', require_type=False)
 @rule
 def function_decl(tokens):
     # Header
-    prefixes = func_prefix_sequence(tokens)
+    prefixes_ = func_prefix_sequence(tokens)
     expect(tokens, 'function')
     with LockedIn(tokens, "invalid function declaration"):
         name = identifier(tokens)
@@ -1248,7 +1246,7 @@ def function_decl(tokens):
 
         # Footer
         end_function_stmt(tokens)
-        return tokens.produce('function_decl', name, prefixes, args, suffixes,
+        return tokens.produce('function_decl', name, prefixes_, args, suffixes,
                               declarations_)
 
 @rule
@@ -1314,12 +1312,12 @@ def abstract_interface_decl(tokens):
 def imbue_stmt(prefix_rule, object_rule):
     object_sequence = comma_sequence(object_rule, None)
     def imbue_stmt_rule(tokens):
-        prefix = prefix_rule(tokens)
+        prefix_ = prefix_rule(tokens)
         with LockedIn(tokens, "invalid imbue statement"):
             optional_double_colon(tokens)
-            vars = object_sequence(tokens)
+            vars_ = object_sequence(tokens)
             eos(tokens)
-            return tokens.produce('imbue', prefix, *vars[1:])
+            return tokens.produce('imbue', prefix_, *vars_[1:])
     return imbue_stmt_rule
 
 # TODO: one can also save common blocks
@@ -1494,7 +1492,7 @@ fenced_declaration_part = block(declaration_stmt, 'declaration_block', fenced=Tr
 def construct_tag(tokens):
     expect_cat(tokens, lexer.CAT_WORD)
     expect(tokens, ':')
-    cat, token = tokens.peek()[2:]
+    token = tokens.peek()[3]
     return token.lower()
 
 optional_construct_tag = optional(construct_tag)

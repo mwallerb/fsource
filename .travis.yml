@@ -12,9 +12,10 @@ branches:
 
 # we only need pytest to run this
 install:
-  - pip install pytest
+  - pip install pytest pylint
 
 # command to run tests
 script:
   - python setup.py install
   - pytest
+  - pylint -dR -dC -dfixme src/fsource

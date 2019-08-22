@@ -39,13 +39,14 @@ from . import splicer
 
 # Python 2/3 compatibility
 if sys.version_info >= (3,):
-    _string_like_types = str, bytes,
-    _maketrans = str.maketrans
+    _str_maketrans = str
+    string_like_types = str
 else:
     import string
-    _string_like_types = basestring,
-    _maketrans = string.maketrans
+    _str_maketrans = string
+    string_like_types = basestring,
 
+_maketrans = _str_maketrans.maketrans
 
 class LexerError(common.ParsingError):
     @property
@@ -64,12 +65,12 @@ def tokenize_regex(regex, text, lineno=None):
         for match in regex.finditer(text):
             cat = match.lastindex
             yield lineno, match.start(cat), cat, match.group(cat)
-    except IndexError as e:
+    except IndexError:
         raise LexerError(None, lineno, match.start(), match.end(), text,
                          "invalid token")
 
 
-def get_lexer_regex(preproc=False):
+def get_lexer_regex():
     """Return regular expression for parsing free-form Fortran 2008"""
     endline = r"""(?:\n|\r\n?)"""
     comment = r"""(?:![^\r\n]*)"""
@@ -190,20 +191,21 @@ def parse_radix(tok):
     return int(tok[2:-1], base)
 
 
-def lex_buffer(buffer, form=None):
+def lex_buffer(mybuffer, form=None):
     """Perform lexical analysis for an opened free-form Fortran file."""
     # check for buffer
-    if isinstance(buffer, _string_like_types):
+    if isinstance(mybuffer, string_like_types):
         raise ValueError("Expect open file or other sequence of lines")
     if form is None:
-        form, _ = common.guess_form(buffer.name)
+        form, _ = common.guess_form(mybuffer.name)
 
     lexer_regex = get_lexer_regex()
     linecat_to_cat = LINECAT_TO_CAT
     lines_iter = splicer.get_splicer(form)
 
-    fname = buffer.name
-    for lineno, linecat, line in lines_iter(buffer):
+    fname = mybuffer.name
+    lineno = 0
+    for lineno, linecat, line in lines_iter(mybuffer):
         try:
             yield lineno, 0, linecat_to_cat[linecat], line
         except KeyError:
