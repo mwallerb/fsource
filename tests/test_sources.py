@@ -29,3 +29,8 @@ def parsefile(fname):
 def test_nastylex():
     parsefile("nastylex.F90")
 
+def test_inplacearr():
+    parsefile("inplacearr.f90")
+
+def test_lexfixed():
+    parsefile("lexfixed.f")

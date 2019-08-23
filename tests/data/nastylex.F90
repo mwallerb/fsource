@@ -22,6 +22,8 @@ module test
             ! here's another one
                         + 3
 
+contains
+
     ! Annoy the regex tools
 end &   ! subroutine
     module
