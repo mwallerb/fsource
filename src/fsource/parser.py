@@ -836,9 +836,7 @@ type_attrs = attribute_sequence(type_attr, 'type_attrs')
 def preproc_stmt(tokens):
     return ('preproc_stmt', expect_cat(tokens, lexer.CAT_PREPROC))
 
-_BLOCK_DELIM = { 'end', 'else', 'contains', 'case' }
-
-def block(inner_rule, production_tag='block', fenced=True):
+def block(inner_rule, production_tag='block'):
     # Fortran blocks are delimited by one of these words, so we can use
     # them in failing fast
     def block_rule(tokens, until_lineno=None):
@@ -853,15 +851,10 @@ def block(inner_rule, production_tag='block', fenced=True):
                 tokens.advance()
             elif cat == lexer.CAT_PREPROC:
                 stmts.append(preproc_stmt(tokens))
-            elif fenced and token.lower() in _BLOCK_DELIM:
-                break
             else:
                 try:
                     stmts.append(inner_rule(tokens))
                 except NoMatch:
-                    if fenced:
-                        raise ParserError(tokens,
-                                          "Expecting item or block delimiter.")
                     break
         return tokens.produce(production_tag, *stmts)
 
@@ -882,7 +875,7 @@ _TYPE_TAG_HANDLERS = {
 
 type_tag = prefixes(_TYPE_TAG_HANDLERS)
 
-type_tag_block = block(type_tag, 'type_tags', fenced=False)
+type_tag_block = block(type_tag, 'type_tags')
 
 optional_identifier = optional(identifier)
 
@@ -1483,9 +1476,9 @@ def declaration_stmt(tokens):
         except NoMatch:
             return entity_decl(tokens)
 
-declaration_part = block(declaration_stmt, 'declaration_block', fenced=False)
+declaration_part = block(declaration_stmt, 'declaration_block')
 
-fenced_declaration_part = block(declaration_stmt, 'declaration_block', fenced=True)
+fenced_declaration_part = block(declaration_stmt, 'declaration_block')
 
 @rule
 def construct_tag(tokens):
@@ -1613,7 +1606,7 @@ def select_case(tokens):
     eos(tokens)
     execution_part(tokens)
 
-select_case_sequence = block(select_case, 'select_case_list', fenced=False)
+select_case_sequence = block(select_case, 'select_case_list')
 
 end_select_stmt = end_stmt('select')
 
@@ -1791,7 +1784,7 @@ def execution_stmt(tokens):
 # FIXME: even though this incurs a runtime penalty, we cannot use a simple
 #        fence here, since it is technically allowed to cause maximum confusion
 #        by naming a variable 'end'.
-execution_part = block(execution_stmt, 'execution_block', fenced=False)
+execution_part = block(execution_stmt, 'execution_block')
 
 end_module_stmt = end_stmt('module', require_type=False)
 
@@ -1836,7 +1829,7 @@ def program_unit(tokens):
     # TODO: block_data
     # TODO: make this faster
 
-program_unit_sequence = block(program_unit, 'program_unit_list', fenced=False)
+program_unit_sequence = block(program_unit, 'program_unit_list')
 
 @rule
 def compilation_unit(tokens, filename=None):
