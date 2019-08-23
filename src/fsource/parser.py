@@ -35,63 +35,66 @@ from . import __version_tuple__
 from . import lexer
 from . import common
 
+
 class NoMatch(Exception):
-    "Current rule does not match, try next one if available."
+    """Current rule does not match, try next one if available.
 
-def _restore_line(tokens):
-    # HACK: restore line by concatenating tokens
-    row = tokens.peek()[0]
-    try:
-        start = tokens.pos - next(i for (i,(r,_,_,_)) in
-                        enumerate(tokens.tokens[tokens.pos-1::-1]) if r != row)
-    except StopIteration:
-        start = 0
-    try:
-        stop = tokens.pos + next(i for (i,(r,_,_,_)) in
-                        enumerate(tokens.tokens[tokens.pos:]) if r != row)
-    except StopIteration:
-        stop = len(tokens.tokens)
+    This class is used by the recursive descent parser for backtracking: by
+    raising `NoMatch`, you indicate that the current rule did not match, the
+    parser should backtrack and try the next rule if available.
 
-    line = ''
-    for _, col, _, token in tokens.tokens[start:stop]:
-        line += ' ' * (col - len(line)) + token
-    return line
+    See also: `rule()`, `TokenStream.backtrack()`
+    """
 
 
 class ParserError(common.ParsingError):
-    "Current rule does not match even though it should, fail meaningfully"
+    """Current rule does not match even though it should, fail meaningfully.
+
+    This class indicates a parsing error in the current rule: it should be
+    raised if the current not only does not match, but we are sure no other
+    rule can match, i.e., this is not valid Fortran.  This is useful because
+    it allows detecting errors early and close to the actual error condition.
+
+    See also: `LockedIn`
+    """
     @property
     def error_type(self): return "parser error"
 
     def __init__(self, tokens, msg):
         row, col, _, token = tokens.peek()
-        line = _restore_line(tokens)
+        line = tokens.current_line()
 
         common.ParsingError.__init__(self, tokens.fname, row, col,
                                      col+len(token), line, msg)
 
-# CONTEXT
 
 class TokenStream:
-    def __init__(self, tokens, fname=None, pos=0):
-        if isinstance(tokens, str):
-            tokens = lexer.lex_snippet(tokens)
+    """Iterator over tokens, maintaining a stack of rollback points.
 
+    `TokenStream` is an iterator over a sequence of `tokens`.  However, it
+    also maintains a stack of rollback points: `push()` adds a rollback point
+    to the stack at the current token, `commit()` removes the last rollback
+    point, whereas `backtrack()` removes and returns to the rollback point.
+    """
+    def __init__(self, tokens, fname=None, pos=0):
         self.fname = fname
         self.tokens = tuple(tokens)
         self.pos = pos
         self.stack = []
 
     def peek(self):
+        """Get current token without consuming it"""
         return self.tokens[self.pos]
 
     def advance(self):
+        """Advance to next token"""
         self.pos += 1
 
     def __iter__(self):
         return self
 
     def __next__(self):
+        """Return current token and advance iterator"""
         pos = self.pos
         self.pos += 1
         return self.tokens[pos]
@@ -99,30 +102,102 @@ class TokenStream:
     next = __next__       # Python 2
 
     def push(self):
+        """Create a rollback point at the current token and push it"""
         self.stack.append(self.pos)
 
     def backtrack(self):
+        """Remove and return to the last rollback point"""
         self.pos = self.stack.pop()
 
     def commit(self):
+        """Remove the last rollback point"""
         self.stack.pop()
 
     def produce(self, header, *args):
+        """Produce a node in the abstract syntax tree."""
         return (header,) + args
 
+    def current_line(self):
+        """Return current line"""
+        # HACK: this builds up the line from tokens, which is ugly. Also, it
+        # does not preserve the type of whitespace (' ' vs '\t')
+        # Get token range for the currrent line
+        row = self.peek()[0]
+        try:
+            offset = next(i for (i, (r, _, _, _)) in
+                          enumerate(self.tokens[self.pos-1::-1]) if r != row)
+            start = self.pos - offset
+        except StopIteration:
+            start = 0
+        try:
+            offset = next(i for (i, (r, _, _, _)) in
+                          enumerate(self.tokens[self.pos:]) if r != row)
+            stop = self.pos + offset
+        except StopIteration:
+            stop = len(self.tokens)
+
+        # Build up line
+        line = ''
+        for _, col, _, token in self.tokens[start:stop]:
+            line += ' ' * (col - len(line)) + token
+        return line
+
+
+def rule(fn):
+    """Decorator for decursive descent rule.
+
+    The `rule` decorator implements recursive descent logic using token
+    streams: before entering `fn`, it creates a rollback point, which is
+    removed on exit.  If `fn` does not match, i.e., raises `NoMatch`, we
+    backtrack to the rollback point.
+    """
+    def rule_setup(tokens, *args):
+        tokens.push()
+        try:
+            value = fn(tokens, *args)
+        except NoMatch:
+            tokens.backtrack()
+            raise
+        else:
+            tokens.commit()
+            return value
+    return rule_setup
+
+
+class LockedIn:
+    """Context manager converting `NoMatch` to `ParserError`.
+
+    This context manager allows a rule to be "locked in", i.e., we know that
+    the rule should match and any non-matching part after that is in fact an
+    error.
+    """
+    def __init__(self, tokens, err):
+        self.tokens = tokens
+        self.err = err
+
+    def __enter__(self): pass
+
+    def __exit__(self, exc_type, exc_val, traceback):
+        if exc_type is NoMatch:
+            raise ParserError(self.tokens, self.err)
+
+
 def expect(tokens, expected):
+    """Matches the next token being `expected`"""
     token = tokens.peek()[3]
     if token.lower() != expected:
         raise NoMatch()
     tokens.advance()
 
 def expect_cat(tokens, expected):
+    """Matches the next token of category `expected`"""
     cat = tokens.peek()[2]
     if cat != expected:
         raise NoMatch()
     return next(tokens)[3]
 
 def marker(tokens, expected):
+    """Return if next token is `expected`, and consume token if so."""
     token = tokens.peek()[3]
     if token.lower() == expected:
         tokens.advance()
@@ -131,6 +206,7 @@ def marker(tokens, expected):
         return False
 
 def comma_sequence(inner_rule, production_tag, allow_empty=False):
+    """A comma-separated list of items matching `inner_rule`."""
     def comma_sequence_rule(tokens):
         vals = []
         try:
@@ -149,6 +225,7 @@ def comma_sequence(inner_rule, production_tag, allow_empty=False):
     return comma_sequence_rule
 
 def ws_sequence(inner_rule, production_tag):
+    """A whitespace-separated list of items matching `inner_rule`."""
     def ws_sequence_rule(tokens):
         items = []
         try:
@@ -160,6 +237,7 @@ def ws_sequence(inner_rule, production_tag):
     return ws_sequence_rule
 
 def optional(inner_rule, *args):
+    """Matches `inner_rule`, returning `None` if it does not match."""
     def optional_rule(tokens):
         try:
             return inner_rule(tokens, *args)
@@ -169,6 +247,7 @@ def optional(inner_rule, *args):
     return optional_rule
 
 def tag(expected, production_tag):
+    """A single keyword"""
     @rule
     def tag_rule(tokens):
         expect(tokens, expected)
@@ -177,6 +256,7 @@ def tag(expected, production_tag):
     return tag_rule
 
 def tag_stmt(expected, production_tag):
+    """A single keyword, terminated by end of statement"""
     @rule
     def tag_rule(tokens):
         expect(tokens, expected)
@@ -186,6 +266,7 @@ def tag_stmt(expected, production_tag):
     return tag_rule
 
 def matches(rule_, tokens):
+    """Attempts to match `rule_`, returning whether it succeeded"""
     try:
         rule_(tokens)
         return True
@@ -193,9 +274,11 @@ def matches(rule_, tokens):
         return False
 
 def null_rule(_tokens, produce=None):
+    """Match empty"""
     return produce
 
 def prefix(expected, my_rule, production_tag):
+    """A tag `expected` followed by a rule `my_rule`"""
     @rule
     def prefix_rule(tokens):
         expect(tokens, expected)
@@ -205,6 +288,13 @@ def prefix(expected, my_rule, production_tag):
     return prefix_rule
 
 def prefixes(handlers):
+    """Fast dispatch of different rules based on a dictionary of prefixes.
+
+    Expects a dictionary `handlers`, where each key is a prefix, and each
+    value is a rule.  Note that the rule should include matching the prefix.
+    This provides a speedup over traditional recursive descent: rather than
+    trying the rules one-by-one, we can directly jump to the correct candidate.
+    """
     def prefixes_rule(tokens):
         token = tokens.peek()[3]
         try:
@@ -215,20 +305,13 @@ def prefixes(handlers):
 
     return prefixes_rule
 
-def rule(fn):
-    def rule_setup(tokens, *args):
-        tokens.push()
-        try:
-            value = fn(tokens, *args)
-        except NoMatch:
-            tokens.backtrack()
-            raise
-        else:
-            tokens.commit()
-            return value
-    return rule_setup
-
 def composite(word1, word2):
+    """Two words, optionally separated by whitespace.
+
+    Fortran allows omitting whitespace in certain clauses, i.e., both `ENDIF`
+    and `END IF` are equivalent forms of ending an if statement.  The lexer
+    cannot disambiguate this, because `ENDIF` is also a valid variable name.
+    """
     comp = word1 + word2
     @rule
     def composite_rule(tokens):
@@ -240,36 +323,32 @@ def composite(word1, word2):
     return composite_rule
 
 def eos(tokens):
+    """End of statement"""
     return expect_cat(tokens, lexer.CAT_EOS)
 
-class LockedIn:
-    def __init__(self, tokens, err):
-        self.tokens = tokens
-        self.err = err
-
-    def __enter__(self): pass
-
-    def __exit__(self, exc_type, exc_val, traceback):
-        if exc_type is NoMatch:
-            raise ParserError(self.tokens, self.err)
-
 def int_(tokens):
+    """Integer literal"""
     return tokens.produce('int', expect_cat(tokens, lexer.CAT_INT))
 
 def string_(tokens):
+    """String literal"""
     return tokens.produce('string', expect_cat(tokens, lexer.CAT_STRING))
 
 def identifier(tokens):
+    """Identifier in a non-expression context"""
     return tokens.produce('id', expect_cat(tokens, lexer.CAT_WORD))
 
 def id_ref(tokens):
+    """Identifier in a expression context (reference)"""
     return tokens.produce('ref', expect_cat(tokens, lexer.CAT_WORD))
 
 def custom_op(tokens):
+    """Non-intrinsic (user-defined) operator"""
     return tokens.produce('custom_op', expect_cat(tokens, lexer.CAT_CUSTOM_DOT))
 
 @rule
 def do_ctrl(tokens):
+    """Numeric loop control clause"""
     dovar = identifier(tokens)
     expect(tokens, '=')
     start = expr(tokens)
@@ -974,7 +1053,7 @@ def end_stmt(objtype, require_type=False, name_type=None):
                 if require_type:
                     raise NoMatch()
                 eos(tokens)
-                return None
+                return
         elif not marker(tokens, comp):
             raise NoMatch()
         try:
