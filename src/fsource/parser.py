@@ -1911,9 +1911,9 @@ def program_unit(tokens):
 program_unit_sequence = block(program_unit, 'program_unit_list')
 
 @rule
-def compilation_unit(tokens, filename=None):
+def compilation_unit(tokens):
     units = program_unit_sequence(tokens)
     expect_cat(tokens, lexer.CAT_DOLLAR)
     version = tokens.produce('ast_version', *map(str, __version_tuple__))
-    fname = tokens.produce('filename', filename)
+    fname = tokens.produce('filename', tokens.fname)
     return tokens.produce('compilation_unit', version, fname, *units[1:])
