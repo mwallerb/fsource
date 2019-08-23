@@ -1,0 +1,21 @@
+#!/usr/bin/env python
+"""
+Convenience script so that you don't need to install before testing.
+
+Copyright 2019 Markus Wallerberger.
+Released under the GNU Lesser General Public License, Version 3 only.
+See LICENSE.txt for permissions on usage, modification and distribution
+"""
+from __future__ import print_function
+import sys
+import os, os.path
+
+import pytest
+
+HEREPATH = os.path.abspath(os.path.dirname(__file__))
+
+if __name__ == '__main__':
+    srcdir = os.path.join(HEREPATH, os.pardir, "src")
+    testsdir = os.path.join(HEREPATH, os.pardir, "tests")
+    sys.path.append(srcdir)
+    pytest.main([testsdir])
