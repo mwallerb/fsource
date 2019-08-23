@@ -41,8 +41,10 @@ class ParsingError(Exception):
         if self.line is not None:
             errstr += "|\n|\t%s" % self.line
             if self.colbegin is not None:
-                errstr += ("|\t" + " " * self.colbegin + "^"
-                           + "~" * (self.colend - self.colbegin) + "\n")
+                errstr += "|\t" + " " * self.colbegin + "^"
+                if self.colend is not None:
+                    errstr += "~" * (self.colend - self.colbegin - 1)
+                errstr += "\n"
         return errstr
 
     def __str__(self):
