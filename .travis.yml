@@ -15,6 +15,6 @@ install:
 
 # command to run tests
 script:
-  - python setup.py install
+  - python setup.py -q install
   - pytest
   - pylint -E src/fsource

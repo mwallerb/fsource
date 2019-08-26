@@ -51,19 +51,22 @@ class SyntaxWriter:
     def writeline(self, line):
         self.out.write(self.indenttext + line + "\n")
 
-    def indent(self, line=None):
-        if line is not None:
-            self.writeline(line)
+    def writeindent(self, header=""):
+        self.out.write(self.indenttext + header)
+
+    def indent(self, header=None):
+        if header is not None:
+            self.writeline(header)
         self.level += 1
         self.indenttext = "    " * self.level
 
-    def unindent(self, line=None):
+    def unindent(self, footer=None):
         if self.level == 0:
             raise ValueError("Unable to unindent")
         self.level -= 1
         self.indenttext = "    " * self.level
-        if line is not None:
-            self.writeline(line)
+        if footer is not None:
+            self.writeline(footer)
 
     def __str__(self):
         return self.out.getvalue()
@@ -73,8 +76,8 @@ class Node(object):
     def __str__(self):
         return SyntaxWriter.getstr(self)
 
-    def write_code(self):
-        raise NotImplementedError("Not implemented")
+    def write_code(self, out):
+        raise NotImplementedError("write_code not implemented")
 
 
 class Ignored(Node):
@@ -103,6 +106,7 @@ class CompilationUnit(Node):
             out.writeline("")
         out.writeline("! END FILE %s" % self.filename)
 
+# USE something, ONLY:
 
 class Module(Node):
     def __init__(self, name, decls, contained):
@@ -113,7 +117,6 @@ class Module(Node):
 
     def imbue(self, parent):
         parent.modules[self.name] = self
-        self.handle_children()
 
     def write_code(self, out):
         out.indent("MODULE %s" % self.name)
@@ -126,28 +129,45 @@ class Module(Node):
         out.unindent("END MODULE %s" % self.name)
 
 
+class Use(Node):
+    def __init__(self, modulename, symbollist):
+        super().__init__()
+        self.modulename = modulename
+        self.symbollist = symbollist
+
+    def imbue(self, parent):
+        parent.use[self.modulename] = self
+
+    def write_code(self, out):
+        out.writeindent("USE %s" % self.modulename)
+        self.symbollist.write_code(out)
+        out.write("\n")
+
+
+class Imports:
+    def __init__(self, importall, *seq):
+        self.importall = importall
+        self.seq = seq
+
+
+
 def unpack(arg):
     """Unpack a single argument as-is"""
     return arg
 
-def unpack_sequence(fn=None):
+def unpack_sequence(*items):
     """Return sequence of itmes as a tuple"""
-    if fn is None:
-        def unpack_sequence_fn(*items): return items
-    else:
-        def unpack_sequence_fn(*items): return tuple(map(fn, items))
-
-    return unpack_sequence_fn
-
+    return items
 
 HANDLERS = {
     'compilation_unit':  CompilationUnit,
     'filename':          unpack,
-    'ast_version':       unpack_sequence(),
+    'ast_version':       unpack_sequence,
 
     'module_decl':       Module,
-    'declaration_block': unpack_sequence(),
-    'contained_block':   unpack_sequence(),
+    'declaration_block': unpack_sequence,
+    'contained_block':   unpack_sequence,
+    'use_stmt':          Use,
 
     'id':                lambda name: name.lower(),
     }
