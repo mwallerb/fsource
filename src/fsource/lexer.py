@@ -89,7 +89,7 @@ def get_lexer_regex():
     operator = r"""\(/?|\)|[-+,:_%\[\]]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
-    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&])"""
+    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&'"])"""
     fortran_token = r"""(?ix)
           {skipws}(?:
             ({word})                            #  1 word
