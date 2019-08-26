@@ -89,22 +89,22 @@ def get_lexer_regex():
     operator = r"""\(/?|\)|[-+,:_%\[\]]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
-    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&])"""
+    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&'"])"""
     fortran_token = r"""(?ix)
           {skipws}(?:
-            (; | {comment}?{endline})           #  1 end of statement
-          | ({sqstring} | {dqstring})           #  2 strings
-          | ({real})                            #  3 real
-          | ({int})                             #  4 ints
-          | ({binary} | {octal} | {hex})        #  5 radix literals
+            ({word})                            #  1 word
+          | \( {skipws} (//?) {skipws} \)       #  2 bracketed slashes
+          | ({operator})                        #  3 symbolic operator
+          | (; | {comment}?{endline})           #  4 end of statement
+          | ({real})                            #  5 real
+          | ({int})                             #  6 ints
           | \.\s* (?:
-              ( true | false )                  #  6 boolean
-            | ( {builtin_dot} )                 #  7 built-in dot operator
-            | ( {dotop} )                       #  8 custom dot operator
+              ( true | false )                  #  7 boolean
+            | ( {builtin_dot} )                 #  8 built-in dot operator
+            | ( {dotop} )                       #  9 custom dot operator
             ) \s*\.
-          | \( {skipws} (//?) {skipws} \)       #  9 bracketed slashes
-          | ({operator})                        # 10 symbolic operator
-          | ({word})                            # 11 word
+          | ({sqstring} | {dqstring})           # 10 strings
+          | ({binary} | {octal} | {hex})        # 11 radix literals
           | [^ \t]+                             #    invalid token
           )
         """.format(
@@ -118,24 +118,24 @@ def get_lexer_regex():
 
 
 CAT_DOLLAR = 0
-CAT_EOS = 1
-CAT_STRING = 2
-CAT_FLOAT = 3
-CAT_INT = 4
-CAT_RADIX = 5
-CAT_BOOLEAN = 6
-CAT_BUILTIN_DOT = 7
-CAT_CUSTOM_DOT = 8
-CAT_BRACKETED_SLASH = 9
-CAT_SYMBOLIC_OP = 10
-CAT_WORD = 11
+CAT_WORD = 1
+CAT_BRACKETED_SLASH = 2
+CAT_SYMBOLIC_OP = 3
+CAT_EOS = 4
+CAT_FLOAT = 5
+CAT_INT = 6
+CAT_BOOLEAN = 7
+CAT_BUILTIN_DOT = 8
+CAT_CUSTOM_DOT = 9
+CAT_STRING = 10
+CAT_RADIX = 11
 CAT_PREPROC = 12
 CAT_INCLUDE = 13
 CAT_FORMAT = 14
 
-CAT_NAMES = ('eof', 'eos', 'string', 'float', 'int', 'radix',
-             'bool', 'dotop', 'custom_dotop', 'bracketed_slash', 'symop',
-             'word', 'preproc', 'include', 'format')
+CAT_NAMES = ('eof', 'word', 'bracketed_slash', 'symop', 'eos', 'float',
+             'int', 'bool', 'dotop', 'custom_dotop', 'string',
+             'radix', 'preproc', 'include', 'format')
 
 LINECAT_TO_CAT = {
     splicer.LINECAT_PREPROC: CAT_PREPROC,
