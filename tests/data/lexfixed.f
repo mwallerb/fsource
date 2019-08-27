@@ -8,6 +8,9 @@ C        END SUBROUTINE   ! annoying!
       IMPLICIT INTEGER (I-K)
       INTEGER*8 X, Y,                                                  Z$IGNORE
 
+      INTEGER R, S, T
+      COMMON /MY/ R, S, /OTHER/ T
+
       DO 10 I = 1, 10
   39      X = Y
      &        + Z

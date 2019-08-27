@@ -24,7 +24,6 @@ syntax like `a.b` for structure resolution is not supported.
 
 Things not yet implemented are:
 
-  - `common` blocks
   - `submodule` blocks
   - coarrays, `codimension`
 

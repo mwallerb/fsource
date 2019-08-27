@@ -143,7 +143,9 @@ def pprint_parser(ast, out, level=0):
         'declaration_block',
         'contained_block',
         'execution_block',
-        'type_bound_procedures'
+        'type_bound_procedures',
+        'common_stmt',
+        'common_block',
         }
     repl = {
         True: 'true',

@@ -871,12 +871,6 @@ def entity_decl(tokens):
     return tokens.produce('entity_decl', type_, attrs_, entities)
 
 @rule
-def entity_ref(tokens):
-    name = identifier(tokens)
-    shape_ = optional_shape(tokens)
-    return tokens.produce('entity_ref', name, shape_)
-
-@rule
 def bind_c(tokens):
     expect(tokens, 'bind')
     expect(tokens, '(')
@@ -1443,6 +1437,60 @@ def dimension_stmt(tokens):
 equivalence_object_sequence = comma_sequence(lvalue, 'equivalence_set')
 
 @rule
+def common_name(tokens):
+    expect(tokens, '/')
+    name = optional_identifier(tokens)
+    expect(tokens, '/')
+    return tokens.produce('common_name', name)
+
+def optional_common_name(tokens):
+    try:
+        return common_name(tokens)
+    except NoMatch:
+        return tokens.produce('common_name', None)
+
+@rule
+def common_ref(tokens):
+    name = identifier(tokens)
+    shape_ = optional_shape(tokens)
+    return tokens.produce('common_ref', name, shape_)
+
+@rule
+def next_common_ref(tokens):
+    expect(tokens, ',')
+    return common_ref(tokens)
+
+def common_ref_sequence(tokens):
+    vals = [common_ref(tokens)]
+    try:
+        while True:
+            vals.append(next_common_ref(tokens))
+    except NoMatch:
+        return tokens.produce('common_ref_list', *vals)
+
+@rule
+def common_stmt(tokens):
+    expect(tokens, 'common')
+    name = optional_common_name(tokens)
+    refs = common_ref_sequence(tokens)
+    blocks = [tokens.produce('common_block', name[1], *refs[1:])]
+    try:
+        while True:
+            if marker(tokens, ','):
+                with LockedIn(tokens, 'expecting common block'):
+                    name = common_name(tokens)
+                    refs = common_ref_sequence(tokens)
+            else:
+                name = common_name(tokens)
+                with LockedIn(tokens, 'expecting common block references'):
+                    refs = common_ref_sequence(tokens)
+            blocks.append(tokens.produce('common_block', name[1], *refs[1:]))
+    except NoMatch:
+        pass
+    eos(tokens)
+    return tokens.produce('common_stmt', *blocks)
+
+@rule
 def equivalence_set(tokens):
     expect(tokens, '(')
     seq = equivalence_object_sequence(tokens)
@@ -1530,6 +1578,7 @@ _DECLARATION_HANDLERS = {
     'interface':   interface_decl,
     'equivalence': equivalence_stmt,
     'procedure':   procedure_decl,
+    'common':      common_stmt,
 
     'dimension':   dimension_stmt,
     'data':        data_stmt,
