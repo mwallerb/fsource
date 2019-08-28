@@ -1959,10 +1959,11 @@ def program_unit(tokens):
 
 program_unit_sequence = block(program_unit, 'program_unit_list')
 
-@rule
 def compilation_unit(tokens, filename=None):
-    units = program_unit_sequence(tokens)
-    expect_cat(tokens, lexer.CAT_DOLLAR)
+    with LockedIn(tokens, "expecting module or (sub-)program"):
+        units = program_unit_sequence(tokens)
+        expect_cat(tokens, lexer.CAT_DOLLAR)
+
     version = tokens.produce('ast_version', *map(str, __version_tuple__))
     fname = tokens.produce('filename', filename)
     return tokens.produce('compilation_unit', version, fname, *units[1:])
