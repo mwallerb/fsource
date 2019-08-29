@@ -34,3 +34,6 @@ def test_inplacearr():
 
 def test_lexfixed():
     parsefile("lexfixed.f")
+
+def test_simple():
+    parsefile("simple.f90")

@@ -1107,34 +1107,74 @@ def oper_spec(tokens):
             expect(tokens, ')')
         return tokens.produce('oper_spec', oper)
 
-@rule
-def only(tokens):
+def iface_name(tokens):
     try:
         return oper_spec(tokens)
     except NoMatch:
-        name = identifier(tokens)
-        if marker(tokens, '=>'):
-            target = identifier(tokens)
-            return tokens.produce('rename', name, target)
-        else:
-            return name
+        return identifier(tokens)
 
-only_sequence = comma_sequence(only, 'only_list', allow_empty=True)
+optional_iface_name = optional(iface_name)
+
+@rule
+def rename_oper(tokens):
+    local_op = oper_spec(tokens)
+    expect(tokens, '=>')
+    use_op = oper_spec(tokens)
+    return tokens.produce('use_symbol', local_op, use_op)
+
+@rule
+def rename_identifier(tokens):
+    local_id = identifier(tokens)
+    expect(tokens, '=>')
+    use_id = identifier(tokens)
+    return tokens.produce('use_symbol', local_id, use_id)
+
+def rename_clause(tokens):
+    try:
+        return rename_oper(tokens)
+    except NoMatch:
+        return rename_identifier(tokens)
+
+rename_sequence = comma_sequence(rename_clause, 'rename_list', allow_empty=False)
+
+def only_item(tokens):
+    try:
+        return rename_clause(tokens)
+    except NoMatch:
+        name = identifier(tokens)
+        return tokens.produce('use_symbol', None, name)
+
+only_sequence = comma_sequence(only_item, 'only_list', allow_empty=True)
+
+_USE_ATTR_HANDLERS = {
+    'intrinsic':     tag('intrinsic',     'intrinsic'),
+    'non_intrinsic': tag('non_intrinsic', 'non_intrinsic'),
+    }
+
+use_attr = prefixes(_USE_ATTR_HANDLERS )
+
+use_attrs = attribute_sequence(use_attr, 'use_attrs')
 
 @rule
 def use_stmt(tokens):
     expect(tokens, 'use')
     with LockedIn(tokens, "invalid use statement"):
+        attrs = use_attrs(tokens)
         name = identifier(tokens)
-        clauses = tokens.produce('rename_list')   # default empty rename list
         if marker(tokens, ','):
             if marker(tokens, 'only'):
                 expect(tokens, ':')
                 clauses = only_sequence(tokens)
+                only = "only"
             else:
                 clauses = rename_sequence(tokens)
+                only = None
+        else:
+            clauses = []
+            only = None
+
         eos(tokens)
-        return tokens.produce('use_stmt', name, clauses)
+        return tokens.produce('use_stmt', name, attrs, only, *clauses[1:])
 
 _letter_re = re.compile(r'^[a-zA-Z]$')
 
@@ -1322,15 +1362,6 @@ def subprogram_decl(tokens):
         return function_decl(tokens)
 
 contained_block = block(subprogram_decl, 'contained_block')
-
-@rule
-def iface_name(tokens):
-    try:
-        return oper_spec(tokens)
-    except NoMatch:
-        return identifier(tokens)
-
-optional_iface_name = optional(iface_name)
 
 identifier_sequence = comma_sequence(identifier, 'identifier_list')
 
