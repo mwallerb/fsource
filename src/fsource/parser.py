@@ -433,14 +433,11 @@ def lvalue(tokens):
     result = id_ref(tokens)
     with LockedIn(tokens, "invalid lvalue"):
         while True:
-            discr = tokens.peek()[3]
-            if discr == '(':
-                tokens.advance()
+            if marker(tokens, '('):
                 seq = subscript_sequence(tokens)
                 expect(tokens, ')')
                 result = tokens.produce('call', result, *seq[1:])
-            if discr == '%':
-                tokens.advance()
+            if marker(tokens, '%'):
                 dependant = id_ref(tokens)
                 result = tokens.produce('resolve', result, dependant)
             else:
