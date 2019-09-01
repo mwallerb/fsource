@@ -415,7 +415,7 @@ def argument(tokens):
     discr = tokens.peek()[3]
     if discr == '=':
         if item[0] != 'ref':
-            raise ParserError("invalid argument name")
+            raise ParserError(tokens, "invalid argument name")
         tokens.advance()
         value = expr(tokens)
         return tokens.produce('arg', item, value)
@@ -1917,10 +1917,10 @@ def assignment_stmt(tokens):
     oper = next(tokens)[3]
     if oper != '=' and oper != '=>':
         raise NoMatch()
-    ignore_stmt(tokens)
-    #with LockedIn(tokens):
-    #    expr(tokens)
-    #eos(tokens)
+    #ignore_stmt(tokens)
+    with LockedIn(tokens, "invalid assignment"):
+        expr(tokens)
+        eos(tokens)
 
 @rule
 def format_stmt(tokens):
