@@ -489,13 +489,15 @@ def literal_handler(action):
 def parens_expr_handler(tokens):
     tokens.advance()
     inner_expr = expr(tokens)
-    if marker(tokens, ','):
+    token = next(tokens)[3]
+    if token == ')':
+        return inner_expr
+    elif token == ',':
         imag_part = expr(tokens)
         expect(tokens, ')')
         return tokens.produce('complex', inner_expr, imag_part)
     else:
-        expect(tokens, ')')
-        return tokens.produce('parens', inner_expr)
+        raise ParserError(tokens, "expecting end parenthesis")
 
 def call_handler(tokens, lhs):
     tokens.advance()
