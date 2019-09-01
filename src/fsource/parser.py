@@ -396,10 +396,7 @@ def inplace_array(open_delim, close_delim):
 
     return inplace_array_rule
 
-@rule
-def slice_(tokens):
-    slice_begin = _optional_expr(tokens)
-    expect(tokens, ':')
+def _slice_tail(tokens, slice_begin):
     with LockedIn(tokens, "invalid slice object"):
         slice_end = _optional_expr(tokens)
         if marker(tokens, ":"):
@@ -408,27 +405,27 @@ def slice_(tokens):
             slice_stride = None
         return tokens.produce('slice', slice_begin, slice_end, slice_stride)
 
-@rule
-def key_prefix(tokens):
-    key = identifier(tokens)
-    expect(tokens, '=')
-    return key
-
-optional_key_prefix = optional(key_prefix)
-
-@rule
 def argument(tokens):
-    key = optional_key_prefix(tokens)
-    value = expr(tokens)
-    return tokens.produce('arg', key, value)
-
-def subscript_arg(tokens):
     try:
-        return slice_(tokens)
+        item = expr(tokens)
     except NoMatch:
-        return argument(tokens)
+        expect(tokens, ':')
+        return _slice_tail(tokens, None)
 
-subscript_sequence = comma_sequence(subscript_arg, 'sub_list', allow_empty=True)
+    discr = tokens.peek()[3]
+    if discr == '=':
+        if item[0] != 'ref':
+            raise ParserError("invalid argument name")
+        tokens.advance()
+        value = expr(tokens)
+        return tokens.produce('arg', item, value)
+    elif discr == ':':
+        tokens.advance()
+        return _slice_tail(tokens, item)
+    else:
+        return item
+
+subscript_sequence = comma_sequence(argument, 'sub_list', allow_empty=True)
 
 def lvalue(tokens):
     # lvalue is subject to stricter scrutiny, than an expression, since it
@@ -436,16 +433,18 @@ def lvalue(tokens):
     result = id_ref(tokens)
     with LockedIn(tokens, "invalid lvalue"):
         while True:
-            if marker(tokens, '('):
+            discr = tokens.peek()[3]
+            if discr == '(':
+                tokens.advance()
                 seq = subscript_sequence(tokens)
                 expect(tokens, ')')
                 result = tokens.produce('call', result, *seq[1:])
-            if marker(tokens, '%'):
+            if discr == '%':
+                tokens.advance()
                 dependant = id_ref(tokens)
                 result = tokens.produce('resolve', result, dependant)
             else:
-                break
-        return result
+                return result
 
 def prefix_op_handler(subglue, action):
     def prefix_op_handle(tokens):
@@ -489,13 +488,15 @@ def literal_handler(action):
 def parens_expr_handler(tokens):
     tokens.advance()
     inner_expr = expr(tokens)
-    if marker(tokens, ','):
+    token = next(tokens)[3]
+    if token == ')':
+        return inner_expr
+    elif token == ',':
         imag_part = expr(tokens)
         expect(tokens, ')')
         return tokens.produce('complex', inner_expr, imag_part)
     else:
-        expect(tokens, ')')
-        return tokens.produce('parens', inner_expr)
+        raise ParserError(tokens, "expecting end parenthesis")
 
 def call_handler(tokens, lhs):
     tokens.advance()
