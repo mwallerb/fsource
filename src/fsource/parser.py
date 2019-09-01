@@ -433,16 +433,18 @@ def lvalue(tokens):
     result = id_ref(tokens)
     with LockedIn(tokens, "invalid lvalue"):
         while True:
-            if marker(tokens, '('):
+            discr = tokens.peek()[3]
+            if discr == '(':
+                tokens.advance()
                 seq = subscript_sequence(tokens)
                 expect(tokens, ')')
                 result = tokens.produce('call', result, *seq[1:])
-            if marker(tokens, '%'):
+            if discr == '%':
+                tokens.advance()
                 dependant = id_ref(tokens)
                 result = tokens.produce('resolve', result, dependant)
             else:
-                break
-        return result
+                return result
 
 def prefix_op_handler(subglue, action):
     def prefix_op_handle(tokens):
