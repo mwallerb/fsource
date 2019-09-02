@@ -396,10 +396,7 @@ def inplace_array(open_delim, close_delim):
 
     return inplace_array_rule
 
-@rule
-def slice_(tokens):
-    slice_begin = _optional_expr(tokens)
-    expect(tokens, ':')
+def _slice_tail(tokens, slice_begin):
     with LockedIn(tokens, "invalid slice object"):
         slice_end = _optional_expr(tokens)
         if marker(tokens, ":"):
@@ -408,27 +405,27 @@ def slice_(tokens):
             slice_stride = None
         return tokens.produce('slice', slice_begin, slice_end, slice_stride)
 
-@rule
-def key_prefix(tokens):
-    key = identifier(tokens)
-    expect(tokens, '=')
-    return key
-
-optional_key_prefix = optional(key_prefix)
-
-@rule
 def argument(tokens):
-    key = optional_key_prefix(tokens)
-    value = expr(tokens)
-    return tokens.produce('arg', key, value)
-
-def subscript_arg(tokens):
     try:
-        return slice_(tokens)
+        item = expr(tokens)
     except NoMatch:
-        return argument(tokens)
+        expect(tokens, ':')
+        return _slice_tail(tokens, None)
 
-subscript_sequence = comma_sequence(subscript_arg, 'sub_list', allow_empty=True)
+    discr = tokens.peek()[3]
+    if discr == '=':
+        if item[0] != 'ref':
+            raise ParserError(tokens, "invalid argument name")
+        tokens.advance()
+        value = expr(tokens)
+        return tokens.produce('arg', item, value)
+    elif discr == ':':
+        tokens.advance()
+        return _slice_tail(tokens, item)
+    else:
+        return item
+
+subscript_sequence = comma_sequence(argument, 'sub_list', allow_empty=True)
 
 def lvalue(tokens):
     # lvalue is subject to stricter scrutiny, than an expression, since it
@@ -444,8 +441,7 @@ def lvalue(tokens):
                 dependant = id_ref(tokens)
                 result = tokens.produce('resolve', result, dependant)
             else:
-                break
-        return result
+                return result
 
 def prefix_op_handler(subglue, action):
     def prefix_op_handle(tokens):
@@ -489,13 +485,15 @@ def literal_handler(action):
 def parens_expr_handler(tokens):
     tokens.advance()
     inner_expr = expr(tokens)
-    if marker(tokens, ','):
+    token = next(tokens)[3]
+    if token == ')':
+        return inner_expr
+    elif token == ',':
         imag_part = expr(tokens)
         expect(tokens, ')')
         return tokens.produce('complex', inner_expr, imag_part)
     else:
-        expect(tokens, ')')
-        return tokens.produce('parens', inner_expr)
+        raise ParserError(tokens, "expecting end parenthesis")
 
 def call_handler(tokens, lhs):
     tokens.advance()
@@ -503,104 +501,90 @@ def call_handler(tokens, lhs):
     expect(tokens, ')')
     return tokens.produce('call', lhs, *seq[1:])
 
-class ExpressionHandler:
-    def __init__(self):
-        prefix_ops = {
-            "not":    prefix_op_handler( 50, 'not_'),
-            "+":      prefix_op_handler(110, 'pos'),
-            "-":      prefix_op_handler(110, 'neg'),
-            "(":      parens_expr_handler,
-            "(/":     inplace_array('(/', '/)'),
-            "[":      inplace_array('[', ']')
-            }
-        infix_ops = {
-            "eqv":    ( 20, infix_op_handler( 20, 'eqv')),
-            "neqv":   ( 20, infix_op_handler( 20, 'neqv')),
-            "or":     ( 30, infix_op_handler( 30, 'or_')),
-            "and":    ( 40, infix_op_handler( 40, 'and_')),
-            "eq":     ( 60, infix_op_handler( 61, 'eq')),
-            "ne":     ( 60, infix_op_handler( 61, 'ne')),
-            "le":     ( 60, infix_op_handler( 61, 'le')),
-            "lt":     ( 60, infix_op_handler( 61, 'lt')),
-            "ge":     ( 60, infix_op_handler( 61, 'ge')),
-            "gt":     ( 60, infix_op_handler( 61, 'gt')),
-            "//":     ( 70, infix_op_handler( 71, 'concat')),
-            "+":      ( 80, infix_op_handler( 81, 'plus')),
-            "-":      ( 80, infix_op_handler( 81, 'minus')),
-            "*":      ( 90, infix_op_handler( 91, 'mul')),
-            "/":      ( 90, infix_op_handler( 91, 'div')),
-            "**":     (100, infix_op_handler(100, 'pow')),
-            "_":      (130, infix_op_handler(131, 'kind')),
-            "%":      (140, infix_op_handler(141, 'resolve')),
-            "(":      (140, call_handler),
-            }
+_PREFIX_OP_HANDLERS = {
+    "not":    prefix_op_handler( 50, 'not_'),
+    "+":      prefix_op_handler(110, 'pos'),
+    "-":      prefix_op_handler(110, 'neg'),
+    "(":      parens_expr_handler,
+    "(/":     inplace_array('(/', '/)'),
+    "[":      inplace_array('[', ']')
+    }
 
-        # Fortran 90 operator aliases
-        infix_ops["=="] = infix_ops["eq"]
-        infix_ops["/="] = infix_ops["ne"]
-        infix_ops["<="] = infix_ops["le"]
-        infix_ops[">="] = infix_ops["ge"]
-        infix_ops["<"]  = infix_ops["lt"]
-        infix_ops[">"]  = infix_ops["gt"]
+_INFIX_OP_HANDLERS = {
+    "eqv":    ( 20, infix_op_handler( 20, 'eqv')),
+    "neqv":   ( 20, infix_op_handler( 20, 'neqv')),
+    "or":     ( 30, infix_op_handler( 30, 'or_')),
+    "and":    ( 40, infix_op_handler( 40, 'and_')),
+    "eq":     ( 60, infix_op_handler( 61, 'eq')),
+    "ne":     ( 60, infix_op_handler( 61, 'ne')),
+    "le":     ( 60, infix_op_handler( 61, 'le')),
+    "lt":     ( 60, infix_op_handler( 61, 'lt')),
+    "ge":     ( 60, infix_op_handler( 61, 'ge')),
+    "gt":     ( 60, infix_op_handler( 61, 'gt')),
+    "//":     ( 70, infix_op_handler( 71, 'concat')),
+    "+":      ( 80, infix_op_handler( 81, 'plus')),
+    "-":      ( 80, infix_op_handler( 81, 'minus')),
+    "*":      ( 90, infix_op_handler( 91, 'mul')),
+    "/":      ( 90, infix_op_handler( 91, 'div')),
+    "**":     (100, infix_op_handler(100, 'pow')),
+    "_":      (130, infix_op_handler(131, 'kind')),
+    "%":      (140, infix_op_handler(141, 'resolve')),
+    "(":      (140, call_handler),
+    }
+_INFIX_OP_HANDLERS.update({
+    "==":    _INFIX_OP_HANDLERS["eq"],
+    "/=":    _INFIX_OP_HANDLERS["ne"],
+    "<=":    _INFIX_OP_HANDLERS["le"],
+    ">=":    _INFIX_OP_HANDLERS["ge"],
+    "<":     _INFIX_OP_HANDLERS["lt"],
+    ">":     _INFIX_OP_HANDLERS["gt"]
+    })
 
-        prefix_cats = {
-            lexer.CAT_STRING:     literal_handler('string'),
-            lexer.CAT_FLOAT:      literal_handler('float'),
-            lexer.CAT_INT:        literal_handler('int'),
-            lexer.CAT_RADIX:      literal_handler('radix'),
-            lexer.CAT_BOOLEAN:    literal_handler('bool'),
-            lexer.CAT_CUSTOM_DOT: custom_unary_handler(120),
-            lexer.CAT_WORD:       literal_handler('ref'),
-            }
-        infix_cats = {
-            lexer.CAT_CUSTOM_DOT: (10, custom_binary_handler(11))
-            }
 
-        self._infix_ops = infix_ops
-        self._infix_cats = infix_cats
-        self._prefix_ops = prefix_ops
-        self._prefix_cats = prefix_cats
+_PREFIX_CAT_HANDLERS = {
+    lexer.CAT_STRING:     literal_handler('string'),
+    lexer.CAT_FLOAT:      literal_handler('float'),
+    lexer.CAT_INT:        literal_handler('int'),
+    lexer.CAT_RADIX:      literal_handler('radix'),
+    lexer.CAT_BOOLEAN:    literal_handler('bool'),
+    lexer.CAT_CUSTOM_DOT: custom_unary_handler(120),
+    lexer.CAT_WORD:       literal_handler('ref'),
+    }
+_INFIX_CAT_HANDLERS = {
+    lexer.CAT_CUSTOM_DOT: (10, custom_binary_handler(11))
+    }
 
-    def get_prefix_handler(self, cat, token):
-        try:
-            if cat == lexer.CAT_SYMBOLIC_OP:
-                return self._prefix_ops[token]
-            elif cat == lexer.CAT_BUILTIN_DOT:
-                return self._prefix_ops[token.lower()]
-            else:
-                return self._prefix_cats[cat]
-        except KeyError:
-            raise NoMatch()
 
-    def get_infix_handler(self, cat, token):
-        try:
-            if cat == lexer.CAT_SYMBOLIC_OP:
-                return self._infix_ops[token]
-            elif cat == lexer.CAT_BUILTIN_DOT:
-                return self._infix_ops[token.lower()]
-            else:
-                return self._infix_cats[cat]
-        except KeyError:
-            raise NoMatch()
+def expr_handler(cat_handlers, op_handlers):
+    dispatch = {cat: (lambda token: handler)
+                for (cat, handler) in cat_handlers.items()}
 
-EXPR_HANDLER = ExpressionHandler()
+    dispatch[lexer.CAT_SYMBOLIC_OP] = lambda token: op_handlers[token]
+    dispatch[lexer.CAT_BUILTIN_DOT] = lambda token: op_handlers[token.lower()]
+    return lambda cat, token: dispatch[cat](token)
+
+expr_infix_handler = expr_handler(_INFIX_CAT_HANDLERS, _INFIX_OP_HANDLERS)
+
+expr_prefix_handler = expr_handler(_PREFIX_CAT_HANDLERS, _PREFIX_OP_HANDLERS)
 
 def expr(tokens, min_glue=0):
     # Get prefix
-    handler = EXPR_HANDLER.get_prefix_handler(*tokens.peek()[2:])
+    try:
+        handler = expr_prefix_handler(*tokens.peek()[2:])
+    except KeyError:
+        raise NoMatch()
     try:
         result = handler(tokens)
 
         # Cycle through appropriate infixes:
         while True:
             try:
-                glue, handler = EXPR_HANDLER.get_infix_handler(*tokens.peek()[2:])
-            except NoMatch:
+                glue, handler = expr_infix_handler(*tokens.peek()[2:])
+            except KeyError:
                 return result
-            else:
-                if glue < min_glue:
-                    return result
-                result = handler(tokens, result)
+            if glue < min_glue:
+                return result
+            result = handler(tokens, result)
     except NoMatch:
         raise ParserError(tokens, "Invalid expression")
 
@@ -871,12 +855,6 @@ def entity_decl(tokens):
     return tokens.produce('entity_decl', type_, attrs_, entities)
 
 @rule
-def entity_ref(tokens):
-    name = identifier(tokens)
-    shape_ = optional_shape(tokens)
-    return tokens.produce('entity_ref', name, shape_)
-
-@rule
 def bind_c(tokens):
     expect(tokens, 'bind')
     expect(tokens, '(')
@@ -1113,34 +1091,74 @@ def oper_spec(tokens):
             expect(tokens, ')')
         return tokens.produce('oper_spec', oper)
 
-@rule
-def only(tokens):
+def iface_name(tokens):
     try:
         return oper_spec(tokens)
     except NoMatch:
-        name = identifier(tokens)
-        if marker(tokens, '=>'):
-            target = identifier(tokens)
-            return tokens.produce('rename', name, target)
-        else:
-            return name
+        return identifier(tokens)
 
-only_sequence = comma_sequence(only, 'only_list', allow_empty=True)
+optional_iface_name = optional(iface_name)
+
+@rule
+def rename_oper(tokens):
+    local_op = oper_spec(tokens)
+    expect(tokens, '=>')
+    use_op = oper_spec(tokens)
+    return tokens.produce('use_symbol', local_op, use_op)
+
+@rule
+def rename_identifier(tokens):
+    local_id = identifier(tokens)
+    expect(tokens, '=>')
+    use_id = identifier(tokens)
+    return tokens.produce('use_symbol', local_id, use_id)
+
+def rename_clause(tokens):
+    try:
+        return rename_oper(tokens)
+    except NoMatch:
+        return rename_identifier(tokens)
+
+rename_sequence = comma_sequence(rename_clause, 'rename_list', allow_empty=False)
+
+def only_item(tokens):
+    try:
+        return rename_clause(tokens)
+    except NoMatch:
+        name = identifier(tokens)
+        return tokens.produce('use_symbol', None, name)
+
+only_sequence = comma_sequence(only_item, 'only_list', allow_empty=True)
+
+_USE_ATTR_HANDLERS = {
+    'intrinsic':     tag('intrinsic',     'intrinsic'),
+    'non_intrinsic': tag('non_intrinsic', 'non_intrinsic'),
+    }
+
+use_attr = prefixes(_USE_ATTR_HANDLERS )
+
+use_attrs = attribute_sequence(use_attr, 'use_attrs')
 
 @rule
 def use_stmt(tokens):
     expect(tokens, 'use')
     with LockedIn(tokens, "invalid use statement"):
+        attrs = use_attrs(tokens)
         name = identifier(tokens)
-        clauses = tokens.produce('rename_list')   # default empty rename list
         if marker(tokens, ','):
             if marker(tokens, 'only'):
                 expect(tokens, ':')
                 clauses = only_sequence(tokens)
+                only = "only"
             else:
                 clauses = rename_sequence(tokens)
+                only = None
+        else:
+            clauses = []
+            only = None
+
         eos(tokens)
-        return tokens.produce('use_stmt', name, clauses)
+        return tokens.produce('use_stmt', name, attrs, only, *clauses[1:])
 
 _letter_re = re.compile(r'^[a-zA-Z]$')
 
@@ -1329,15 +1347,6 @@ def subprogram_decl(tokens):
 
 contained_block = block(subprogram_decl, 'contained_block')
 
-@rule
-def iface_name(tokens):
-    try:
-        return oper_spec(tokens)
-    except NoMatch:
-        return identifier(tokens)
-
-optional_iface_name = optional(iface_name)
-
 identifier_sequence = comma_sequence(identifier, 'identifier_list')
 
 @rule
@@ -1443,6 +1452,60 @@ def dimension_stmt(tokens):
 equivalence_object_sequence = comma_sequence(lvalue, 'equivalence_set')
 
 @rule
+def common_name(tokens):
+    expect(tokens, '/')
+    name = optional_identifier(tokens)
+    expect(tokens, '/')
+    return tokens.produce('common_name', name)
+
+def optional_common_name(tokens):
+    try:
+        return common_name(tokens)
+    except NoMatch:
+        return tokens.produce('common_name', None)
+
+@rule
+def common_ref(tokens):
+    name = identifier(tokens)
+    shape_ = optional_shape(tokens)
+    return tokens.produce('common_ref', name, shape_)
+
+@rule
+def next_common_ref(tokens):
+    expect(tokens, ',')
+    return common_ref(tokens)
+
+def common_ref_sequence(tokens):
+    vals = [common_ref(tokens)]
+    try:
+        while True:
+            vals.append(next_common_ref(tokens))
+    except NoMatch:
+        return tokens.produce('common_ref_list', *vals)
+
+@rule
+def common_stmt(tokens):
+    expect(tokens, 'common')
+    name = optional_common_name(tokens)
+    refs = common_ref_sequence(tokens)
+    blocks = [tokens.produce('common_block', name[1], *refs[1:])]
+    try:
+        while True:
+            if marker(tokens, ','):
+                with LockedIn(tokens, 'expecting common block'):
+                    name = common_name(tokens)
+                    refs = common_ref_sequence(tokens)
+            else:
+                name = common_name(tokens)
+                with LockedIn(tokens, 'expecting common block references'):
+                    refs = common_ref_sequence(tokens)
+            blocks.append(tokens.produce('common_block', name[1], *refs[1:]))
+    except NoMatch:
+        pass
+    eos(tokens)
+    return tokens.produce('common_stmt', *blocks)
+
+@rule
 def equivalence_set(tokens):
     expect(tokens, '(')
     seq = equivalence_object_sequence(tokens)
@@ -1530,6 +1593,7 @@ _DECLARATION_HANDLERS = {
     'interface':   interface_decl,
     'equivalence': equivalence_stmt,
     'procedure':   procedure_decl,
+    'common':      common_stmt,
 
     'dimension':   dimension_stmt,
     'data':        data_stmt,
@@ -1836,10 +1900,10 @@ def assignment_stmt(tokens):
     oper = next(tokens)[3]
     if oper != '=' and oper != '=>':
         raise NoMatch()
-    ignore_stmt(tokens)
-    #with LockedIn(tokens):
-    #    expr(tokens)
-    #eos(tokens)
+    #ignore_stmt(tokens)
+    with LockedIn(tokens, "invalid assignment"):
+        expr(tokens)
+        eos(tokens)
 
 @rule
 def format_stmt(tokens):
@@ -1910,10 +1974,12 @@ def program_unit(tokens):
 
 program_unit_sequence = block(program_unit, 'program_unit_list')
 
-@rule
+
 def compilation_unit(tokens):
-    units = program_unit_sequence(tokens)
-    expect_cat(tokens, lexer.CAT_DOLLAR)
+    with LockedIn(tokens, "expecting module or (sub-)program"):
+        units = program_unit_sequence(tokens)
+        expect_cat(tokens, lexer.CAT_DOLLAR)
+
     version = tokens.produce('ast_version', *map(str, __version_tuple__))
     fname = tokens.produce('filename', tokens.fname)
     return tokens.produce('compilation_unit', version, fname, *units[1:])

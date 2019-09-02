@@ -39,20 +39,33 @@ class Stopwatch:
 
 def get_parser():
     """Return argument parser"""
-    p = argparse.ArgumentParser(prog='fsource',
-                                description='Fortran analysis tool')
-    p.add_argument('command', choices=('splice', 'lex', 'parse'),
-                   help='command to execute')
+    p = argparse.ArgumentParser(
+        prog='fsource',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description="Fortran static analysis tool",
+        usage="fsource [--help] [OPTIONS] COMMAND FILE [FILE ...]",
+        epilog="""\
+available commands:
+  parse         construct an abstract syntax tree for declarations
+  lex           splits source into tokens
+  splice        splits source into sequence of logical lines
+"""
+        )
+    p.add_argument('command', metavar='COMMAND',
+                   choices=('splice', 'lex', 'parse'),
+                   help='command to execute (one of: parse, lex, splice)')
     p.add_argument('files', metavar='FILE', type=str, nargs='+',
                    help='files to parse')
+    p.add_argument('--version', action='version',
+                   version='%(prog)s ' + __version__)
     p.add_argument('--fixed-form', dest='form', action='store_const',
-                   const='fixed', default=None, help='Fixed form input')
+                   const='fixed', default=None, help='Force fixed form input')
     p.add_argument('--free-form', dest='form', action='store_const',
-                   const='free', help='Free form input')
+                   const='free', help='Force free form input')
     p.add_argument('--time', dest='output', action='store_const',
                    const='time', default='json',
-                   help='perform lexing but do not print result')
-    p.add_argument('--no-output', dest='output', action='store_const',
+                   help='process files but print timings only')
+    p.add_argument('--dry-run', dest='output', action='store_const',
                    const='no', help='do not output anything')
     return p
 
@@ -130,7 +143,9 @@ def pprint_parser(ast, out, level=0):
         'declaration_block',
         'contained_block',
         'execution_block',
-        'type_bound_procedures'
+        'type_bound_procedures',
+        'common_stmt',
+        'common_block',
         }
     repl = {
         True: 'true',
