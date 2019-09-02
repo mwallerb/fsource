@@ -501,104 +501,90 @@ def call_handler(tokens, lhs):
     expect(tokens, ')')
     return tokens.produce('call', lhs, *seq[1:])
 
-class ExpressionHandler:
-    def __init__(self):
-        prefix_ops = {
-            "not":    prefix_op_handler( 50, 'not_'),
-            "+":      prefix_op_handler(110, 'pos'),
-            "-":      prefix_op_handler(110, 'neg'),
-            "(":      parens_expr_handler,
-            "(/":     inplace_array('(/', '/)'),
-            "[":      inplace_array('[', ']')
-            }
-        infix_ops = {
-            "eqv":    ( 20, infix_op_handler( 20, 'eqv')),
-            "neqv":   ( 20, infix_op_handler( 20, 'neqv')),
-            "or":     ( 30, infix_op_handler( 30, 'or_')),
-            "and":    ( 40, infix_op_handler( 40, 'and_')),
-            "eq":     ( 60, infix_op_handler( 61, 'eq')),
-            "ne":     ( 60, infix_op_handler( 61, 'ne')),
-            "le":     ( 60, infix_op_handler( 61, 'le')),
-            "lt":     ( 60, infix_op_handler( 61, 'lt')),
-            "ge":     ( 60, infix_op_handler( 61, 'ge')),
-            "gt":     ( 60, infix_op_handler( 61, 'gt')),
-            "//":     ( 70, infix_op_handler( 71, 'concat')),
-            "+":      ( 80, infix_op_handler( 81, 'plus')),
-            "-":      ( 80, infix_op_handler( 81, 'minus')),
-            "*":      ( 90, infix_op_handler( 91, 'mul')),
-            "/":      ( 90, infix_op_handler( 91, 'div')),
-            "**":     (100, infix_op_handler(100, 'pow')),
-            "_":      (130, infix_op_handler(131, 'kind')),
-            "%":      (140, infix_op_handler(141, 'resolve')),
-            "(":      (140, call_handler),
-            }
+_PREFIX_OP_HANDLERS = {
+    "not":    prefix_op_handler( 50, 'not_'),
+    "+":      prefix_op_handler(110, 'pos'),
+    "-":      prefix_op_handler(110, 'neg'),
+    "(":      parens_expr_handler,
+    "(/":     inplace_array('(/', '/)'),
+    "[":      inplace_array('[', ']')
+    }
 
-        # Fortran 90 operator aliases
-        infix_ops["=="] = infix_ops["eq"]
-        infix_ops["/="] = infix_ops["ne"]
-        infix_ops["<="] = infix_ops["le"]
-        infix_ops[">="] = infix_ops["ge"]
-        infix_ops["<"]  = infix_ops["lt"]
-        infix_ops[">"]  = infix_ops["gt"]
+_INFIX_OP_HANDLERS = {
+    "eqv":    ( 20, infix_op_handler( 20, 'eqv')),
+    "neqv":   ( 20, infix_op_handler( 20, 'neqv')),
+    "or":     ( 30, infix_op_handler( 30, 'or_')),
+    "and":    ( 40, infix_op_handler( 40, 'and_')),
+    "eq":     ( 60, infix_op_handler( 61, 'eq')),
+    "ne":     ( 60, infix_op_handler( 61, 'ne')),
+    "le":     ( 60, infix_op_handler( 61, 'le')),
+    "lt":     ( 60, infix_op_handler( 61, 'lt')),
+    "ge":     ( 60, infix_op_handler( 61, 'ge')),
+    "gt":     ( 60, infix_op_handler( 61, 'gt')),
+    "//":     ( 70, infix_op_handler( 71, 'concat')),
+    "+":      ( 80, infix_op_handler( 81, 'plus')),
+    "-":      ( 80, infix_op_handler( 81, 'minus')),
+    "*":      ( 90, infix_op_handler( 91, 'mul')),
+    "/":      ( 90, infix_op_handler( 91, 'div')),
+    "**":     (100, infix_op_handler(100, 'pow')),
+    "_":      (130, infix_op_handler(131, 'kind')),
+    "%":      (140, infix_op_handler(141, 'resolve')),
+    "(":      (140, call_handler),
+    }
+_INFIX_OP_HANDLERS.update({
+    "==":    _INFIX_OP_HANDLERS["eq"],
+    "/=":    _INFIX_OP_HANDLERS["ne"],
+    "<=":    _INFIX_OP_HANDLERS["le"],
+    ">=":    _INFIX_OP_HANDLERS["ge"],
+    "<":     _INFIX_OP_HANDLERS["lt"],
+    ">":     _INFIX_OP_HANDLERS["gt"]
+    })
 
-        prefix_cats = {
-            lexer.CAT_STRING:     literal_handler('string'),
-            lexer.CAT_FLOAT:      literal_handler('float'),
-            lexer.CAT_INT:        literal_handler('int'),
-            lexer.CAT_RADIX:      literal_handler('radix'),
-            lexer.CAT_BOOLEAN:    literal_handler('bool'),
-            lexer.CAT_CUSTOM_DOT: custom_unary_handler(120),
-            lexer.CAT_WORD:       literal_handler('ref'),
-            }
-        infix_cats = {
-            lexer.CAT_CUSTOM_DOT: (10, custom_binary_handler(11))
-            }
 
-        self._infix_ops = infix_ops
-        self._infix_cats = infix_cats
-        self._prefix_ops = prefix_ops
-        self._prefix_cats = prefix_cats
+_PREFIX_CAT_HANDLERS = {
+    lexer.CAT_STRING:     literal_handler('string'),
+    lexer.CAT_FLOAT:      literal_handler('float'),
+    lexer.CAT_INT:        literal_handler('int'),
+    lexer.CAT_RADIX:      literal_handler('radix'),
+    lexer.CAT_BOOLEAN:    literal_handler('bool'),
+    lexer.CAT_CUSTOM_DOT: custom_unary_handler(120),
+    lexer.CAT_WORD:       literal_handler('ref'),
+    }
+_INFIX_CAT_HANDLERS = {
+    lexer.CAT_CUSTOM_DOT: (10, custom_binary_handler(11))
+    }
 
-    def get_prefix_handler(self, cat, token):
-        try:
-            if cat == lexer.CAT_SYMBOLIC_OP:
-                return self._prefix_ops[token]
-            elif cat == lexer.CAT_BUILTIN_DOT:
-                return self._prefix_ops[token.lower()]
-            else:
-                return self._prefix_cats[cat]
-        except KeyError:
-            raise NoMatch()
 
-    def get_infix_handler(self, cat, token):
-        try:
-            if cat == lexer.CAT_SYMBOLIC_OP:
-                return self._infix_ops[token]
-            elif cat == lexer.CAT_BUILTIN_DOT:
-                return self._infix_ops[token.lower()]
-            else:
-                return self._infix_cats[cat]
-        except KeyError:
-            raise NoMatch()
+def expr_handler(cat_handlers, op_handlers):
+    dispatch = {cat: (lambda token: handler)
+                for (cat, handler) in cat_handlers.items()}
 
-EXPR_HANDLER = ExpressionHandler()
+    dispatch[lexer.CAT_SYMBOLIC_OP] = lambda token: op_handlers[token]
+    dispatch[lexer.CAT_BUILTIN_DOT] = lambda token: op_handlers[token.lower()]
+    return lambda cat, token: dispatch[cat](token)
+
+expr_infix_handler = expr_handler(_INFIX_CAT_HANDLERS, _INFIX_OP_HANDLERS)
+
+expr_prefix_handler = expr_handler(_PREFIX_CAT_HANDLERS, _PREFIX_OP_HANDLERS)
 
 def expr(tokens, min_glue=0):
     # Get prefix
-    handler = EXPR_HANDLER.get_prefix_handler(*tokens.peek()[2:])
+    try:
+        handler = expr_prefix_handler(*tokens.peek()[2:])
+    except KeyError:
+        raise NoMatch()
     try:
         result = handler(tokens)
 
         # Cycle through appropriate infixes:
         while True:
             try:
-                glue, handler = EXPR_HANDLER.get_infix_handler(*tokens.peek()[2:])
-            except NoMatch:
+                glue, handler = expr_infix_handler(*tokens.peek()[2:])
+            except KeyError:
                 return result
-            else:
-                if glue < min_glue:
-                    return result
-                result = handler(tokens, result)
+            if glue < min_glue:
+                return result
+            result = handler(tokens, result)
     except NoMatch:
         raise ParserError(tokens, "Invalid expression")
 
