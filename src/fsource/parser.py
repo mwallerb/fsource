@@ -556,17 +556,12 @@ _INFIX_CAT_HANDLERS = {
 
 
 def expr_handler(cat_handlers, op_handlers):
-    def get_handler(cat, token):
-        try:
-            if cat == lexer.CAT_SYMBOLIC_OP:
-                return op_handlers[token]
-            elif cat == lexer.CAT_BUILTIN_DOT:
-                return op_handlers[token.lower()]
-            else:
-                return cat_handlers[cat]
-        except KeyError:
-            raise NoMatch()
-    return get_handler
+    dispatch = {cat: (lambda token: handler)
+                for (cat, handler) in cat_handlers.items()}
+
+    dispatch[lexer.CAT_SYMBOLIC_OP] = lambda token: op_handlers[token]
+    dispatch[lexer.CAT_BUILTIN_DOT] = lambda token: op_handlers[token.lower()]
+    return lambda cat, token: dispatch[cat](token)
 
 expr_infix_handler = expr_handler(_INFIX_CAT_HANDLERS, _INFIX_OP_HANDLERS)
 
@@ -574,7 +569,10 @@ expr_prefix_handler = expr_handler(_PREFIX_CAT_HANDLERS, _PREFIX_OP_HANDLERS)
 
 def expr(tokens, min_glue=0):
     # Get prefix
-    handler = expr_prefix_handler(*tokens.peek()[2:])
+    try:
+        handler = expr_prefix_handler(*tokens.peek()[2:])
+    except KeyError:
+        raise NoMatch()
     try:
         result = handler(tokens)
 
@@ -582,12 +580,11 @@ def expr(tokens, min_glue=0):
         while True:
             try:
                 glue, handler = expr_infix_handler(*tokens.peek()[2:])
-            except NoMatch:
+            except KeyError:
                 return result
-            else:
-                if glue < min_glue:
-                    return result
-                result = handler(tokens, result)
+            if glue < min_glue:
+                return result
+            result = handler(tokens, result)
     except NoMatch:
         raise ParserError(tokens, "Invalid expression")
 
