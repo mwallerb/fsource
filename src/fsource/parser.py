@@ -896,14 +896,12 @@ def preproc_stmt(tokens):
 def block(inner_rule, production_tag='block'):
     # Fortran blocks are delimited by one of these words, so we can use
     # them in failing fast
-    def block_rule(tokens, until_lineno=None):
+    def block_rule(tokens):
         stmts = []
         while True:
             cat, token = tokens.peek()[2:]
             if cat == lexer.CAT_INT:
                 tokens.advance()
-                if int(token) == until_lineno:        # non-block do construct
-                    break
             elif cat == lexer.CAT_EOS:
                 tokens.advance()
             elif cat == lexer.CAT_PREPROC:
@@ -1697,8 +1695,52 @@ optional_loop_ctrl = optional(loop_ctrl)
 
 end_do_stmt = end_stmt('do')
 
+def nonblock_do_block(tokens, lineno_stack):
+    try:
+        while True:
+            cat, token = tokens.peek()[2:]
+            if cat == lexer.CAT_INT:
+                lineno = int(token)
+                if lineno in lineno_stack:
+                    break          # We found a terminating token
+                tokens.advance()
+            elif cat == lexer.CAT_EOS:
+                tokens.advance()
+            elif cat == lexer.CAT_PREPROC:
+                preproc_stmt(tokens)
+            else:
+                try:
+                    do_construct(tokens, lineno_stack)
+                except NoMatch:
+                    execution_stmt(tokens)
+
+    except NoMatch:
+        raise ParserError(tokens, "invalid statement in non-block do")
+
+    # We have found the terminating statement, if it is further down the
+    # stack we have mismatched blocks
+    top_lineno = lineno_stack.pop()
+    if top_lineno != lineno:
+        raise ParserError(tokens, "non-block do blocks do not nest")
+
+    # Fortran allows the terminating label to be shared by multiple do blocks.
+    # In this case, we do not consume it since it must be used later.
+    if lineno in lineno_stack:
+        return
+
+    # In other cases, we need to consume the end since it might be a "stray"
+    # end do statement
+    tokens.advance()
+    try:
+        end_do_stmt(tokens)
+    except NoMatch:
+        try:
+            execution_stmt(tokens)
+        except NoMatch:
+            raise ParserError(tokens, "invalid end of non-block do")
+
 @rule
-def do_construct(tokens):
+def do_construct(tokens, lineno_stack=None):
     optional_construct_tag(tokens)
     expect(tokens, 'do')
     with LockedIn(tokens, "invalid do construct"):
@@ -1713,15 +1755,14 @@ def do_construct(tokens):
             end_do_stmt(tokens)
         else:
             # NONBLOCK DO CONSTRUCT
-            # TODO: nested non-block do constructs with shared end label
+            if lineno_stack is None:
+                lineno_stack = []
+            lineno_stack.append(until_lineno)
+
             marker(tokens, ',')
             optional_loop_ctrl(tokens)
             eos(tokens)
-            execution_part(tokens, until_lineno)
-            try:
-                end_do_stmt(tokens)
-            except NoMatch:
-                execution_stmt(tokens)
+            nonblock_do_block(tokens, lineno_stack)
 
 @rule
 def case_slice(tokens):
