@@ -24,6 +24,13 @@ module test
 
 contains
 
+    subroutine nastyconsts
+        integer :: i, ge
+        logical :: j
+
+        j = ge.GE.3. AND. 4. ne  .i
+    end subroutine
+
     ! Annoy the regex tools
 end &   ! subroutine
     module

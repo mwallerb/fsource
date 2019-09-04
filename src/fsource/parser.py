@@ -896,14 +896,12 @@ def preproc_stmt(tokens):
 def block(inner_rule, production_tag='block'):
     # Fortran blocks are delimited by one of these words, so we can use
     # them in failing fast
-    def block_rule(tokens, until_lineno=None):
+    def block_rule(tokens):
         stmts = []
         while True:
             cat, token = tokens.peek()[2:]
             if cat == lexer.CAT_INT:
                 tokens.advance()
-                if int(token) == until_lineno:        # non-block do construct
-                    break
             elif cat == lexer.CAT_EOS:
                 tokens.advance()
             elif cat == lexer.CAT_PREPROC:
@@ -1697,8 +1695,51 @@ optional_loop_ctrl = optional(loop_ctrl)
 
 end_do_stmt = end_stmt('do')
 
+def nonblock_do_block(tokens, lineno_stack):
+    try:
+        while True:
+            cat, token = tokens.peek()[2:]
+            if cat == lexer.CAT_INT:
+                lineno = int(token)
+                if lineno in lineno_stack:
+                    break          # We found a terminating token
+                tokens.advance()
+            elif cat == lexer.CAT_EOS:
+                tokens.advance()
+            elif cat == lexer.CAT_PREPROC:
+                preproc_stmt(tokens)
+            else:
+                try:
+                    do_construct(tokens, lineno_stack)
+                except NoMatch:
+                    execution_stmt(tokens)
+    except NoMatch:
+        raise ParserError(tokens, "invalid statement in non-block do")
+
+    # We have found the terminating statement, if it is further down the
+    # stack we have mismatched blocks
+    top_lineno = lineno_stack.pop()
+    if top_lineno != lineno:
+        raise ParserError(tokens, "non-block do blocks do not nest")
+
+    # Fortran allows the terminating label to be shared by multiple do blocks.
+    # In this case, we do not consume it since it must be used later.
+    if lineno in lineno_stack:
+        return
+
+    # In other cases, we need to consume the end since it might be a "stray"
+    # end do statement
+    tokens.advance()
+    try:
+        end_do_stmt(tokens)
+    except NoMatch:
+        try:
+            execution_stmt(tokens)
+        except NoMatch:
+            raise ParserError(tokens, "invalid end of non-block do")
+
 @rule
-def do_construct(tokens):
+def do_construct(tokens, lineno_stack=None):
     optional_construct_tag(tokens)
     expect(tokens, 'do')
     with LockedIn(tokens, "invalid do construct"):
@@ -1713,15 +1754,14 @@ def do_construct(tokens):
             end_do_stmt(tokens)
         else:
             # NONBLOCK DO CONSTRUCT
-            # TODO: nested non-block do constructs with shared end label
+            if lineno_stack is None:
+                lineno_stack = []
+            lineno_stack.append(until_lineno)
+
             marker(tokens, ',')
             optional_loop_ctrl(tokens)
             eos(tokens)
-            execution_part(tokens, until_lineno)
-            try:
-                end_do_stmt(tokens)
-            except NoMatch:
-                execution_stmt(tokens)
+            nonblock_do_block(tokens, lineno_stack)
 
 @rule
 def case_slice(tokens):
@@ -1889,6 +1929,9 @@ STMT_HANDLERS = {
     'read':       ignore_stmt,
     'rewind':     ignore_stmt,
     'write':      ignore_stmt,
+
+    # placement in execution part is discouraged, but occasionally used
+    'data':       data_stmt,
     }
 STMT_HANDLERS.update(CONSTRUCT_HANDLERS)
 
@@ -1960,17 +2003,52 @@ def program_decl(tokens):
         end_program_stmt(tokens)
         return tokens.produce('program_decl', name, decls, cont)
 
+block_data = composite('block', 'data')
+
+@rule
+def end_block_data_comp(tokens):
+    expect(tokens, 'endblockdata')
+    optional_identifier(tokens)
+    eos(tokens)
+
+@rule
+def end_block_data_sep(tokens):
+    expect(tokens, 'end')
+    if matches(block_data, tokens):
+        optional_identifier(tokens)
+    eos(tokens)
+
+def end_block_data_stmt(tokens):
+    try:
+        end_block_data_comp(tokens)
+    except NoMatch:
+        end_block_data_sep(tokens)
+
+@rule
+def block_data_decl(tokens):
+    block_data(tokens)
+    ident = optional_identifier(tokens)
+    eos(tokens)
+    with LockedIn(tokens, "invalid statement inside block data"):
+        decls = declaration_part(tokens)
+        end_block_data_stmt(tokens)
+        return tokens.produce('block_data_decl', ident, *decls[1:])
+
+_PROGRAM_UNIT_HANDLERS = {
+    'program':    program_decl,
+    'module':     module_decl,
+    'block':      block_data_decl,
+    'blockdata':  block_data_decl,
+    }
+
+prefixed_program_unit = prefixes(_PROGRAM_UNIT_HANDLERS)
+
 @rule
 def program_unit(tokens):
     try:
-        return program_decl(tokens)
-    except NoMatch: pass
-    try:
-        return module_decl(tokens)
+        return prefixed_program_unit(tokens)
     except NoMatch:
         return subprogram_decl(tokens)
-    # TODO: block_data
-    # TODO: make this faster
 
 program_unit_sequence = block(program_unit, 'program_unit_list')
 

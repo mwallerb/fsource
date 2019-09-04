@@ -89,7 +89,7 @@ def cmd_splice(args):
             if args.output == 'json':
                 for lineno, cat, line in lines(contents):
                     print("%d: %s: %s"
-                          % (lineno, splicer.LINECAT_NAMES[cat], line), end='')
+                          % (lineno+1, splicer.LINECAT_NAMES[cat], line), end='')
             else:
                 for _ in lines(contents): pass
     except common.ParsingError as e:
@@ -146,6 +146,7 @@ def pprint_parser(ast, out, level=0):
         'type_bound_procedures',
         'common_stmt',
         'common_block',
+        'block_data_decl',
         }
     repl = {
         True: 'true',

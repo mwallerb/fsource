@@ -37,3 +37,6 @@ def test_lexfixed():
 
 def test_simple():
     parsefile("simple.f90")
+
+def test_shareddo():
+    parsefile("shareddo.f")

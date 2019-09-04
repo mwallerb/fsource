@@ -152,12 +152,12 @@ def splice_free_form(mybuffer):
 def get_fixedform_line_regex():
     """Discriminate line type for fixed-form file"""
     line = r"""(?isx) ^
-        (?: [cC*!](.*)                                      # 1: comment
-            | [ ]{5}[^ 0] (.*)                              # 2: continuation
-            | [ \t]* (\#.*)                                 # 3: preprocessor
-            | [ ]{6} [ \t]* (include[ \t].*)                # 4: include line
-            | ( [ ][\d ]{4}[ ] [ \t]* format[ \t]*\(.* )    # 5: format line
-            | ( [ ][\d ]{4}[ ] [ \t]* .* | )                # 6: normal line
+        (?: [cC*!](.*)                                        # 1: comment
+            | [ ]{5}[^ 0] (.*)                                # 2: continuation
+            | [ \t]* (\#.*)                                   # 3: preprocessor
+            | [ ]{6} [ \t]* (include[ \t].*)                  # 4: include line
+            | ( [\d ]{5}[ 0] [ \t]* format[ \t]* (?:\(.*)?)   # 5: format line
+            | ( [\d ]{5}[ 0] [ \t]* .* )                      # 6: normal line
             ) $
             """
     return re.compile(line)
@@ -182,7 +182,13 @@ def splice_fixed_form(mybuffer, margin=72):
     fname = mybuffer.name
     lineno = 0
     for lineno, line in enumerate(mybuffer):
-        line = line[:margin].rstrip()
+        # Fixed-form line continuation works like this: the line is truncated
+        # at 72 characters and the continuation line is appended directly (you
+        # are allowed to break a token across lines).  This means we have to
+        # pad lines shorter than this with at least one whitespace character.
+        line = line.rstrip('\r\n')
+        line = (line + '      ')[:margin]
+
         match = line_regex.match(line)
         if not match:
             raise SpliceError(fname, lineno, line, "invalid fixed-form line")
@@ -195,10 +201,12 @@ def splice_fixed_form(mybuffer, margin=72):
                             "continuation marker without line to continue")
             stub += match.group(FIXED_CONTD)
             continue
-        else:
-            if stub and discr != FIXED_COMMENT:
-                yield lineno, cat, stub + "\n"
-                stub = None
+        elif stub:
+            # Discard comment lines in between continuations
+            if discr == FIXED_COMMENT:
+                continue
+            yield lineno-1, cat, stub + "\n"
+            stub = None
 
         if discr == FIXED_OTHER:
             cat = LINECAT_NORMAL
