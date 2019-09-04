@@ -1,6 +1,3 @@
-C0000&...:....,....:....,....:....,....:....,....:....,....:....,....:..
-*     Here's a comment
-! 0 Here's another one
       SUBROUTINE TEST_SUB( X,
      &                     Y,
 C        END SUBROUTINE   ! annoying!
@@ -11,8 +8,15 @@ C        END SUBROUTINE   ! annoying!
       INTEGER R, S, T
       COMMON /MY/ R, S, /OTHER/ T
 
-  39      X = Y
-     &        + Z
+      DO 10 I = 1, 30
+  39     X = Y + Z
+  10  ENDDO
+
+      DO 20 I = 1, 20
+         DO 20 J = 1, 10
+            X = Y - J * Z
+  20  CONTINUE
+
       END
 
       PROGRAM

@@ -1713,7 +1713,6 @@ def nonblock_do_block(tokens, lineno_stack):
                     do_construct(tokens, lineno_stack)
                 except NoMatch:
                     execution_stmt(tokens)
-
     except NoMatch:
         raise ParserError(tokens, "invalid statement in non-block do")
 
