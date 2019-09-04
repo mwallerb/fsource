@@ -201,10 +201,12 @@ def splice_fixed_form(mybuffer, margin=72):
                             "continuation marker without line to continue")
             stub += match.group(FIXED_CONTD)
             continue
-        else:
-            if stub and discr != FIXED_COMMENT:
-                yield lineno, cat, stub + "\n"
-                stub = None
+        elif stub:
+            # Discard comment lines in between continuations
+            if discr == FIXED_COMMENT:
+                continue
+            yield lineno-1, cat, stub + "\n"
+            stub = None
 
         if discr == FIXED_OTHER:
             cat = LINECAT_NORMAL
