@@ -76,7 +76,9 @@ def get_lexer_regex():
     postq = r"""(?!['"\w])"""
     dq_string = r""""(?:""|[^"\r\n])*"{postq}""".format(postq=postq)
     sq_string = r"""'(?:''|[^'\r\n])*'{postq}""".format(postq=postq)
-    postnum = r"""(?!['"&0-9A-Za-z]|\.[0-9])"""
+    postnum = r"""(?= [^.'"&0-9A-Za-z]
+                    | \.\s*[a-zA-Z]+\s*\.
+                    )"""
     integer = r"""\d+{postnum}""".format(postnum=postnum)
     decimal = r"""(?:\d+\.\d*|\.\d+)"""
     exponent = r"""(?:[dDeE][-+]?\d+)"""
@@ -96,8 +98,8 @@ def get_lexer_regex():
           | \( {skipws} (//?) {skipws} \)       #  2 bracketed slashes
           | ({operator})                        #  3 symbolic operator
           | (; | {comment}?{endline})           #  4 end of statement
-          | ({real})                            #  5 real
-          | ({int})                             #  6 ints
+          | ({int})                             #  5 ints
+          | ({real})                            #  6 real
           | \.\s* (?:
               ( true | false )                  #  7 boolean
             | ( {builtin_dot} )                 #  8 built-in dot operator
@@ -122,8 +124,8 @@ CAT_WORD = 1
 CAT_BRACKETED_SLASH = 2
 CAT_SYMBOLIC_OP = 3
 CAT_EOS = 4
-CAT_FLOAT = 5
-CAT_INT = 6
+CAT_INT = 5
+CAT_FLOAT = 6
 CAT_BOOLEAN = 7
 CAT_BUILTIN_DOT = 8
 CAT_CUSTOM_DOT = 9
@@ -133,8 +135,8 @@ CAT_PREPROC = 12
 CAT_INCLUDE = 13
 CAT_FORMAT = 14
 
-CAT_NAMES = ('eof', 'word', 'bracketed_slash', 'symop', 'eos', 'float',
-             'int', 'bool', 'dotop', 'custom_dotop', 'string',
+CAT_NAMES = ('eof', 'word', 'bracketed_slash', 'symop', 'eos', 'int',
+             'float', 'bool', 'dotop', 'custom_dotop', 'string',
              'radix', 'preproc', 'include', 'format')
 
 LINECAT_TO_CAT = {
