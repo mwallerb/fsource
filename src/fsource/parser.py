@@ -1929,6 +1929,9 @@ STMT_HANDLERS = {
     'read':       ignore_stmt,
     'rewind':     ignore_stmt,
     'write':      ignore_stmt,
+
+    # placement in execution part is discouraged, but occasionally used
+    'data':       data_stmt,
     }
 STMT_HANDLERS.update(CONSTRUCT_HANDLERS)
 
