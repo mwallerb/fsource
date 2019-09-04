@@ -156,8 +156,8 @@ def get_fixedform_line_regex():
             | [ ]{5}[^ 0] (.*)                                # 2: continuation
             | [ \t]* (\#.*)                                   # 3: preprocessor
             | [ ]{6} [ \t]* (include[ \t].*)                  # 4: include line
-            | ( [ ][\d ]{4}[ ] [ \t]* format[ \t]* (?:\(.*)?) # 5: format line
-            | ( [ ][\d ]{4}[ ] [ \t]* .* )                    # 6: normal line
+            | ( [\d ]{5}[ 0] [ \t]* format[ \t]* (?:\(.*)?)   # 5: format line
+            | ( [\d ]{5}[ 0] [ \t]* .* )                      # 6: normal line
             ) $
             """
     return re.compile(line)
