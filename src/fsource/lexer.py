@@ -132,16 +132,15 @@ CAT_CUSTOM_DOT = 9
 CAT_STRING = 10
 CAT_RADIX = 11
 CAT_PREPROC = 12
-CAT_INCLUDE = 13
-CAT_FORMAT = 14
+CAT_FORMAT = 13
 
 CAT_NAMES = ('eof', 'word', 'bracketed_slash', 'symop', 'eos', 'int',
              'float', 'bool', 'dotop', 'custom_dotop', 'string',
-             'radix', 'preproc', 'include', 'format')
+             'radix', 'preproc', 'format')
 
 LINECAT_TO_CAT = {
     splicer.LINECAT_PREPROC: CAT_PREPROC,
-    splicer.LINECAT_INCLUDE: CAT_INCLUDE,
+    splicer.LINECAT_INCLUDE: CAT_PREPROC,
     splicer.LINECAT_FORMAT: CAT_FORMAT
     }
 
