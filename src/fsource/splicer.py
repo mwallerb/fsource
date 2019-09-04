@@ -152,12 +152,12 @@ def splice_free_form(mybuffer):
 def get_fixedform_line_regex():
     """Discriminate line type for fixed-form file"""
     line = r"""(?isx) ^
-        (?: [cC*!](.*)                                      # 1: comment
-            | [ ]{5}[^ 0] (.*)                              # 2: continuation
-            | [ \t]* (\#.*)                                 # 3: preprocessor
-            | [ ]{6} [ \t]* (include[ \t].*)                # 4: include line
-            | ( [ ][\d ]{4}[ ] [ \t]* format[ \t]*\(.* )    # 5: format line
-            | ( [ ][\d ]{4}[ ] [ \t]* .* | )                # 6: normal line
+        (?: [cC*!](.*)                                        # 1: comment
+            | [ ]{5}[^ 0] (.*)                                # 2: continuation
+            | [ \t]* (\#.*)                                   # 3: preprocessor
+            | [ ]{6} [ \t]* (include[ \t].*)                  # 4: include line
+            | ( [ ][\d ]{4}[ ] [ \t]* format[ \t]* (?:\(.*)?) # 5: format line
+            | ( [ ][\d ]{4}[ ] [ \t]* .* )                    # 6: normal line
             ) $
             """
     return re.compile(line)
@@ -182,7 +182,13 @@ def splice_fixed_form(mybuffer, margin=72):
     fname = mybuffer.name
     lineno = 0
     for lineno, line in enumerate(mybuffer):
-        line = line[:margin].rstrip()
+        # Fixed-form line continuation works like this: the line is truncated
+        # at 72 characters and the continuation line is appended directly (you
+        # are allowed to break a token across lines).  This means we have to
+        # pad lines shorter than this with at least one whitespace character.
+        line = line.rstrip('\r\n')
+        line = (line + '      ')[:margin]
+
         match = line_regex.match(line)
         if not match:
             raise SpliceError(fname, lineno, line, "invalid fixed-form line")
