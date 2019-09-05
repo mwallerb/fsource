@@ -13,7 +13,7 @@ import os, os.path
 import pytest
 import pylint.lint
 
-HEREPATH = os.path.abspath(os.path.dirname(__file__))
+HEREPATH = os.path.dirname(os.path.realpath(__file__))
 
 if __name__ == '__main__':
     srcdir = os.path.join(HEREPATH, os.pardir, "src")
