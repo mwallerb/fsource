@@ -89,6 +89,11 @@ class Ignored(Node):
     def write_code(self, out):
         out.writeline("(IGNORED: %s)"  % repr(self.ast))
 
+    def get_code(self):
+        out = SyntaxWriter()
+        self.write_code(out)
+        return str(out)
+
 
 class CompilationUnit(Node):
     """Top node representing one file"""
@@ -106,7 +111,6 @@ class CompilationUnit(Node):
             out.writeline("")
         out.writeline("! END FILE %s" % self.filename)
 
-# USE something, ONLY:
 
 class Module(Node):
     def __init__(self, name, decls, contained):
@@ -130,9 +134,11 @@ class Module(Node):
 
 
 class Use(Node):
-    def __init__(self, modulename, symbollist):
+    def __init__(self, modulename, attrs, only, *symbollist):
         super().__init__()
         self.modulename = modulename
+        self.attrs = attrs
+        self.only = only is not None
         self.symbollist = symbollist
 
     def imbue(self, parent):
@@ -140,15 +146,12 @@ class Use(Node):
 
     def write_code(self, out):
         out.writeindent("USE %s" % self.modulename)
-        self.symbollist.write_code(out)
+        if self.only:
+            out.write(", ONLY: ")
+        elif self.symbollist:
+            out.write(", ")
+        out.write(", ".join(symbol.get_code() for symbol in self.symbollist))
         out.write("\n")
-
-
-class Imports:
-    def __init__(self, importall, *seq):
-        self.importall = importall
-        self.seq = seq
-
 
 
 def unpack(arg):
