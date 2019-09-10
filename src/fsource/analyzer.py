@@ -94,6 +94,9 @@ class Ignored(Node):
         self.write_code(out)
         return str(out)
 
+    def imbue(self, parent):
+        pass
+
 
 class CompilationUnit(Node):
     """Top node representing one file"""
@@ -102,6 +105,11 @@ class CompilationUnit(Node):
         self.ast_version = ast_version
         self.filename = fname
         self.objs = objs
+
+    def imbue(self):
+        self.modules = {}
+        for obj in self.objs:
+            obj.imbue(self)
 
     def write_code(self, out):
         out.writeline("! FILE %s" % self.filename)
