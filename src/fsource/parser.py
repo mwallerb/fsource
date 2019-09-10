@@ -556,16 +556,18 @@ _INFIX_CAT_HANDLERS = {
 
 
 def expr_handler(cat_handlers, op_handlers):
-    dispatch = {cat: (lambda token: handler)
-                for (cat, handler) in cat_handlers.items()}
-
-    dispatch[lexer.CAT_SYMBOLIC_OP] = lambda token: op_handlers[token]
-    dispatch[lexer.CAT_BUILTIN_DOT] = lambda token: op_handlers[token.lower()]
-    return lambda cat, token: dispatch[cat](token)
-
-expr_infix_handler = expr_handler(_INFIX_CAT_HANDLERS, _INFIX_OP_HANDLERS)
+    def get_handler(cat, token):
+        if cat == lexer.CAT_SYMBOLIC_OP:
+            return op_handlers[token]
+        elif cat == lexer.CAT_BUILTIN_DOT:
+            return op_handlers[token.lower()]
+        else:
+            return cat_handlers[cat]
+    return get_handler
 
 expr_prefix_handler = expr_handler(_PREFIX_CAT_HANDLERS, _PREFIX_OP_HANDLERS)
+
+expr_infix_handler = expr_handler(_INFIX_CAT_HANDLERS, _INFIX_OP_HANDLERS)
 
 def expr(tokens, min_glue=0):
     # Get prefix
