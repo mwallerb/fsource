@@ -896,12 +896,10 @@ def preproc_stmt(tokens):
     return ('preproc_stmt', expect_cat(tokens, lexer.CAT_PREPROC))
 
 def block(inner_rule, production_tag='block'):
-    # Fortran blocks are delimited by one of these words, so we can use
-    # them in failing fast
     def block_rule(tokens):
         stmts = []
         while True:
-            cat, token = tokens.peek()[2:]
+            cat = tokens.peek()[2]
             if cat == lexer.CAT_INT:
                 tokens.advance()
             elif cat == lexer.CAT_EOS:
@@ -919,7 +917,7 @@ def block(inner_rule, production_tag='block'):
 
 component_block = block(entity_decl, 'component_block')
 
-public_stmt =  tag_stmt('public', 'public')
+public_stmt = tag_stmt('public', 'public')
 
 private_stmt = tag_stmt('private', 'private')
 
@@ -1135,7 +1133,7 @@ _USE_ATTR_HANDLERS = {
     'non_intrinsic': tag('non_intrinsic', 'non_intrinsic'),
     }
 
-use_attr = prefixes(_USE_ATTR_HANDLERS )
+use_attr = prefixes(_USE_ATTR_HANDLERS)
 
 use_attrs = attribute_sequence(use_attr, 'use_attrs')
 
