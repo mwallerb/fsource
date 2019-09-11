@@ -896,12 +896,10 @@ def preproc_stmt(tokens):
     return ('preproc_stmt', expect_cat(tokens, lexer.CAT_PREPROC))
 
 def block(inner_rule, production_tag='block'):
-    # Fortran blocks are delimited by one of these words, so we can use
-    # them in failing fast
     def block_rule(tokens):
         stmts = []
         while True:
-            cat, token = tokens.peek()[2:]
+            cat = tokens.peek()[2]
             if cat == lexer.CAT_INT:
                 tokens.advance()
             elif cat == lexer.CAT_EOS:
@@ -919,7 +917,7 @@ def block(inner_rule, production_tag='block'):
 
 component_block = block(entity_decl, 'component_block')
 
-public_stmt =  tag_stmt('public', 'public')
+public_stmt = tag_stmt('public', 'public')
 
 private_stmt = tag_stmt('private', 'private')
 
@@ -1135,7 +1133,7 @@ _USE_ATTR_HANDLERS = {
     'non_intrinsic': tag('non_intrinsic', 'non_intrinsic'),
     }
 
-use_attr = prefixes(_USE_ATTR_HANDLERS )
+use_attr = prefixes(_USE_ATTR_HANDLERS)
 
 use_attrs = attribute_sequence(use_attr, 'use_attrs')
 
@@ -1218,7 +1216,6 @@ def implicit_stmt(tokens):
             eos(tokens)
             return specs
 
-@rule
 def dummy_arg(tokens):
     if marker(tokens, '*'):
         return '*'
@@ -1284,7 +1281,6 @@ _FUNC_PREFIX_HANDLERS = {
 
 func_modifier = prefixes(_FUNC_PREFIX_HANDLERS)
 
-@rule
 def func_prefix(tokens):
     try:
         return func_modifier(tokens)
@@ -1301,7 +1297,6 @@ def result_suffix(tokens):
     expect(tokens, ')')
     return ('result', res)
 
-@rule
 def func_suffix(tokens):
     try:
         return result_suffix(tokens)
@@ -1338,7 +1333,6 @@ def function_decl(tokens):
         return tokens.produce('function_decl', name, prefixes_, args, suffixes,
                               declarations_)
 
-@rule
 def subprogram_decl(tokens):
     try:
         return subroutine_decl(tokens)
@@ -1585,6 +1579,12 @@ def data_stmt(tokens):
     ignore_stmt(tokens)
     return tokens.produce('data_stmt')
 
+def derived_type_decl_or_entity(tokens):
+    try:
+        return entity_decl(tokens)
+    except NoMatch:
+        return type_decl(tokens)
+
 # TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
     'use':         use_stmt,
@@ -1607,21 +1607,15 @@ _DECLARATION_HANDLERS = {
     'save':        save_stmt,
     }
 
-prefixed_declaration_stmt = prefixes(_DECLARATION_HANDLERS)
+# Entity declarations begin with a type, but 'type' may also be a derived
+# type definition
+_DECLARATION_HANDLERS.update(
+    {prefix: entity_decl for prefix in _TYPE_SPEC_HANDLERS})
+_DECLARATION_HANDLERS['type'] = derived_type_decl_or_entity
 
-@rule
-def declaration_stmt(tokens):
-    try:
-        return prefixed_declaration_stmt(tokens)
-    except NoMatch:
-        try:
-            return type_decl(tokens)
-        except NoMatch:
-            return entity_decl(tokens)
+declaration_stmt = prefixes(_DECLARATION_HANDLERS)
 
 declaration_part = block(declaration_stmt, 'declaration_block')
-
-fenced_declaration_part = block(declaration_stmt, 'declaration_block')
 
 @rule
 def construct_tag(tokens):
@@ -1955,6 +1949,10 @@ def format_stmt(tokens):
     expect_cat(tokens, lexer.CAT_FORMAT)
 
 @rule
+def tagged_construct(tokens):
+    construct_tag(tokens)
+    construct(tokens)
+
 def execution_stmt(tokens):
     try:
         prefixed_stmt(tokens)
@@ -1963,15 +1961,10 @@ def execution_stmt(tokens):
             assignment_stmt(tokens)
         except NoMatch:
             try:
-                # This is the least likely, so it moved here.
-                construct_tag(tokens)
-                construct(tokens)
+                tagged_construct(tokens)
             except NoMatch:
                 format_stmt(tokens)
 
-# FIXME: even though this incurs a runtime penalty, we cannot use a simple
-#        fence here, since it is technically allowed to cause maximum confusion
-#        by naming a variable 'end'.
 execution_part = block(execution_stmt, 'execution_block')
 
 end_module_stmt = end_stmt('module', require_type=False)
@@ -1984,7 +1977,7 @@ def module_decl(tokens):
         eos(tokens)
 
     with LockedIn(tokens, "malformed statement inside module"):
-        decls = fenced_declaration_part(tokens)
+        decls = declaration_part(tokens)
         cont = optional_contained_part(tokens)
         end_module_stmt(tokens)
         return tokens.produce('module_decl', name, decls, cont)
@@ -2045,7 +2038,6 @@ _PROGRAM_UNIT_HANDLERS = {
 
 prefixed_program_unit = prefixes(_PROGRAM_UNIT_HANDLERS)
 
-@rule
 def program_unit(tokens):
     try:
         return prefixed_program_unit(tokens)
