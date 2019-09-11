@@ -1619,8 +1619,6 @@ declaration_stmt = prefixes(_DECLARATION_HANDLERS)
 
 declaration_part = block(declaration_stmt, 'declaration_block')
 
-fenced_declaration_part = block(declaration_stmt, 'declaration_block')
-
 @rule
 def construct_tag(tokens):
     expect_cat(tokens, lexer.CAT_WORD)
@@ -1969,9 +1967,6 @@ def execution_stmt(tokens):
             except NoMatch:
                 format_stmt(tokens)
 
-# FIXME: even though this incurs a runtime penalty, we cannot use a simple
-#        fence here, since it is technically allowed to cause maximum confusion
-#        by naming a variable 'end'.
 execution_part = block(execution_stmt, 'execution_block')
 
 end_module_stmt = end_stmt('module', require_type=False)
@@ -1984,7 +1979,7 @@ def module_decl(tokens):
         eos(tokens)
 
     with LockedIn(tokens, "malformed statement inside module"):
-        decls = fenced_declaration_part(tokens)
+        decls = declaration_part(tokens)
         cont = optional_contained_part(tokens)
         end_module_stmt(tokens)
         return tokens.produce('module_decl', name, decls, cont)
