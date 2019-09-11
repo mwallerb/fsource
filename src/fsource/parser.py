@@ -47,6 +47,10 @@ class NoMatch(Exception):
     """
 
 
+class EndOfBlock(Exception):
+    """A performance-enhancing exception"""
+
+
 class ParserError(common.ParsingError):
     """Current rule does not match even though it should, fail meaningfully.
 
@@ -1888,7 +1892,18 @@ def where_construct(tokens):
                 execution_part(tokens)
             end_where_stmt(tokens)
 
-# ELSE WHERE
+def fast_end_handler(tokens):
+    tokens.push()
+    tokens.advance()
+    try:
+        cat, token = next(tokens)[2:]
+        if cat == lexer.CAT_WORD or cat == lexer.CAT_EOS:
+            raise EndOfBlock()
+        else:
+            raise NoMatch()
+    finally:
+        tokens.backtrack()
+
 CONSTRUCT_HANDLERS = {
     'if':         if_construct,
     'do':         do_construct,
@@ -1928,6 +1943,16 @@ STMT_HANDLERS = {
 
     # placement in execution part is discouraged, but occasionally used
     'data':       data_stmt,
+
+    # use fast end handlers
+    'end':           fast_end_handler,
+    'endif':         fast_end_handler,
+    'enddo':         fast_end_handler,
+    'endwhere':      fast_end_handler,
+    'endselect':     fast_end_handler,
+    'endsubroutine': fast_end_handler,
+    'endfunction':   fast_end_handler,
+    'contains':      fast_end_handler
     }
 STMT_HANDLERS.update(CONSTRUCT_HANDLERS)
 
@@ -1964,6 +1989,8 @@ def execution_stmt(tokens):
                 tagged_construct(tokens)
             except NoMatch:
                 format_stmt(tokens)
+    except EndOfBlock:
+        raise NoMatch()
 
 execution_part = block(execution_stmt, 'execution_block')
 
