@@ -1581,6 +1581,12 @@ def data_stmt(tokens):
     ignore_stmt(tokens)
     return tokens.produce('data_stmt')
 
+def derived_type_decl_or_entity(tokens):
+    try:
+        return entity_decl(tokens)
+    except NoMatch:
+        return type_decl(tokens)
+
 # TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
     'use':         use_stmt,
@@ -1603,17 +1609,13 @@ _DECLARATION_HANDLERS = {
     'save':        save_stmt,
     }
 
-prefixed_declaration_stmt = prefixes(_DECLARATION_HANDLERS)
+# Entity declarations begin with a type, but 'type' may also be a derived
+# type definition
+_DECLARATION_HANDLERS.update(
+    {prefix: entity_decl for prefix in _TYPE_SPEC_HANDLERS})
+_DECLARATION_HANDLERS['type'] = derived_type_decl_or_entity
 
-@rule
-def declaration_stmt(tokens):
-    try:
-        return prefixed_declaration_stmt(tokens)
-    except NoMatch:
-        try:
-            return type_decl(tokens)
-        except NoMatch:
-            return entity_decl(tokens)
+declaration_stmt = prefixes(_DECLARATION_HANDLERS)
 
 declaration_part = block(declaration_stmt, 'declaration_block')
 
