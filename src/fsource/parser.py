@@ -366,16 +366,16 @@ def implied_do(tokens):
     expect(tokens, '(')
     args.append(expr(tokens))
     expect(tokens, ',')
-    with LockedIn(tokens, "invalid implied do"):
-        while True:
-            try:
-                do_ctrl_result = do_ctrl(tokens)
-            except NoMatch:
-                args.append(expr(tokens))
-                expect(tokens, ',')
-            else:
-                expect(tokens, ')')
-                return tokens.produce('impl_do', do_ctrl_result, *args)
+    while True:
+        try:
+            do_ctrl_result = do_ctrl(tokens)
+            break
+        except NoMatch:
+            args.append(expr(tokens))
+            expect(tokens, ',')
+
+    expect(tokens, ')')
+    return tokens.produce('impl_do', do_ctrl_result, *args)
 
 def inplace_array(open_delim, close_delim):
     @rule

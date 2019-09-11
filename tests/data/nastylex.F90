@@ -22,6 +22,8 @@ module test
             ! here's another one
                         + 3
 
+    double complex :: A(10) = (/ (1.0,4.0), (CMPLX(1.0*I), I=1,8), (3.0,10.0) /)
+
 contains
 
     subroutine nastyconsts
