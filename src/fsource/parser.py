@@ -1955,6 +1955,10 @@ def format_stmt(tokens):
     expect_cat(tokens, lexer.CAT_FORMAT)
 
 @rule
+def tagged_construct(tokens):
+    construct_tag(tokens)
+    construct(tokens)
+
 def execution_stmt(tokens):
     try:
         prefixed_stmt(tokens)
@@ -1963,9 +1967,7 @@ def execution_stmt(tokens):
             assignment_stmt(tokens)
         except NoMatch:
             try:
-                # This is the least likely, so it moved here.
-                construct_tag(tokens)
-                construct(tokens)
+                tagged_construct(tokens)
             except NoMatch:
                 format_stmt(tokens)
 
@@ -2045,7 +2047,6 @@ _PROGRAM_UNIT_HANDLERS = {
 
 prefixed_program_unit = prefixes(_PROGRAM_UNIT_HANDLERS)
 
-@rule
 def program_unit(tokens):
     try:
         return prefixed_program_unit(tokens)
