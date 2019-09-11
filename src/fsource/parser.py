@@ -1218,7 +1218,6 @@ def implicit_stmt(tokens):
             eos(tokens)
             return specs
 
-@rule
 def dummy_arg(tokens):
     if marker(tokens, '*'):
         return '*'
@@ -1284,7 +1283,6 @@ _FUNC_PREFIX_HANDLERS = {
 
 func_modifier = prefixes(_FUNC_PREFIX_HANDLERS)
 
-@rule
 def func_prefix(tokens):
     try:
         return func_modifier(tokens)
@@ -1301,7 +1299,6 @@ def result_suffix(tokens):
     expect(tokens, ')')
     return ('result', res)
 
-@rule
 def func_suffix(tokens):
     try:
         return result_suffix(tokens)
@@ -1338,7 +1335,6 @@ def function_decl(tokens):
         return tokens.produce('function_decl', name, prefixes_, args, suffixes,
                               declarations_)
 
-@rule
 def subprogram_decl(tokens):
     try:
         return subroutine_decl(tokens)
