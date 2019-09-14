@@ -431,22 +431,6 @@ def argument(tokens):
 
 subscript_sequence = comma_sequence(argument, 'sub_list', allow_empty=True)
 
-def lvalue(tokens):
-    # lvalue is subject to stricter scrutiny, than an expression, since it
-    # is used in the assignment statement.
-    result = id_ref(tokens)
-    with LockedIn(tokens, "invalid lvalue"):
-        while True:
-            if marker(tokens, '('):
-                seq = subscript_sequence(tokens)
-                expect(tokens, ')')
-                result = tokens.produce('call', result, *seq[1:])
-            if marker(tokens, '%'):
-                dependant = id_ref(tokens)
-                result = tokens.produce('resolve', result, dependant)
-            else:
-                return result
-
 def prefix_op_handler(subglue, action):
     def prefix_op_handle(tokens):
         tokens.advance()
@@ -505,6 +489,12 @@ def call_handler(tokens, lhs):
     expect(tokens, ')')
     return tokens.produce('call', lhs, *seq[1:])
 
+def resolve_handler(tokens, lhs):
+    tokens.advance()
+    rhs = id_ref(tokens)
+    return tokens.produce('resolve', lhs, rhs)
+
+
 _PREFIX_OP_HANDLERS = {
     "not":    prefix_op_handler( 50, 'not_'),
     "+":      prefix_op_handler(110, 'pos'),
@@ -532,7 +522,7 @@ _INFIX_OP_HANDLERS = {
     "/":      ( 90, infix_op_handler( 91, 'div')),
     "**":     (100, infix_op_handler(100, 'pow')),
     "_":      (130, infix_op_handler(131, 'kind')),
-    "%":      (140, infix_op_handler(141, 'resolve')),
+    "%":      (140, resolve_handler),
     "(":      (140, call_handler),
     }
 _INFIX_OP_HANDLERS.update({
@@ -595,6 +585,23 @@ def expr(tokens, min_glue=0):
         raise ParserError(tokens, "Invalid expression")
 
 _optional_expr = optional(expr)
+
+
+def lvalue(tokens):
+    # lvalue is subject to stricter scrutiny, than an expression, since it
+    # is used in the assignment statement.
+    result = id_ref(tokens)
+    try:
+        while True:
+            token = tokens.peek()[3]
+            if token == '(':
+                result = call_handler(tokens, result)
+            elif token == '%':
+                result = resolve_handler(tokens, result)
+            else:
+                return result
+    except NoMatch:
+        raise ParserError(tokens, "Invalid lvalue")
 
 # -----------
 
