@@ -1069,29 +1069,45 @@ def rename(tokens):
 rename_sequence = comma_sequence(rename, 'rename_list')
 
 @rule
+def bracketed_oper(tokens):
+    expect(tokens, '(')
+    cat, token = next(tokens)[2:]
+    if cat == lexer.CAT_CUSTOM_DOT:
+        oper = tokens.produce('custom_op', token)
+    elif cat == lexer.CAT_SYMBOLIC_OP or lexer.CAT_BUILTIN_DOT:
+        oper = token
+    expect(tokens, ')')
+    return oper
+
+@rule
+def bracketed_slashes(tokens):
+    # It is impossible for the lexer to disambiguate between an empty
+    # in-place array (//) and bracketed slashes, so we handle it here:
+    bracketed_slash_re = re.compile(r'\((//?)\)')
+    tokstr = ''
+    for _ in range(3):
+        token = next(tokens)[3]
+        tokstr += token
+        match = bracketed_slash_re.match(tokstr)
+        if match:
+            return match.group(1)
+    else:
+        raise NoMatch()
+
+@rule
 def oper_spec(tokens):
     if marker(tokens, 'assignment'):
         expect(tokens, '(')
         expect(tokens, '=')
         expect(tokens, ')')
-        return tokens.produce('oper_spec', '=')
+        oper = '='
     else:
         expect(tokens, 'operator')
         try:
-            # It is impossible for the lexer to disambiguate between an empty
-            # in-place array (//) and bracketed slashes, so we handle it here:
-            oper = expect_cat(tokens, lexer.CAT_BRACKETED_SLASH)
+            oper = bracketed_oper(tokens)
         except NoMatch:
-            expect(tokens, '(')
-            cat, token = next(tokens)[2:]
-            if cat == lexer.CAT_CUSTOM_DOT:
-                oper = tokens.produce('custom_op', token)
-            elif cat == lexer.CAT_SYMBOLIC_OP or lexer.CAT_BUILTIN_DOT:
-                oper = token
-            else:
-                raise NoMatch()
-            expect(tokens, ')')
-        return tokens.produce('oper_spec', oper)
+            oper = bracketed_slashes(tokens)
+    return tokens.produce('oper_spec', oper)
 
 def iface_name(tokens):
     try:
