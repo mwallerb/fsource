@@ -94,7 +94,7 @@ def get_lexer_regex():
     word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&'"])"""
     formattok = r"""\d*(?: [IBOZ] \d+ (?: \.\d+)?
                          | [FD]   \d+     \.\d+
-                         | E[NS]? \d+     \.\d+  (   E\d+)?
+                         | E[NS]? \d+     \.\d+  (?: E\d+)?
                          | G      \d+ (?: \.\d+  (?: E\d+)?)?
                          | L      \d+
                          | A      \d*
