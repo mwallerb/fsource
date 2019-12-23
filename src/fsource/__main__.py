@@ -7,12 +7,13 @@ See LICENSE.txt for permissions on usage, modification and distribution
 """
 from __future__ import print_function
 import argparse
+import errno
 import time
 import sys
 import json
 import textwrap
 
-from . import __version__
+from . import __version__, __version_tuple__
 from . import splicer
 from . import lexer
 from . import parser
@@ -106,7 +107,8 @@ def pprint_lex(mylexer, out, filename=None):
     encode_string = json.encoder.encode_basestring
 
     out.write('[\n')
-    out.write('["lex_version", "1.0"],\n')
+    out.write('["lex_version", %s],\n' %
+              ", ".join('"%s"' % v for v in __version_tuple__))
     out.write('["filename", %s],\n' % encode_string(filename))
     for _, _, cat, token in mylexer:
         out.write('["%s",%s]' % (lexer.CAT_NAMES[cat], encode_string(token)))
@@ -156,7 +158,7 @@ def pprint_parser(ast, out, level=0):
         True: 'true',
         False: 'false',
         None: 'null'
-    }
+        }
 
     if isinstance(ast, tuple):
         out.write("[" + encode_basestring(ast[0]))
@@ -209,8 +211,8 @@ def main():
         if args.output == 'time':
             sys.stderr.write("Elapsed: %g sec\n" % rabbit.total())
     except IOError as e:
-        p.error(e)
-
+        if e.errno != errno.EPIPE:
+            raise
 
 if __name__ == '__main__':
     main()

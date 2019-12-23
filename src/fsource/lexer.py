@@ -231,19 +231,3 @@ def lex_snippet(fstring):
     """Perform lexical analysis of parts of a line"""
     return tuple(tokenize_regex(get_lexer_regex(), fstring)) \
            + ((CAT_DOLLAR, ''),)
-
-
-def pprint(lexer, out, filename=None):
-    """Make nicely formatted JSON output from lexer output"""
-    from json.encoder import encode_basestring
-    out.write('[\n')
-    out.write('["lex_version", "1.0"],\n')
-    out.write('["filename", %s],\n' % encode_basestring(filename))
-    for cat, token in lexer:
-        out.write('["%s",%s]' % (CAT_NAMES[cat], encode_basestring(token)))
-        if cat == CAT_EOS or cat == CAT_PREPROC:
-            out.write(',\n')
-        elif cat == CAT_DOLLAR:
-            out.write('\n]\n')
-        else:
-            out.write(', ')
