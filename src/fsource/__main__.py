@@ -10,6 +10,7 @@ import argparse
 import time
 import sys
 import json
+import textwrap
 
 from . import __version__
 from . import splicer
@@ -39,29 +40,32 @@ class Stopwatch:
 
 def get_parser():
     """Return argument parser"""
+    command_summary = textwrap.dedent("""\
+        Fortran static analyis tool
+
+        available commands:
+          parse         construct abstract syntax tree for declarations
+          lex           split source into tokens
+          splice        split source into sequence of logical lines
+        """)
+
     p = argparse.ArgumentParser(
-        prog='fsource',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="Fortran static analysis tool",
-        usage="fsource [--help] [OPTIONS] COMMAND FILE [FILE ...]",
-        epilog="""\
-available commands:
-  parse         construct an abstract syntax tree for declarations
-  lex           splits source into tokens
-  splice        splits source into sequence of logical lines
-"""
-        )
+            prog='fsource',
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=command_summary,
+            usage="fsource COMMAND FILE [FILE ...]"
+            )
     p.add_argument('command', metavar='COMMAND',
                    choices=('splice', 'lex', 'parse'),
-                   help='command to execute (one of: parse, lex, splice)')
+                   help=argparse.SUPPRESS)
     p.add_argument('files', metavar='FILE', type=str, nargs='+',
-                   help='files to parse')
+                   help="Fortran file(s) to process")
     p.add_argument('--version', action='version',
                    version='%(prog)s ' + __version__)
     p.add_argument('--fixed-form', dest='form', action='store_const',
-                   const='fixed', default=None, help='Force fixed form input')
+                   const='fixed', default=None, help='force fixed form input')
     p.add_argument('--free-form', dest='form', action='store_const',
-                   const='free', help='Force free form input')
+                   const='free', help='force free form input')
     p.add_argument('--time', dest='output', action='store_const',
                    const='time', default='json',
                    help='process files but print timings only')

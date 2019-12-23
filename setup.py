@@ -13,6 +13,7 @@ from setuptools import setup, find_packages
 
 HEREPATH = os.path.abspath(os.path.dirname(__file__))
 VERSION_RE = re.compile(r"^__version__\s*=\s*['\"]([^'\"]*)['\"]", re.M)
+DOCLINK_RE = re.compile(r"(?m)^\s*\[\s*([^\]\n\r]+)\s*\]:\s*(doc/[./\w]+)\s*$")
 
 def readfile(*parts):
     fullpath = os.path.join(HEREPATH, *parts)
@@ -24,8 +25,16 @@ def extract_version(*parts):
     match = VERSION_RE.search(initfile)
     return match.group(1)
 
-LONG_DESCRIPTION = readfile('README.md')
+def rebase_links(text, base_url):
+    result, nsub = DOCLINK_RE.subn(r"[\1]: %s/\2" % base_url, text)
+    return result
+
 VERSION = extract_version('src', 'fsource', '__init__.py')
+REPO_URL = "https://github.com/mwallerb/fsource"
+
+# Make sure links work on the PyPI package
+_DOCTREE_URL = REPO_URL + "/tree/master"
+LONG_DESCRIPTION = rebase_links(readfile('README.md'), _DOCTREE_URL)
 
 setup(
     name='fsource',
@@ -50,7 +59,7 @@ setup(
         'Programming Language :: Python :: 3',
         ],
 
-    url='https://github.com/mwallerb/fsource',
+    url=REPO_URL,
     author='Markus Wallerberger',
     author_email='markus.wallerberger@tuwien.ac.at',
 

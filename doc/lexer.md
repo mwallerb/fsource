@@ -31,7 +31,6 @@ Each token is associated with one category of the following:
  | `bool`            | boolean literal          | .`true`.             |
  | `dotop`           | dot-delimited operator   | .`eq`.               |
  | `custom_dotop`    | user-defined operator    | .`myoperator`.       |
- | `bracketed_slash` | bracketed slash(es)      | (`//`)               |
  | `symop`           | symbolic operator        | `**`                 |
  | `format`          | format statement         | `FORMAT (3I2)\n`     |
  | `word`            | identifier or keyword    | `counter`            |
@@ -45,10 +44,10 @@ Lexical analysis must deal with three ambiguities in the Fortran grammar:
     lexer always returns single `:`, which means one gets `::` as a
     sequence of two `:` and cannot detect whitespace within a seperator.
 
- 2. `(//)` can mean an empty inplace array or an overloaded `//` operator,
-    and `(/)`, which is ambiguous for a similar reason.  To work around
-    this lexer will return a token of category `bracketed_slash`, and
-    the application must disambiguate.
+ 2. '(//)' can mean an empty inplace array or an overloaded '//' operator,
+    and '(/)' is ambiguous for a similar reason.  The lexer acts greedy in
+    this case, returning tokens '(/' and '/)' if found.  The application must
+    then disambiguate.
 
  3. The `FORMAT` statement is a bit of an oddball, as it allows tokens that
     are illegal everywhere else, e.g., `3I6` or `ES13.2`.  The lexer works

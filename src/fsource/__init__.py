@@ -7,6 +7,6 @@ See LICENSE.txt for permissions on usage, modification and distribution
 """
 from __future__ import print_function
 
-__version__ = "0.4"
+__version__ = "0.4.1"
 
 __version_tuple__ = tuple(map(int, __version__.split(".")))
