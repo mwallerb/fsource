@@ -1993,10 +1993,6 @@ def assignment_stmt(tokens):
         eos(tokens)
 
 @rule
-def format_stmt(tokens):
-    expect_cat(tokens, lexer.CAT_FORMAT)
-
-@rule
 def tagged_construct(tokens):
     construct_tag(tokens)
     construct(tokens)
@@ -2008,10 +2004,7 @@ def execution_stmt(tokens):
         try:
             assignment_stmt(tokens)
         except NoMatch:
-            try:
-                tagged_construct(tokens)
-            except NoMatch:
-                format_stmt(tokens)
+            tagged_construct(tokens)
     except EndOfBlock:
         raise NoMatch()
 
