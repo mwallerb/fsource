@@ -23,8 +23,8 @@ Lexical analysis must deal with three ambiguities in the Fortran grammar:
 
  3. The 'FORMAT' statement is a bit of an oddball, as it allows tokens that
     are illegal everywhere else, e.g., 3I6 or ES13.2.  The lexer works
-    around this by returning the format line as single token of category
-    `CAT_FORMAT`.
+    around this by returning a special `CAT_FORMAT` token for such specifiers,
+    and the parser must ensure they appear in the format statement.
 
 Copyright 2019 Markus Wallerberger
 Released under the GNU Lesser General Public License, Version 3 only.

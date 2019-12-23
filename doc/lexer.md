@@ -32,7 +32,7 @@ Each token is associated with one category of the following:
  | `dotop`           | dot-delimited operator   | .`eq`.               |
  | `custom_dotop`    | user-defined operator    | .`myoperator`.       |
  | `symop`           | symbolic operator        | `**`                 |
- | `format`          | format statement         | `FORMAT (3I2)\n`     |
+ | `format`          | format specifier         | `3E13.7`             |
  | `word`            | identifier or keyword    | `counter`            |
 
 **Note** that enclosing dots in dot-delimited operators as well as the
@@ -51,6 +51,6 @@ Lexical analysis must deal with three ambiguities in the Fortran grammar:
 
  3. The `FORMAT` statement is a bit of an oddball, as it allows tokens that
     are illegal everywhere else, e.g., `3I6` or `ES13.2`.  The lexer works
-    around this by returning the format line as single token of category
-    `format`.
+    around this by returning a special `CAT_FORMAT` token for such specifiers,
+    and the parser must ensure they appear in the format statement.
 
