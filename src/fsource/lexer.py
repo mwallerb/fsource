@@ -92,6 +92,15 @@ def get_lexer_regex():
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
     word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&'"])"""
+    formattok = r"""\d*(?: [IBOZ] \d+ (?: \.\d+)?
+                         | [FD]   \d+     \.\d+
+                         | E[NS]? \d+     \.\d+  (   E\d+)?
+                         | G      \d+ (?: \.\d+  (?: E\d+)?)?
+                         | L      \d+
+                         | A      \d*
+                         | [XP]
+                         )(?=\s*[:/,)])"""
+
     fortran_token = r"""(?ix)
           {skipws}(?:
             ({word})                            #  1 word
@@ -107,6 +116,7 @@ def get_lexer_regex():
             ) \s*\.
           | ({sqstring} | {dqstring})           # 10 strings
           | ({binary} | {octal} | {hex})        # 11 radix literals
+          | ({format})                          # 12 format specifier
           | [^ \t]+                             #    invalid token
           )
         """.format(
@@ -114,7 +124,7 @@ def get_lexer_regex():
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                dotop=dotop, word=word
+                dotop=dotop, word=word, format=formattok
                 )
     return re.compile(fortran_token)
 
@@ -131,17 +141,16 @@ CAT_BUILTIN_DOT = 8
 CAT_CUSTOM_DOT = 9
 CAT_STRING = 10
 CAT_RADIX = 11
-CAT_PREPROC = 12
-CAT_FORMAT = 13
+CAT_FORMAT = 12
+CAT_PREPROC = 13
 
 CAT_NAMES = ('eof', 'word', 'bracketed_slash', 'symop', 'eos', 'int',
              'float', 'bool', 'dotop', 'custom_dotop', 'string',
-             'radix', 'preproc', 'format')
+             'radix', 'format', 'preproc')
 
 LINECAT_TO_CAT = {
     splicer.LINECAT_PREPROC: CAT_PREPROC,
     splicer.LINECAT_INCLUDE: CAT_PREPROC,
-    splicer.LINECAT_FORMAT: CAT_FORMAT
     }
 
 

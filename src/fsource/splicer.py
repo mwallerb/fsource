@@ -50,11 +50,10 @@ def get_freeform_line_regex():
     line = r"""(?ix) ^[ \t]*
         (?: ( {preproc} ) {endline}                  # 1 preprocessor stmt
             | ( {include} {endline} )                # 2 include line
-            | ( {format} {endline} )                 # 3 format stmt
-            | ( {atom}* ) (?:                        # 4 whole line part
-                  ( {comment}? {endline} )             # 5 full line end
-                | ( & [ \t]* {comment}? {endline} )    # 6 truncated line end
-                | ( {truncstr} ) &[ \t]* {endline}     # 7 truncated string end
+            | ( {atom}* ) (?:                        # 3 whole line part
+                  ( {comment}? {endline} )             # 4 full line end
+                | ( & [ \t]* {comment}? {endline} )    # 5 truncated line end
+                | ( {truncstr} ) &[ \t]* {endline}     # 6 truncated string end
               )
             ) $
         """.format(preproc=preproc, include=include, format=format_,
@@ -66,11 +65,10 @@ def get_freeform_line_regex():
 
 FREE_PREPROC = 1
 FREE_INCLUDE = 2
-FREE_FORMAT = 3
-FREE_WHOLE_PART = 4
-FREE_FULL_END = 5
-FREE_TRUNC_END = 6
-FREE_TRUNC_STRING_END = 7
+FREE_WHOLE_PART = 3
+FREE_FULL_END = 4
+FREE_TRUNC_END = 5
+FREE_TRUNC_STRING_END = 6
 
 
 def get_freeform_contd_regex():
@@ -92,10 +90,9 @@ CONTD_SPILL = 2
 
 LINECAT_NORMAL = 1
 LINECAT_INCLUDE = 2
-LINECAT_FORMAT = 3
-LINECAT_PREPROC = 4
+LINECAT_PREPROC = 3
 
-LINECAT_NAMES = (None, 'line', 'include', 'format', 'preproc', 'comment')
+LINECAT_NAMES = (None, 'line', 'include', 'preproc', 'comment')
 
 
 def splice_free_form(mybuffer):
@@ -139,8 +136,6 @@ def splice_free_form(mybuffer):
                 trunc_str = ppstmt[:-1]
             else:
                 yield lineno, LINECAT_PREPROC, ppstmt + '\n'
-        elif discr == FREE_FORMAT:
-            yield lineno, LINECAT_FORMAT, line
         else:
             yield lineno, LINECAT_INCLUDE, line
 
@@ -156,7 +151,6 @@ def get_fixedform_line_regex():
             | [ ]{5}[^ 0] (.*)                                # 2: continuation
             | [ \t]* (\#.*)                                   # 3: preprocessor
             | [ ]{6} [ \t]* (include[ \t].*)                  # 4: include line
-            | ( [\d ]{5}[ 0] [ \t]* format[ \t]* (?:\(.*)?)   # 5: format line
             | ( [\d ]{5}[ 0] [ \t]* .* )                      # 6: normal line
             ) $
             """
@@ -167,8 +161,7 @@ FIXED_COMMENT = 1
 FIXED_CONTD = 2
 FIXED_PREPROC = 3
 FIXED_INCLUDE = 4
-FIXED_FORMAT = 5
-FIXED_OTHER = 6
+FIXED_OTHER = 5
 
 
 def splice_fixed_form(mybuffer, margin=72):
@@ -213,9 +206,6 @@ def splice_fixed_form(mybuffer, margin=72):
             stub = match.group(FIXED_OTHER)
         elif discr == FIXED_COMMENT:
             yield lineno, LINECAT_NORMAL, "!" + match.group(FIXED_COMMENT) + "\n"
-        elif discr == FIXED_FORMAT:
-            cat = LINECAT_FORMAT
-            stub = match.group(FIXED_FORMAT)
         elif discr == FIXED_INCLUDE:
             yield lineno, LINECAT_INCLUDE, match.group(FIXED_INCLUDE) + "\n"
         else:  # discr == FIXED_PREPROC
