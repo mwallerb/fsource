@@ -76,7 +76,7 @@ CONTD_SPILL = 2
 LINECAT_NORMAL = 1
 LINECAT_PREPROC = 2
 
-LINECAT_NAMES = (None, 'line', 'include', 'preproc', 'comment')
+LINECAT_NAMES = (None, 'line', 'preproc')
 
 
 def splice_free_form(mybuffer):
