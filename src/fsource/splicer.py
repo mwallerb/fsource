@@ -28,8 +28,6 @@ def get_freeform_line_regex():
     """Discriminate line type"""
     endline = r"""(?:\n|\r\n?)"""
     comment = r"""(?:!.*)"""
-    lineno = r"""[0-9]{1,5}(?=[ \t])"""
-    preproc = r"""\#.*"""
     atom = r"""(?: [^!&'"\r\n] | '(?:''|[^'\r\n])*' | "(?:""|[^"\r\n])*" )"""
     truncstr = r"""(?: '(?:''|[^'\r\n])*
                      | "(?:""|[^"\r\n])*
@@ -43,7 +41,7 @@ def get_freeform_line_regex():
                 | ( {truncstr} ) &[ \t]* {endline}   # 5 truncated string end
               )
             ) $
-        """.format(preproc=preproc, atom=atom, truncstr=truncstr, comment=comment,
+        """.format(atom=atom, truncstr=truncstr, comment=comment,
                    endline=endline)
 
     return re.compile(line)
@@ -58,15 +56,13 @@ FREE_TRUNC_STRING_END = 5
 
 def get_freeform_contd_regex():
     """Discriminate line type for free-form file"""
-    anything = r"""[^\r\n]+"""
     endline = r"""(?:\n|\r\n?)"""
-    comment = r"""(?:![^\r\n]*)"""
     line = r"""(?x) ^[ \t]*
             (?:
-                ( {comment} {endline} )              # 1 comment line (ignored)
-              | &? [ \t]* ( {anything} {endline} )   # 2 spill
+                ( ! .* {endline} )              # 1 comment line (ignored)
+              | &? [ \t]* ( .+ {endline} )      # 2 spill
               ) $
-            """.format(anything=anything, comment=comment, endline=endline)
+            """.format(endline=endline)
     return re.compile(line)
 
 
