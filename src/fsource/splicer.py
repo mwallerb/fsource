@@ -126,15 +126,15 @@ def splice_free_form(mybuffer):
                           "File ends with line continuation marker")
 
 
-def get_fixedform_line_regex():
+def get_fixedform_line_regex(margin):
     """Discriminate line type for fixed-form file"""
-    line = r"""(?sx) ^
-        (?: [cC*!](.*)                                        # 1: comment
-            | [ ]{5}[^ 0] (.*)                                # 2: continuation
-            | [ \t]* (\#.*)                                   # 3: preprocessor
-            | ( [\d ]{5}[ 0] [ \t]* .* )                      # 4: normal line
-            ) $
-            """
+    line = r"""(?mx) ^
+        (?: [cC*!] (.*)                                   # 1: comment
+          | [ ]    [ ]{{4}}  [^ 0]  (.{{0,{body}}}) .*    # 2: continuation
+          | [ ]*                    (\#.*)                # 3: preprocessor
+          | (    [\d ]{{5}}  [ 0]    .{{0,{body}}}) .*    # 4: normal line
+          ) $
+          """.format(body=margin-6)
     return re.compile(line)
 
 
@@ -150,7 +150,7 @@ def splice_fixed_form(mybuffer, margin=72):
     # line, so we need to store the previous current line
     cat = None
     stub = None
-    line_regex = get_fixedform_line_regex()
+    line_regex = get_fixedform_line_regex(margin)
 
     fname = mybuffer.name
     lineno = 0
@@ -160,7 +160,7 @@ def splice_fixed_form(mybuffer, margin=72):
         # are allowed to break a token across lines).  This means we have to
         # pad lines shorter than this with at least one whitespace character.
         line = line.rstrip('\r\n')
-        line = (line + '      ')[:margin]
+        line = line + '      '
 
         match = line_regex.match(line)
         if not match:
