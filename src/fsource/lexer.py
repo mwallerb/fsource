@@ -146,11 +146,6 @@ CAT_NAMES = ('eof', 'word', 'symop', 'eos', 'int', 'float',
              'bool', 'dotop', 'custom_dotop', 'string', 'radix',
              'format', 'preproc')
 
-LINECAT_TO_CAT = {
-    splicer.LINECAT_PREPROC: CAT_PREPROC,
-    splicer.LINECAT_INCLUDE: CAT_PREPROC,
-    }
-
 
 def _string_lexer_regex(quote):
     pattern = r"""(?x) ({quote}{quote}) | ([^{quote}]+)""".format(quote=quote)
@@ -206,15 +201,15 @@ def lex_buffer(mybuffer, form=None):
         form, _ = common.guess_form(mybuffer.name)
 
     lexer_regex = get_lexer_regex()
-    linecat_to_cat = LINECAT_TO_CAT
+    linecat_preproc = splicer.LINECAT_PREPROC
     lines_iter = splicer.get_splicer(form)
 
     fname = mybuffer.name
     lineno = 0
     for lineno, linecat, line in lines_iter(mybuffer):
-        try:
-            yield lineno, 0, linecat_to_cat[linecat], line
-        except KeyError:
+        if linecat == linecat_preproc:
+            yield lineno, 0, CAT_PREPROC, line
+        else:
             try:
                 for token_tuple in tokenize_regex(lexer_regex, line, lineno):
                     yield token_tuple

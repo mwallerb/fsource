@@ -26,42 +26,34 @@ class SpliceError(common.ParsingError):
 
 def get_freeform_line_regex():
     """Discriminate line type"""
-    ws = r"""[ \t]+"""
     endline = r"""(?:\n|\r\n?)"""
-    anything = r"""[^\r\n]*"""
-    comment = r"""(?:![^\r\n]*)"""
+    comment = r"""(?:!.*)"""
     lineno = r"""[0-9]{1,5}(?=[ \t])"""
-    include = r"""include{ws}{anything}""".format(ws=ws, anything=anything)
-    preproc = r"""\#{anything}""".format(anything=anything)
+    preproc = r"""\#.*"""
     atom = r"""(?: [^!&'"\r\n] | '(?:''|[^'\r\n])*' | "(?:""|[^"\r\n])*" )"""
-    format_ = r"""{lineno}{ws}format[ \t]*\({anything}""".format(
-                    ws=ws, anything=anything, lineno=lineno)
     truncstr = r"""(?: '(?:''|[^'\r\n])*
                      | "(?:""|[^"\r\n])*
                      )
-            """
+                """
     line = r"""(?ix) ^[ \t]*
-        (?: ( {preproc} ) {endline}                  # 1 preprocessor stmt
-            | ( {include} {endline} )                # 2 include line
-            | ( {atom}* ) (?:                        # 3 whole line part
-                  ( {comment}? {endline} )             # 4 full line end
-                | ( & [ \t]* {comment}? {endline} )    # 5 truncated line end
-                | ( {truncstr} ) &[ \t]* {endline}     # 6 truncated string end
+        (?: ( \# .* ) {endline}                      # 1 preprocessor stmt
+            | ( {atom}* ) (?:                        # 2 whole line part
+                  ( {comment}? {endline} )           # 3 full line end
+                | ( & [ \t]* {comment}? {endline} )  # 4 truncated line end
+                | ( {truncstr} ) &[ \t]* {endline}   # 5 truncated string end
               )
             ) $
-        """.format(preproc=preproc, include=include, format=format_,
-                   atom=atom, truncstr=truncstr, comment=comment,
+        """.format(preproc=preproc, atom=atom, truncstr=truncstr, comment=comment,
                    endline=endline)
 
     return re.compile(line)
 
 
 FREE_PREPROC = 1
-FREE_INCLUDE = 2
-FREE_WHOLE_PART = 3
-FREE_FULL_END = 4
-FREE_TRUNC_END = 5
-FREE_TRUNC_STRING_END = 6
+FREE_WHOLE_PART = 2
+FREE_FULL_END = 3
+FREE_TRUNC_END = 4
+FREE_TRUNC_STRING_END = 5
 
 
 def get_freeform_contd_regex():
@@ -82,8 +74,7 @@ CONTD_COMMENT = 1
 CONTD_SPILL = 2
 
 LINECAT_NORMAL = 1
-LINECAT_INCLUDE = 2
-LINECAT_PREPROC = 3
+LINECAT_PREPROC = 2
 
 LINECAT_NAMES = (None, 'line', 'include', 'preproc', 'comment')
 
@@ -123,14 +114,12 @@ def splice_free_form(mybuffer):
             stub += match.group(FREE_WHOLE_PART)
             if discr == FREE_TRUNC_STRING_END:
                 trunc_str = match.group(FREE_TRUNC_STRING_END)
-        elif discr == FREE_PREPROC:
+        else: # discr == FREE_PREPROC:
             ppstmt = match.group(FREE_PREPROC)
             if ppstmt[-1] == '\\':
                 trunc_str = ppstmt[:-1]
             else:
                 yield lineno, LINECAT_PREPROC, ppstmt + '\n'
-        else:
-            yield lineno, LINECAT_INCLUDE, line
 
     if stub or trunc_str:
         raise SpliceError(fname, lineno, line,
@@ -143,8 +132,7 @@ def get_fixedform_line_regex():
         (?: [cC*!](.*)                                        # 1: comment
             | [ ]{5}[^ 0] (.*)                                # 2: continuation
             | [ \t]* (\#.*)                                   # 3: preprocessor
-            | [ ]{6} [ \t]* (include[ \t].*)                  # 4: include line
-            | ( [\d ]{5}[ 0] [ \t]* .* )                      # 6: normal line
+            | ( [\d ]{5}[ 0] [ \t]* .* )                      # 4: normal line
             ) $
             """
     return re.compile(line)
@@ -153,8 +141,7 @@ def get_fixedform_line_regex():
 FIXED_COMMENT = 1
 FIXED_CONTD = 2
 FIXED_PREPROC = 3
-FIXED_INCLUDE = 4
-FIXED_OTHER = 5
+FIXED_OTHER = 4
 
 
 def splice_fixed_form(mybuffer, margin=72):
@@ -199,8 +186,6 @@ def splice_fixed_form(mybuffer, margin=72):
             stub = match.group(FIXED_OTHER)
         elif discr == FIXED_COMMENT:
             yield lineno, LINECAT_NORMAL, "!" + match.group(FIXED_COMMENT) + "\n"
-        elif discr == FIXED_INCLUDE:
-            yield lineno, LINECAT_INCLUDE, match.group(FIXED_INCLUDE) + "\n"
         else:  # discr == FIXED_PREPROC
             ppstmt = match.group(FIXED_PREPROC)
             if ppstmt[-1] == '\\':
