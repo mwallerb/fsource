@@ -35,7 +35,7 @@ def get_freeform_line_regex():
                      | "(?:""|[^"\r\n])*
                      )
                 """
-    line = r"""(?ix) ^[ \t]*
+    line = r"""(?x) ^[ \t]*
         (?: ( \# .* ) {endline}                      # 1 preprocessor stmt
             | ( {atom}* ) (?:                        # 2 whole line part
                   ( {comment}? {endline} )           # 3 full line end
@@ -128,7 +128,7 @@ def splice_free_form(mybuffer):
 
 def get_fixedform_line_regex():
     """Discriminate line type for fixed-form file"""
-    line = r"""(?isx) ^
+    line = r"""(?sx) ^
         (?: [cC*!](.*)                                        # 1: comment
             | [ ]{5}[^ 0] (.*)                                # 2: continuation
             | [ \t]* (\#.*)                                   # 3: preprocessor
