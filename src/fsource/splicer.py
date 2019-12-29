@@ -128,7 +128,8 @@ def get_fixedform_line_regex(margin):
         (?: [cC*!] (.*)                                   # 1: comment
           | [ ]    [ ]{{4}}  [^ 0]  (.{{0,{body}}}) .*    # 2: continuation
           | [ ]*                    (\#.*)                # 3: preprocessor
-          | (    [\d ]{{5}}  [ 0]    .{{0,{body}}}) .*    # 4: normal line
+          | (    [\d ]{{5}}  [ 0]    .{{0,{body}}}
+            |    [ ]{{0,5}} $                     ) .*    # 4: normal line
           ) $
           """.format(body=margin-6)
     return re.compile(line)
@@ -151,13 +152,6 @@ def splice_fixed_form(mybuffer, margin=72):
     fname = mybuffer.name
     lineno = 0
     for lineno, line in enumerate(mybuffer):
-        # Fixed-form line continuation works like this: the line is truncated
-        # at 72 characters and the continuation line is appended directly (you
-        # are allowed to break a token across lines).  This means we have to
-        # pad lines shorter than this with at least one whitespace character.
-        line = line.rstrip('\r\n')
-        line = line + '      '
-
         match = line_regex.match(line)
         if not match:
             raise SpliceError(fname, lineno, line, "invalid fixed-form line")
