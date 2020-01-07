@@ -84,7 +84,6 @@ class TokenStream:
         self.fname = fname
         self.tokens = tuple(tokens)
         self.pos = pos
-        self.stack = []
 
     def peek(self):
         """Get current token without consuming it"""
@@ -104,18 +103,6 @@ class TokenStream:
         return self.tokens[pos]
 
     next = __next__       # Python 2
-
-    def push(self):
-        """Create a rollback point at the current token and push it"""
-        self.stack.append(self.pos)
-
-    def backtrack(self):
-        """Remove and return to the last rollback point"""
-        self.pos = self.stack.pop()
-
-    def commit(self):
-        """Remove the last rollback point"""
-        self.stack.pop()
 
     def produce(self, header, *args):
         """Produce a node in the abstract syntax tree."""
@@ -156,15 +143,13 @@ def rule(fn):
     backtrack to the rollback point.
     """
     def rule_setup(tokens, *args):
-        tokens.push()
+        begin_pos = tokens.pos
         try:
-            value = fn(tokens, *args)
+            return fn(tokens, *args)
         except NoMatch:
-            tokens.backtrack()
+            tokens.pos = begin_pos
             raise
-        else:
-            tokens.commit()
-            return value
+
     return rule_setup
 
 
@@ -1916,16 +1901,20 @@ def where_construct(tokens):
             end_where_stmt(tokens)
 
 def fast_end_handler(tokens):
-    tokens.push()
+    # In traditional recursive descent parsing of a block, we would try to
+    # match every possible statement before deciding the block is complete
+    # and trying to match an end statement.  To speed this up, we raise
+    # `EndOfBlock` here whenever we encounter a valid "END something"
+    begin_pos = tokens.pos
     tokens.advance()
     try:
-        cat, token = next(tokens)[2:]
+        cat, token = tokens.peek()[2:]
         if cat == lexer.CAT_WORD or cat == lexer.CAT_EOS:
             raise EndOfBlock()
         else:
             raise NoMatch()
     finally:
-        tokens.backtrack()
+        tokens.pos = begin_pos
 
 CONSTRUCT_HANDLERS = {
     'if':         if_construct,
