@@ -68,17 +68,28 @@ def tokenize_regex(regex, text, lineno=None):
                          "invalid token")
 
 
-def get_lexer_regex():
-    """Return regular expression for parsing free-form Fortran 2008"""
+def get_lexer_regex(form):
+    """Return regular expression for parsing free-/fixed-form Fortran"""
+    if form == 'free':
+        skip_ws = r"""[\t ]*"""
+        postnum = r"""(?= [^.'"0-9A-Za-z] | \.[a-zA-Z]+\. )"""
+        format_quantify = r"\d*"
+    elif form == 'fixed':
+        # We must allow for line numbers or jump labels in fixed-form fortran.
+        # The upside is that we can remove the quantifier of format tokens,
+        # because those are returned as numbers.
+        skip_ws = ""
+        postnum = r"""(?= [^.'"0-9] | \.[a-zA-Z]+\. )"""
+        format_quantify = ""
+    else:
+        raise ValueError("invalid source form")
+
     endline = r"""(?:\n|\r\n?)"""
     comment = r"""(?:![^\r\n]*)"""
-    skip_ws = r"""[\t ]*"""
     postq = r"""(?!['"\w])"""
     dq_string = r""""(?:""|[^"\r\n])*"{postq}""".format(postq=postq)
     sq_string = r"""'(?:''|[^'\r\n])*'{postq}""".format(postq=postq)
-    postnum = r"""(?= [^.'"&0-9A-Za-z]
-                    | \.\s*[a-zA-Z]+\s*\.
-                    )"""
+
     integer = r"""\d+{postnum}""".format(postnum=postnum)
     decimal = r"""(?:\d+\.\d*|\.\d+)"""
     exponent = r"""(?:[dDeE][-+]?\d+)"""
@@ -91,15 +102,15 @@ def get_lexer_regex():
     operator = r"""\(/?|\)|[-+,:_%\[\]]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
-    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&'"])"""
-    formattok = r"""\d*(?: [IBOZ] \d+ (?: \.\d+)?
+    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_'"])"""
+    formattok = r"""{q}(?: [IBOZ] \d+ (?: \.\d+)?
                          | [FD]   \d+     \.\d+
                          | E[NS]? \d+     \.\d+  (?: E\d+)?
                          | G      \d+ (?: \.\d+  (?: E\d+)?)?
                          | L      \d+
                          | A      \d*
                          | [XP]
-                         )(?=\s*[:/,)])"""
+                         )(?=\s*[:/,)])""".format(q=format_quantify)
 
     fortran_token = r"""(?ix)
           {skipws}(?:
@@ -108,11 +119,11 @@ def get_lexer_regex():
           | (; | {comment}?{endline})           #  3 end of statement
           | ({int})                             #  4 ints
           | ({real})                            #  5 real
-          | \.\s* (?:
+          | \. (?:
               ( true | false )                  #  6 boolean
             | ( {builtin_dot} )                 #  7 built-in dot operator
             | ( {dotop} )                       #  8 custom dot operator
-            ) \s*\.
+            ) \.
           | ({sqstring} | {dqstring})           #  9 strings
           | ({binary} | {octal} | {hex})        # 10 radix literals
           | ({format})                          # 11 format specifier
@@ -200,7 +211,7 @@ def lex_buffer(mybuffer, form=None):
     if form is None:
         form, _ = common.guess_form(mybuffer.name)
 
-    lexer_regex = get_lexer_regex()
+    lexer_regex = get_lexer_regex(form)
     linecat_preproc = splicer.LINECAT_PREPROC
     lines_iter = splicer.get_splicer(form)
 
