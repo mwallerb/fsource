@@ -68,9 +68,45 @@ def tokenize_regex(regex, text, lineno=None):
                          "invalid token")
 
 
+# list of key words that can be directly followed by an letter/number and are
+# not the first word of a composite keyword.  E.g., "DO" is in this list,
+# because "DO I=1,3" is legal Fortran, "IF" is not in the list, because it is
+# followed by a bracket, and "ELSE" is not, because it is the first word of a
+# composite.
+#
+# HACK: ordering "doubleprecision" before "do" is crucial to detection of the
+#       former, but it does mean one cannot use a variable named UBLEPRECISION
+#       as the loop control in a fixed-form non-block-form do.  Such a thing
+#       is however unlikely to be encountered in the wild.
+#
+_FIXED_FORM_DISCRIMINATORS = (
+    "call",
+    "character",
+    "complex",
+    "doublecomplex",
+    "doubleprecision",
+    "do",
+    "end",
+    "external",
+    "function",
+    "goto",
+    "implicit",
+    "integer",
+    "intrinsic",
+    "logical",
+    "module",
+    "program",
+    "pure",
+    "real",
+    "recursive",
+    "subroutine"
+    )
+
+
 def get_lexer_regex(form):
     """Return regular expression for parsing free-/fixed-form Fortran"""
     if form == 'free':
+        prefixes = ""
         skip_ws = r"""[\t ]*"""
         postnum = r"""(?= [^.'"0-9A-Za-z] | \.[a-zA-Z]+\. )"""
         format_quantify = r"\d*"
@@ -78,6 +114,7 @@ def get_lexer_regex(form):
         # We must allow for line numbers or jump labels in fixed-form fortran.
         # The upside is that we can remove the quantifier of format tokens,
         # because those are returned as numbers.
+        prefixes = "|".join(_FIXED_FORM_DISCRIMINATORS)
         skip_ws = ""
         postnum = r"""(?= [^.'"0-9] | \.[a-zA-Z]+\. )"""
         format_quantify = ""
@@ -114,7 +151,7 @@ def get_lexer_regex(form):
 
     fortran_token = r"""(?ix)
           {skipws}(?:
-            ({word})                            #  1 word
+            ({prefixes} | {word})               #  1 word
           | ({operator})                        #  2 symbolic operator
           | (; | {comment}?{endline})           #  3 end of statement
           | ({int})                             #  4 ints
@@ -134,7 +171,7 @@ def get_lexer_regex(form):
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                dotop=dotop, word=word, format=formattok
+                dotop=dotop, word=word, prefixes=prefixes, format=formattok
                 )
     return re.compile(fortran_token)
 
