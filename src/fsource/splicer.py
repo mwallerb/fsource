@@ -122,14 +122,14 @@ def splice_free_form(mybuffer):
                           "File ends with line continuation marker")
 
 
-def all_whitespace_regex():
+def get_atom_regex():
     """Remove all intra-line whitespace from fixed-form line"""
     atom = r"""(?: [^!\#'" \t]+       # atom of non-ws chars, newline
                 | '(?:''|[^'])*'      # single-quoted string
                 | "(?:""|[^"])*"      # double-quoted string
                 | [!\#].*             # comments and preprocessor
                 )"""
-    return re.compile(r"(?x)[ \t]+(?={atom})".format(atom=atom))
+    return re.compile(r"(?x){atom}".format(atom=atom))
 
 
 def get_fixedform_line_regex(margin):
@@ -158,7 +158,7 @@ def splice_fixed_form(mybuffer, margin=72):
     cat = None
     stub = None
     line_regex = get_fixedform_line_regex(margin)
-    all_whitespace = all_whitespace_regex()
+    atom_regex = get_atom_regex()
 
     fname = mybuffer.name
     lineno = 0
@@ -179,7 +179,7 @@ def splice_fixed_form(mybuffer, margin=72):
             # Discard comment lines in between continuations
             if discr == FIXED_COMMENT:
                 continue
-            stub, _ = all_whitespace.subn("", stub)
+            stub = "".join(atom_regex.findall(stub))
             yield lineno-1, cat, stub + "\n"
             stub = None
 
@@ -198,7 +198,7 @@ def splice_fixed_form(mybuffer, margin=72):
 
     # Handle last line
     if stub is not None:
-        stub, _ = all_whitespace.subn("", stub)
+        stub = "".join(atom_regex.findall(stub))
         yield lineno, cat, stub + "\n"
 
 
