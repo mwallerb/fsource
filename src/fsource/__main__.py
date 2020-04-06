@@ -186,7 +186,7 @@ def cmd_parse(args):
         for fname in args.files:
             form = get_form(fname, args.form)
             slexer = lexer.lex_buffer(open(fname), form)
-            tokens = parser.TokenStream(slexer, fname=fname)
+            tokens = parser.TokenStream(slexer, form, fname=fname)
             ast = parser.compilation_unit(tokens, fname)
             if args.output == 'json':
                 pprint_parser(ast, sys.stdout)

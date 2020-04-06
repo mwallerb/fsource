@@ -80,7 +80,8 @@ class TokenStream:
     to the stack at the current token, `commit()` removes the last rollback
     point, whereas `backtrack()` removes and returns to the rollback point.
     """
-    def __init__(self, tokens, fname=None, pos=0):
+    def __init__(self, tokens, form='free', fname=None, pos=0):
+        self.fixedform = {'free': False, 'fixed': True}[form]
         self.fname = fname
         self.tokens = tuple(tokens)
         self.pos = pos
@@ -325,7 +326,17 @@ def string_(tokens):
 
 def identifier(tokens):
     """Identifier in a non-expression context"""
-    return tokens.produce('id', expect_cat(tokens, lexer.CAT_WORD))
+    result = expect_cat(tokens, lexer.CAT_WORD)
+    if tokens.fixedform:
+        allowed_contds = lexer.CAT_WORD, lexer.CAT_INT
+        while True:
+            cat, token = tokens.peek()[2:]
+            if cat not in allowed_contds:
+                break
+            result += token
+            tokens.advance()
+
+    return tokens.produce('id', result)
 
 def id_ref(tokens):
     """Identifier in a expression context (reference)"""
@@ -479,6 +490,13 @@ def resolve_handler(tokens, lhs):
     rhs = id_ref(tokens)
     return tokens.produce('resolve', lhs, rhs)
 
+def composite_handler(tokens, lhs):
+    if tokens.fixedform:
+        tag, token = lhs
+        suffix = next(tokens)[3]
+        return tokens.produce(tag, token+suffix)
+    else:
+        raise ParserError(tokens, "Invalid space in identifier")
 
 _PREFIX_OP_HANDLERS = {
     "not":    prefix_op_handler( 50, 'not_'),
@@ -530,6 +548,8 @@ _PREFIX_CAT_HANDLERS = {
     lexer.CAT_WORD:       literal_handler('ref'),
     }
 _INFIX_CAT_HANDLERS = {
+    lexer.CAT_INT:        (140, composite_handler),
+    lexer.CAT_WORD:       (140, composite_handler),
     lexer.CAT_CUSTOM_DOT: (10, custom_binary_handler(11))
     }
 
@@ -575,7 +595,7 @@ _optional_expr = optional(expr)
 def lvalue(tokens):
     # lvalue is subject to stricter scrutiny, than an expression, since it
     # is used in the assignment statement.
-    result = id_ref(tokens)
+    result = identifier(tokens)
     try:
         while True:
             token = tokens.peek()[3]
@@ -651,7 +671,6 @@ def char_selector(tokens):
 
             if marker(tokens, ','):
                 sel = _optional_len_kind_kwd(tokens)
-                print(sel)
                 if sel is None:
                     sel = 'kind' if kind is None else 'len'
                 if sel == 'len':
@@ -1750,25 +1769,26 @@ def nonblock_do_block(tokens, lineno_stack):
 def do_construct(tokens, lineno_stack=None):
     optional_construct_tag(tokens)
     expect(tokens, 'do')
-    with LockedIn(tokens, "invalid do construct"):
-        try:
-            until_lineno = int(int_(tokens)[1])
-        except NoMatch:
-            # BLOCK DO CONSTRUCT
-            marker(tokens, ',')
-            optional_loop_ctrl(tokens)
-            eos(tokens)
+    try:
+        until_lineno = int(int_(tokens)[1])
+    except NoMatch:
+        # BLOCK DO CONSTRUCT
+        marker(tokens, ',')
+        optional_loop_ctrl(tokens)
+        eos(tokens)
+        with LockedIn(tokens, "invalid block do construct"):
             execution_part(tokens)
             end_do_stmt(tokens)
-        else:
-            # NONBLOCK DO CONSTRUCT
-            if lineno_stack is None:
-                lineno_stack = []
-            lineno_stack.append(until_lineno)
+    else:
+        # NONBLOCK DO CONSTRUCT
+        if lineno_stack is None:
+            lineno_stack = []
+        lineno_stack.append(until_lineno)
 
-            marker(tokens, ',')
-            optional_loop_ctrl(tokens)
-            eos(tokens)
+        marker(tokens, ',')
+        optional_loop_ctrl(tokens)
+        eos(tokens)
+        with LockedIn(tokens, "invalid non-block do construct"):
             nonblock_do_block(tokens, lineno_stack)
 
 @rule
@@ -1908,11 +1928,12 @@ def fast_end_handler(tokens):
     begin_pos = tokens.pos
     tokens.advance()
     try:
-        cat, token = tokens.peek()[2:]
-        if cat == lexer.CAT_WORD or cat == lexer.CAT_EOS:
-            raise EndOfBlock()
-        else:
-            raise NoMatch()
+        while True:
+            cat = next(tokens)[2]
+            if cat == lexer.CAT_EOS:
+                raise EndOfBlock()
+            if cat != lexer.CAT_WORD and cat != lexer.CAT_INT:
+                raise NoMatch()
     finally:
         tokens.pos = begin_pos
 

@@ -83,6 +83,7 @@ _FIXED_FORM_DISCRIMINATORS = (
     "call",
     "character",
     "complex",
+    "data",
     "doublecomplex",
     "doubleprecision",
     "do",
