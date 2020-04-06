@@ -705,6 +705,10 @@ def double_precision_type(tokens):
     expect(tokens, 'doubleprecision')
     return tokens.produce('real_type', 'double')
 
+def double_complex_type(tokens):
+    expect(tokens, 'doublecomplex')
+    return tokens.produce('complex_type', 'double')
+
 def double_type(tokens):
     expect(tokens, 'double')
     if marker(tokens, 'precision'):
@@ -718,6 +722,7 @@ _TYPE_SPEC_HANDLERS = {
     'real':      prefix('real', optional(kind_selector), 'real_type'),
     'double':    double_type,
     'doubleprecision': double_precision_type,
+    'doublecomplex': double_complex_type,
     'complex':   prefix('complex', optional(kind_selector), 'complex_type'),
     'character': prefix('character', optional(char_selector), 'character_type'),
     'logical':   prefix('logical', optional(kind_selector), 'logical_type'),
