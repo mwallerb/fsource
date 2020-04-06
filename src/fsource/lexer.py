@@ -114,7 +114,7 @@ def get_lexer_regex(form):
         # We must allow for line numbers or jump labels in fixed-form fortran.
         # The upside is that we can remove the quantifier of format tokens,
         # because those are returned as numbers.
-        prefixes = "|".join(_FIXED_FORM_DISCRIMINATORS)
+        prefixes = "|".join(_FIXED_FORM_DISCRIMINATORS) + "|"
         skip_ws = ""
         postnum = r"""(?= [^.'"0-9] | \.[a-zA-Z]+\. )"""
         format_quantify = ""
@@ -151,7 +151,7 @@ def get_lexer_regex(form):
 
     fortran_token = r"""(?ix)
           {skipws}(?:
-            ({prefixes} | {word})               #  1 word
+            ({prefixes} {word})                 #  1 word
           | ({operator})                        #  2 symbolic operator
           | (; | {comment}?{endline})           #  3 end of statement
           | ({int})                             #  4 ints
