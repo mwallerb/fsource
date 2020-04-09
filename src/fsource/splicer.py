@@ -28,19 +28,22 @@ def get_freeform_line_regex():
     """Discriminate line type"""
     endline = r"""(?:\n|\r\n?)"""
     comment = r"""(?:!.*)"""
-    atom = r"""(?: [^!&'"\r\n] | '(?:''|[^'\r\n])*' | "(?:""|[^"\r\n])*" )"""
+    string = r"""(?: '(?:''|[^'\r\n])*'
+                   | "(?:""|[^"\r\n])*"
+                   )"""
     truncstr = r"""(?: '(?:''|[^'\r\n])*
                      | "(?:""|[^"\r\n])*
                      )
                 """
+    atom = r"""(?: [^!&'"\r\n] | {string} )""".format(string=string)
     line = r"""(?x) ^[ \t]*
-        (?: ( \# .* ) {endline}                      # 1 preprocessor stmt
-            | ( {atom}* ) (?:                        # 2 whole line part
-                  ( {comment}? {endline} )           # 3 full line end
-                | ( & [ \t]* {comment}? {endline} )  # 4 truncated line end
-                | ( {truncstr} ) &[ \t]* {endline}   # 5 truncated string end
+        (?: ( \# .* ) {endline}                    # 1 preprocessor stmt
+          | ( {atom}* ) (?:                        # 2 whole line part
+                ( {comment}? {endline} )           # 3 full line end
+              | ( & [ \t]* {comment}? {endline} )  # 4 truncated line end
+              | ( {truncstr} ) &[ \t]* {endline}   # 5 truncated string end
               )
-            ) $
+          ) $
         """.format(atom=atom, truncstr=truncstr, comment=comment,
                    endline=endline)
 
