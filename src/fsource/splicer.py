@@ -125,8 +125,8 @@ def splice_free_form(mybuffer):
 def get_atom_regex():
     """Remove all intra-line whitespace from fixed-form line"""
     atom = r"""(?: [^!\#'" \t]+       # atom of non-ws chars, newline
-                | '(?:''|[^'])*'      # single-quoted string
-                | "(?:""|[^"])*"      # double-quoted string
+                | '(?:''|[^'])*'?     # single-quoted string (truncated?)
+                | "(?:""|[^"])*"?     # double-quoted string (truncated?)
                 | [!\#].*             # comments and preprocessor
                 )"""
     return re.compile(r"(?x){atom}".format(atom=atom))
