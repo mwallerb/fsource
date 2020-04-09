@@ -80,14 +80,17 @@ def tokenize_regex(regex, text, lineno=None):
 #       is however unlikely to be encountered in the wild.
 #
 _FIXED_FORM_DISCRIMINATORS = (
+    "assign",
     "call",
     "character",
     "complex",
     "data",
+    "dimension",
     "doublecomplex",
     "doubleprecision",
     "do",
     "end",
+    "entry",
     "external",
     "function",
     "goto",
@@ -96,10 +99,13 @@ _FIXED_FORM_DISCRIMINATORS = (
     "intrinsic",
     "logical",
     "module",
+    "print",
     "program",
     "pure",
     "real",
     "recursive",
+    "save",
+    "stop",
     "subroutine"
     )
 
