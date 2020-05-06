@@ -26,6 +26,7 @@ Things not yet implemented are:
 
   - `submodule` blocks
   - coarrays, `codimension`
+  - derived type parametrization
 
 Preprocessor statements
 -----------------------
@@ -47,5 +48,23 @@ cannot not parsed without prior preprocessing:
         endif
 
 It is usually a good idea to avoid constructs like this and have preprocessor
-statements respect the logic of the program (see Linux Kernel Coding Guidelines
-for a more detailed rationale).
+statements respect the logic of the program (see [Linux Kernel Coding Style]
+for a more detailed rationale).  For example, the above example can be
+rewritten as:
+
+    #ifndef MPI
+        integer function MPI_Get_rank(comm)
+            integer, intent(in) :: comm
+            MPI_Get_rank = 0
+        end function
+    #endif
+    ...
+    if (MPI_Get_rank(comm) == 0 .and. x == 0)
+        call do_something
+    endif
+
+Similary, if identifiers are computed from a macro function, it is useful to
+define a temporary name for them.
+
+
+[Linux Kernel Coding Style]: https://www.kernel.org/doc/html/latest/process/coding-style.html#conditional-compilation

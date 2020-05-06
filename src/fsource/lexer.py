@@ -17,14 +17,14 @@ Lexical analysis must deal with three ambiguities in the Fortran grammar:
     sequence of two ':' and cannot detect whitespace within a seperator.
 
  2. '(//)' can mean an empty inplace array or an overloaded '//' operator,
-    and '(/)', which is ambiguous for a similar reason.  To work around
-    this lexer will return a token of category `CAT_BRACKETED_SLASH`, and
-    the application must disambiguate.
+    and '(/)' is ambiguous for a similar reason.  The lexer acts greedy in
+    this case, returning tokens '(/' and '/)' if found.  The application must
+    then disambiguate.
 
  3. The 'FORMAT' statement is a bit of an oddball, as it allows tokens that
     are illegal everywhere else, e.g., 3I6 or ES13.2.  The lexer works
-    around this by returning the format line as single token of category
-    `CAT_FORMAT`.
+    around this by returning a special `CAT_FORMAT` token for such specifiers,
+    and the parser must ensure they appear in the format statement.
 
 Copyright 2019 Markus Wallerberger
 Released under the GNU Lesser General Public License, Version 3 only.
@@ -92,21 +92,30 @@ def get_lexer_regex():
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
     word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&'"])"""
+    formattok = r"""\d*(?: [IBOZ] \d+ (?: \.\d+)?
+                         | [FD]   \d+     \.\d+
+                         | E[NS]? \d+     \.\d+  (?: E\d+)?
+                         | G      \d+ (?: \.\d+  (?: E\d+)?)?
+                         | L      \d+
+                         | A      \d*
+                         | [XP]
+                         )(?=\s*[:/,)])"""
+
     fortran_token = r"""(?ix)
           {skipws}(?:
             ({word})                            #  1 word
-          | \( {skipws} (//?) {skipws} \)       #  2 bracketed slashes
-          | ({operator})                        #  3 symbolic operator
-          | (; | {comment}?{endline})           #  4 end of statement
-          | ({int})                             #  5 ints
-          | ({real})                            #  6 real
+          | ({operator})                        #  2 symbolic operator
+          | (; | {comment}?{endline})           #  3 end of statement
+          | ({int})                             #  4 ints
+          | ({real})                            #  5 real
           | \.\s* (?:
-              ( true | false )                  #  7 boolean
-            | ( {builtin_dot} )                 #  8 built-in dot operator
-            | ( {dotop} )                       #  9 custom dot operator
+              ( true | false )                  #  6 boolean
+            | ( {builtin_dot} )                 #  7 built-in dot operator
+            | ( {dotop} )                       #  8 custom dot operator
             ) \s*\.
-          | ({sqstring} | {dqstring})           # 10 strings
-          | ({binary} | {octal} | {hex})        # 11 radix literals
+          | ({sqstring} | {dqstring})           #  9 strings
+          | ({binary} | {octal} | {hex})        # 10 radix literals
+          | ({format})                          # 11 format specifier
           | [^ \t]+                             #    invalid token
           )
         """.format(
@@ -114,35 +123,28 @@ def get_lexer_regex():
                 sqstring=sq_string, dqstring=dq_string,
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
-                dotop=dotop, word=word
+                dotop=dotop, word=word, format=formattok
                 )
     return re.compile(fortran_token)
 
 
 CAT_DOLLAR = 0
 CAT_WORD = 1
-CAT_BRACKETED_SLASH = 2
-CAT_SYMBOLIC_OP = 3
-CAT_EOS = 4
-CAT_INT = 5
-CAT_FLOAT = 6
-CAT_BOOLEAN = 7
-CAT_BUILTIN_DOT = 8
-CAT_CUSTOM_DOT = 9
-CAT_STRING = 10
-CAT_RADIX = 11
+CAT_SYMBOLIC_OP = 2
+CAT_EOS = 3
+CAT_INT = 4
+CAT_FLOAT = 5
+CAT_BOOLEAN = 6
+CAT_BUILTIN_DOT = 7
+CAT_CUSTOM_DOT = 8
+CAT_STRING = 9
+CAT_RADIX = 10
+CAT_FORMAT = 11
 CAT_PREPROC = 12
-CAT_FORMAT = 13
 
-CAT_NAMES = ('eof', 'word', 'bracketed_slash', 'symop', 'eos', 'int',
-             'float', 'bool', 'dotop', 'custom_dotop', 'string',
-             'radix', 'preproc', 'format')
-
-LINECAT_TO_CAT = {
-    splicer.LINECAT_PREPROC: CAT_PREPROC,
-    splicer.LINECAT_INCLUDE: CAT_PREPROC,
-    splicer.LINECAT_FORMAT: CAT_FORMAT
-    }
+CAT_NAMES = ('eof', 'word', 'symop', 'eos', 'int', 'float',
+             'bool', 'dotop', 'custom_dotop', 'string', 'radix',
+             'format', 'preproc')
 
 
 def _string_lexer_regex(quote):
@@ -199,15 +201,15 @@ def lex_buffer(mybuffer, form=None):
         form, _ = common.guess_form(mybuffer.name)
 
     lexer_regex = get_lexer_regex()
-    linecat_to_cat = LINECAT_TO_CAT
+    linecat_preproc = splicer.LINECAT_PREPROC
     lines_iter = splicer.get_splicer(form)
 
     fname = mybuffer.name
     lineno = 0
     for lineno, linecat, line in lines_iter(mybuffer):
-        try:
-            yield lineno, 0, linecat_to_cat[linecat], line
-        except KeyError:
+        if linecat == linecat_preproc:
+            yield lineno, 0, CAT_PREPROC, line
+        else:
             try:
                 for token_tuple in tokenize_regex(lexer_regex, line, lineno):
                     yield token_tuple
@@ -224,19 +226,3 @@ def lex_snippet(fstring):
     """Perform lexical analysis of parts of a line"""
     return tuple(tokenize_regex(get_lexer_regex(), fstring)) \
            + ((CAT_DOLLAR, ''),)
-
-
-def pprint(lexer, out, filename=None):
-    """Make nicely formatted JSON output from lexer output"""
-    from json.encoder import encode_basestring
-    out.write('[\n')
-    out.write('["lex_version", "1.0"],\n')
-    out.write('["filename", %s],\n' % encode_basestring(filename))
-    for cat, token in lexer:
-        out.write('["%s",%s]' % (CAT_NAMES[cat], encode_basestring(token)))
-        if cat == CAT_EOS or cat == CAT_PREPROC:
-            out.write(',\n')
-        elif cat == CAT_DOLLAR:
-            out.write('\n]\n')
-        else:
-            out.write(', ')

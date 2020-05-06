@@ -20,6 +20,10 @@ contains
         type(testtype), intent(in) :: a, b
         type(testtype) :: add_testtypes
 
+        character(len=10) :: x(3)
+
+        x(1)(2:3) = 'ab'
+
         add_testtypes%v = a%v + b%v
     end function
 end module

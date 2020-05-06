@@ -1,6 +1,7 @@
 fsource - Fortran static analysis tool
 ======================================
-![build status]
+[![Tests]](https://travis-ci.org/mwallerb/fsource)
+[![PyPI]](https://pypi.python.org/pypi/fsource)
 
 fsource is a collection of tools allowing you to parse Fortran 77 through
 Fortran 2008 programs.  It is written in pure Python and has no external
@@ -33,4 +34,6 @@ fsource currently features a [command line interface]:
 [line splicer]: doc/splicer.md
 [lexer]: doc/lexer.md
 [parser]: doc/parser.md
-[build status]: https://travis-ci.org/mwallerb/fsource.svg?branch=master
+
+[Tests]: https://travis-ci.org/mwallerb/fsource.svg?branch=master
+[PyPI]: https://img.shields.io/pypi/v/fsource.svg?style=flat
