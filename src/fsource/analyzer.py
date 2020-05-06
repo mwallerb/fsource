@@ -15,13 +15,13 @@ from . import lexer
 from . import common
 
 
-def sexpr_transformer(branch_map, fallback):
+def sexpr_transformer(branch_map, fallback=None):
     """
     Return depth-first transformation of an AST as S-expression.
 
-    An S-expression is either a leaf, which is an arbitrary string or `None`,
-    or a branch, which is a tuple `(tag, *tail)` where the `tag` is a string
-    and each item of `tail` is again an S-expression.
+    An S-expression is either a branch or a leaf.  A leaf is an arbitrary
+    string or `None`.  A branch is a tuple `(tag, *tail)`, where the `tag` is
+    a string and each item of `tail` is again an S-expression.
 
     Construct and return a transformer which does the following: for a
     branch, we look up the tag in `branch_map`.  If it is found, the
@@ -33,6 +33,10 @@ def sexpr_transformer(branch_map, fallback):
     case, the arguments are not processed, which allows pruning subtrees not
     interesting to the consumer.
     """
+    if fallback is None:
+        def fallback(tag, *tail):
+            raise ValueError("unexpected tag: {}".format(tag))
+
     def transformer(ast):
         if isinstance(ast, tuple):
             # Branch node

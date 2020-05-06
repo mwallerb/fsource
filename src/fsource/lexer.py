@@ -225,4 +225,4 @@ def lex_buffer(mybuffer, form=None):
 def lex_snippet(fstring):
     """Perform lexical analysis of parts of a line"""
     return tuple(tokenize_regex(get_lexer_regex(), fstring)) \
-           + ((CAT_DOLLAR, ''),)
+           + ((None, len(fstring), CAT_DOLLAR, ''),)
