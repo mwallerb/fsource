@@ -7,13 +7,32 @@ from __future__ import print_function
 from collections import OrderedDict
 
 import io
+import sys
+import contextlib
 
 from . import parser
 from . import lexer
 from . import common
 
+
 def sexpr_transformer(branch_map, fallback):
-    """Return depth-first transformation of an AST as S-expression."""
+    """
+    Return depth-first transformation of an AST as S-expression.
+
+    An S-expression is either a leaf, which is an arbitrary string or `None`,
+    or a branch, which is a tuple `(tag, *tail)` where the `tag` is a string
+    and each item of `tail` is again an S-expression.
+
+    Construct and return a transformer which does the following: for a
+    branch, we look up the tag in `branch_map`.  If it is found, the
+    corresponding entry is called with tag and tail as its arguments, but we
+    first run the tail through the transformer.  Any leaf is simply returned
+    as-is.
+
+    If the tag is not found in branch_map, we instead call `fallback`. In this
+    case, the arguments are not processed, which allows pruning subtrees not
+    interesting to the consumer.
+    """
     def transformer(ast):
         if isinstance(ast, tuple):
             # Branch node
@@ -32,49 +51,61 @@ def sexpr_transformer(branch_map, fallback):
 
 
 class SyntaxWriter:
-    @classmethod
-    def getstr(cls, obj):
-        out = cls()
-        obj.write_code(out)
-        return str(out)
-
-    def __init__(self, out=None):
+    """
+    IO object that handles indentation.
+    """
+    def __init__(self, out=None, indenttext="    "):
         if out is None:
             out = io.StringIO()
         self.out = out
-        self.indenttext = ""
-        self.level = 0
+        self.indenttext = indenttext
+        self.prefix = ""
+        self._write = self.out.write
+        self._newline = True
+
+    def _handle_newline(self):
+        if self._newline:
+            self._newline = False
+            self._write(self.prefix)
 
     def write(self, text):
-        self.out.write(text)
+        self._handle_newline()
+        self._write(text)
 
-    def writeline(self, line):
-        self.out.write(self.indenttext + line + "\n")
+    def writeline(self, line=None):
+        self._handle_newline()
+        if line:
+            self._write(line)
+        self._write("\n")
+        self._newline = True
 
-    def writeindent(self, header=""):
-        self.out.write(self.indenttext + header)
+    def handle(self, *objs, sep=None):
+        if not objs:
+            return
+        objs[0].write_code(self)
+        for obj in objs[1:]:
+            if sep: out.write(sep)
+            obj.write_code(self)
 
+    @contextlib.contextmanager
     def indent(self, header=None):
         if header is not None:
             self.writeline(header)
-        self.level += 1
-        self.indenttext = "    " * self.level
 
-    def unindent(self, footer=None):
-        if self.level == 0:
-            raise ValueError("Unable to unindent")
-        self.level -= 1
-        self.indenttext = "    " * self.level
-        if footer is not None:
-            self.writeline(footer)
-
-    def __str__(self):
-        return self.out.getvalue()
+        # Add to prefix
+        oldprefix = self.prefix
+        try:
+            self.prefix += self.indenttext
+            yield
+        finally:
+            self.prefix = oldprefix
 
 
 class Node(object):
     def __str__(self):
-        return SyntaxWriter.getstr(self)
+        writer = SyntaxWriter()
+        writer.handle(self)
+        return writer.out.getvalue()
 
     def write_code(self, out):
         raise NotImplementedError("write_code not implemented")
@@ -87,7 +118,10 @@ class Ignored(Node):
         self.ast = ast
 
     def write_code(self, out):
-        out.writeline("(IGNORED: %s)"  % repr(self.ast))
+        if out._newline:
+            out.writeline("$%s"  % self.ast[0])
+        else:
+            out.write("$%s"  % self.ast[0])
 
     def get_code(self):
         out = SyntaxWriter()
@@ -106,9 +140,7 @@ class CompilationUnit(Node):
     def write_code(self, out):
         out.writeline("! FILE %s" % self.filename)
         out.writeline("! AST VERSION %s" % (self.ast_version,))
-        for obj in self.objs:
-            obj.write_code(out)
-            out.writeline("")
+        out.handle(*self.objs, sep='\n')
         out.writeline("! END FILE %s" % self.filename)
 
 
@@ -123,14 +155,11 @@ class Module(Node):
         parent.modules[self.name] = self
 
     def write_code(self, out):
-        out.indent("MODULE %s" % self.name)
-        for decl in self.decls:
-            decl.write_code(out)
-        out.unindent()
-        out.indent("CONTAINS")
-        for obj in self.contained:
-            obj.write_code(out)
-        out.unindent("END MODULE %s" % self.name)
+        with out.indent("MODULE %s" % self.name):
+            out.handle(*self.decls)
+        with out.indent("CONTAINS"):
+            out.handle(*self.contained, sep="\n")
+        out.writeline("END MODULE %s" % self.name)
 
 
 class Use(Node):
@@ -145,22 +174,24 @@ class Use(Node):
         parent.use[self.modulename] = self
 
     def write_code(self, out):
-        out.writeindent("USE %s" % self.modulename)
+        out.write("USE %s" % self.modulename)
         if self.only:
             out.write(", ONLY: ")
         elif self.symbollist:
             out.write(", ")
-        out.write(", ".join(symbol.get_code() for symbol in self.symbollist))
-        out.write("\n")
+        out.handle(*self.symbollist, sep=", ")
+        out.writeline()
 
 
 def unpack(arg):
     """Unpack a single argument as-is"""
     return arg
 
+
 def unpack_sequence(*items):
     """Return sequence of itmes as a tuple"""
     return items
+
 
 HANDLERS = {
     'compilation_unit':  CompilationUnit,
@@ -176,6 +207,7 @@ HANDLERS = {
     }
 
 TRANSFORMER = sexpr_transformer(HANDLERS, Ignored)
+
 
 if __name__ == '__main__':
     fname = '../tests/data/simple.f90'
