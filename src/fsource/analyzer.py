@@ -213,6 +213,36 @@ HANDLERS = {
 TRANSFORMER = sexpr_transformer(HANDLERS, Ignored)
 
 
+EXACT_MAPPINGS = (
+    # Fortran   ISO_C_BINDING    size  C              Numpy      Ctypes
+    # -------------------------------------------------------------------------
+    ('logical', 'c_bool',        1,    '_Bool',       'bool_',   'c_bool'),
+    ('character', 'c_char',      1,    'char',        'char',    'c_char'),
+    ('integer', 'c_int',         None, 'int',         'intc',    'c_int'),
+    ('integer', 'c_short',       None, 'short',       'short',   'c_short'),
+    ('integer', 'c_long',        None, 'long',        'int_',    'c_long'),
+    ('integer', 'c_long_long',   None, 'long long',  'longlong', 'c_longlong'),
+    ('integer', 'c_signed_char', 1,    'signed char', 'byte',    'c_byte'),
+    ('integer', 'c_size_t',      None, 'ssize_t',     'intp',    'c_ssize_t'),
+    ('integer', 'c_int8_t',      1,    'int8_t',      'int8',    'c_int8'),
+    ('integer', 'c_int16_t',     2,    'int16_t',     'int16',   'c_int16'),
+    ('integer', 'c_int32_t',     4,    'int32_t',     'int32',   'c_int32'),
+    ('integer', 'c_int64_t',     8,    'int64_t',     'int64',   'c_int64'),
+    ('integer', 'c_intptr_t',    None, 'intptr_t',    'intp',    'c_ssize_t'),
+    ('integer', 'c_ptrdiff_t',   None, 'ptrdiff_t',   'intp',    'c_ssize_t'),
+    ('real',    'c_float',       4,    'float',       'float32', 'c_float'),
+    ('real',    'c_double',      8,    'double',      'float64', 'c_double'),
+    ('real',    'c_long_double', None, 'long double', 'longdouble',
+                                                               'c_longdouble'),
+    ('complex', 'c_float_complex', 8, 'float _Complex', 'complex64',
+                                                                   '@c_float'),
+    ('complex', 'c_double_complex', 16, 'double _Complex', 'complex128',
+                                                                  '@c_double'),
+    ('complex', 'c_long_double_complex', None, 'long double _Complex',
+                                               'clongdouble', '@c_longdouble'),
+    )
+
+
 if __name__ == '__main__':
     fname = '../tests/data/simple.f90'
     slexer = lexer.lex_buffer(open(fname))
