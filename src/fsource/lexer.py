@@ -76,8 +76,9 @@ def get_lexer_regex():
     postq = r"""(?!['"\w])"""
     dq_string = r""""(?:""|[^"\r\n])*"{postq}""".format(postq=postq)
     sq_string = r"""'(?:''|[^'\r\n])*'{postq}""".format(postq=postq)
-    postnum = r"""(?= [^.'"&0-9A-Za-z]
+    postnum = r"""(?= [^.'"0-9A-Za-z]
                     | \.\s*[a-zA-Z]+\s*\.
+                    | $
                     )"""
     integer = r"""\d+{postnum}""".format(postnum=postnum)
     decimal = r"""(?:\d+\.\d*|\.\d+)"""
@@ -91,7 +92,7 @@ def get_lexer_regex():
     operator = r"""\(/?|\)|[-+,:_%\[\]]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
-    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&'"])"""
+    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_'"])"""
     formattok = r"""\d*(?: [IBOZ] \d+ (?: \.\d+)?
                          | [FD]   \d+     \.\d+
                          | E[NS]? \d+     \.\d+  (?: E\d+)?
