@@ -83,13 +83,13 @@ class SyntaxWriter:
         self._write("\n")
         self._newline = True
 
-    def handle(self, *objs, sep=None):
+    def handle(self, *objs, sep=None, method="write_code"):
         if not objs:
             return
-        objs[0].write_code(self)
+        getattr(objs[0], method)(self)
         for obj in objs[1:]:
-            if sep: out.write(sep)
-            obj.write_code(self)
+            if sep: self._write(sep)
+            getattr(obj, method)(self)
 
     @contextlib.contextmanager
     def indent(self, header=None):
@@ -106,31 +106,43 @@ class SyntaxWriter:
 
 
 class Node(object):
-    def __str__(self):
-        writer = SyntaxWriter()
-        writer.handle(self)
-        return writer.out.getvalue()
+    def imbue(self, parent):
+        """
+        Imbues `parent` with information from `self`.
+
+        When the objects are created, they only have information about their
+        children.  `imbue` is called *after* the complete hierarchy is
+        established to make children aware of their parents, allowing, e.g.,
+        child nodes to change attributes of the parents.
+        """
+        raise NotImplementedError("imbue is not implemented")
 
     def write_code(self, out):
+        """Write code of self to SyntaxWriter"""
         raise NotImplementedError("write_code not implemented")
+
+    def get_code(self):
+        """Get code of self as string"""
+        out = SyntaxWriter()
+        self.write_code(out)
+        return str(out.out.getvalue())
+
+    __str__ = get_code
 
 
 class Ignored(Node):
     """Ignored node of the AST"""
     def __init__(self, *ast):
-        super().__init__()
         self.ast = ast
+
+    def imbue(self, parent):
+        print("CANNOT IMBUE %s WITH %s" % (parent, self.ast[0]))
 
     def write_code(self, out):
         if out._newline:
             out.writeline("$%s"  % self.ast[0])
         else:
             out.write("$%s"  % self.ast[0])
-
-    def get_code(self):
-        out = SyntaxWriter()
-        self.write_code(out)
-        return str(out)
 
 
 class CompilationUnit(Node):
@@ -141,11 +153,64 @@ class CompilationUnit(Node):
         self.filename = fname
         self.objs = objs
 
+    def imbue(self):
+        for obj in self.objs: obj.imbue(self)
+
     def write_code(self, out):
         out.writeline("! FILE %s" % self.filename)
-        out.writeline("! AST VERSION %s" % (self.ast_version,))
+        out.writeline("! AST VERSION %s" % ".".join(self.ast_version))
         out.handle(*self.objs, sep='\n')
         out.writeline("! END FILE %s" % self.filename)
+
+    def write_cdecl(self, out):
+        out.writeline("/* Start declarations for %s */" % self.filename)
+        out.handle(*self.objs, method="write_cdecl")
+        out.writeline("/* End declarations for %s */" % self.filename)
+
+
+
+class Subroutine(Node):
+    def __init__(self, name, prefixes, args, bindc, decls):
+        self.name = name
+        self.prefixes = prefixes
+        self.suffixes = (bindc,) if bindc is not None else ()
+        self.args = args
+        self.decls = decls
+
+    def imbue(self, parent):
+        self.cname = None
+        for attr in self.prefixes + self.suffixes:
+            attr.imbue(self)
+
+    def write_code(self, out):
+        out.handle(*self.prefixes, sep=" ")
+        out.write("SUBROUTINE %s(" % self.name)
+        out.handle(*self.args, sep=", ")
+        out.write(") ")
+        out.handle(*self.suffixes, sep=" ")
+        with out.indent(""):
+            out.handle(*self.decls)
+        out.writeline("END SUBROUTINE %s" % self.name)
+
+    def write_cdecl(self, out):
+        if self.cname is None: return
+        out.writeline("void %s();" % self.cname)
+
+
+class BindC(Node):
+    def __init__(self, cname):
+        self.cname = lexer.parse_string(cname) if cname is not None else None
+
+    def imbue(self, parent):
+        if self.cname is None:
+            self.cname = parent.name
+        parent.cname = self.cname
+
+    def write_code(self, out):
+        if self.cname is None:
+            out.write("BIND(C)")
+        else:
+            out.write("BIND(C,NAME='%s')" % self.cname)
 
 
 class Module(Node):
@@ -207,6 +272,11 @@ HANDLERS = {
     'contained_block':   unpack_sequence,
     'use_stmt':          Use,
 
+    'subroutine_decl':   Subroutine,
+    'arg_list':          unpack_sequence,
+    'sub_prefix_list':   unpack_sequence,
+    'bind_c':            BindC,
+
     'id':                lambda name: name.lower(),
     }
 
@@ -244,8 +314,11 @@ EXACT_MAPPINGS = (
 
 
 if __name__ == '__main__':
-    fname = '../tests/data/simple.f90'
+    fname = sys.argv[1]
     slexer = lexer.lex_buffer(open(fname))
     ast = parser.compilation_unit(parser.TokenStream(slexer, fname=fname))
     asr = TRANSFORMER(ast)
-    print (str(asr), end="")
+    asr.imbue()
+    #print (str(asr), end="")
+    #print ()
+    asr.write_cdecl(SyntaxWriter(sys.stdout))
