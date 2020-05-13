@@ -107,6 +107,7 @@ class SyntaxWriter:
 
 class CWrapper:
     def __init__(self):
+        self.headers = set()
         self.decls = []
 
     def get(self):
@@ -175,10 +176,10 @@ class CompilationUnit(Node):
         for child in self.children: child.resolve(objects, types)
 
     def write_code(self, out):
-        out.writeline("! FILE %s" % self.filename)
-        out.writeline("! AST VERSION %s" % ".".join(self.ast_version))
+        out.writeline("! file %s" % self.filename)
+        out.writeline("! ast version %s" % ".".join(self.ast_version))
         out.handle(*self.children, sep='\n')
-        out.writeline("! END FILE %s" % self.filename)
+        out.writeline("! end file %s" % self.filename)
 
     def write_cdecl(self, wrap):
         wrap.decls += ["/* Start declarations for file %s */" % self.filename]
@@ -209,7 +210,7 @@ class Subroutine(Node):
 
     def write_code_header(self, out):
         out.handle(*self.prefixes, sep=" ")
-        out.write("SUBROUTINE %s(%s)" % (self.name, ", ".join(self.argnames)))
+        out.write("subroutine %s(%s)" % (self.name, ", ".join(self.argnames)))
         if self.suffixes:
             out.write(" ")
             out.handle(*self.suffixes, sep=" ")
@@ -218,7 +219,7 @@ class Subroutine(Node):
         self.write_code_header(out)
         with out.indent(""):
             out.handle(*self.decls)
-        out.writeline("END SUBROUTINE %s" % self.name)
+        out.writeline("end subroutine %s" % self.name)
 
     def write_cdecl(self, wrap):
         if self.cname is None:
@@ -238,9 +239,9 @@ class BindC(Node):
 
     def write_code(self, out):
         if self.cname is None:
-            out.write("BIND(C)")
+            out.write("bind(C)")
         else:
-            out.write("BIND(C,NAME='%s')" % self.cname)
+            out.write("bind(C, name='%s')" % self.cname)
 
 
 class EntityDecl:
@@ -335,11 +336,11 @@ class Module(Node):
         parent.modules[self.name] = self
 
     def write_code(self, out):
-        with out.indent("MODULE %s" % self.name):
+        with out.indent("module %s" % self.name):
             out.handle(*self.decls)
-        with out.indent("CONTAINS"):
+        with out.indent("contains"):
             out.handle(*self.contained, sep="\n")
-        out.writeline("END MODULE %s" % self.name)
+        out.writeline("end module %s" % self.name)
 
 
 class Use(Node):
@@ -361,9 +362,9 @@ class Use(Node):
         types.update(self.ref.types)
 
     def write_code(self, out):
-        out.write("USE %s" % self.modulename)
+        out.write("use %s" % self.modulename)
         if self.only:
-            out.write(", ONLY: ")
+            out.write(", only: ")
         elif self.symbollist:
             out.write(", ")
         out.handle(*self.symbollist, sep=", ")
@@ -385,10 +386,30 @@ class Ref(Node):
             self.fqname = self.ref.fqname
 
     def write_code(self, out):
-        out.write(self.fqname)
+        out.write(self.name)
 
 
 class IntegerType(Node):
+    FTYPE = 'integer'
+
+    _STDDEF = {'<stddef.h>'}
+    _STDINT = {'<stdint.h>'}
+    _NONE = set()
+    KIND_MAPS = {
+        '%%c_int':         ('int',         _NONE    'intc',     'c_int'),
+        '%%c_short':       ('short',       _NONE,   'short',    'c_short'),
+        '%%c_long':        ('long',        _NONE,   'int_',     'c_long'),
+        '%%c_long_long':   ('long long',   _NONE,   'longlong', 'c_longlong'),
+        '%%c_signed_char': ('signed char', _NONE,   'byte',     'c_byte'),
+        '%%c_size_t':      ('size_t',      _STDDEF, 'intp',     'c_ssize_t'),
+        '%%c_int8_t':      ('int8_t',      _STDINT, 'int8',     'c_int8'),
+        '%%c_int16_t':     ('int16_t',     _STDINT, 'int16',    'c_int16'),
+        '%%c_int32_t':     ('int32_t',     _STDINT, 'int32',    'c_int32'),
+        '%%c_int64_t':     ('int64_t',     _STDINT, 'int64',    'c_int64'),
+        '%%c_intptr_t':    ('intptr_t',    _STDINT, 'intp',     'c_ssize_t'),
+        '%%c_ptrdiff_t':   ('ptrdiff_t',   _STDINT, 'intp',     'c_ssize_t'),
+        }
+
     def __init__(self, kind):
         self.kind = kind
 
@@ -397,11 +418,17 @@ class IntegerType(Node):
             self.kind.resolve(objects, types)
 
     def write_code(self, out):
-        out.write("INTEGER")
+        out.write(self.FTYPE)
         if self.kind is not None:
-            out.write("(KIND=")
+            out.write("(kind=")
             out.handle(self.kind)
             out.write(")")
+
+    def return_cdecl(self, wrap):
+        if self.kind is None:
+            raise RuntimeError("Cannot wrap")
+        ctype, cheaders, _, _ = self.KIND_MAPS[self.kind.fqname]
+        return ctype, cheaders
 
 
 def unpack(arg):
