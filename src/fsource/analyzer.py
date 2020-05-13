@@ -83,13 +83,13 @@ class SyntaxWriter:
         self._write("\n")
         self._newline = True
 
-    def handle(self, *objs, sep=None, method="write_code"):
+    def handle(self, *objs, sep=None):
         if not objs:
             return
-        getattr(objs[0], method)(self)
+        objs[0].write_code(self)
         for obj in objs[1:]:
             if sep: self._write(sep)
-            getattr(obj, method)(self)
+            obj.write_code(self)
 
     @contextlib.contextmanager
     def indent(self, header=None):
@@ -105,6 +105,14 @@ class SyntaxWriter:
             self.prefix = oldprefix
 
 
+class CWrapper:
+    def __init__(self):
+        self.decls = []
+
+    def get(self):
+        return "\n".join(self.decls)
+
+
 class Node(object):
     def imbue(self, parent):
         """
@@ -116,6 +124,10 @@ class Node(object):
         child nodes to change attributes of the parents.
         """
         raise NotImplementedError("imbue is not implemented")
+
+    def resolve(self, objects, types):
+        """Resolves references"""
+        raise NotImplementedError("resolve is not implemented")
 
     def write_code(self, out):
         """Write code of self to SyntaxWriter"""
@@ -138,6 +150,9 @@ class Ignored(Node):
     def imbue(self, parent):
         print("CANNOT IMBUE %s WITH %s" % (parent, self.ast[0]))
 
+    def resolve(self, objects, types):
+        print("CANNOT RESOLVE %s" % self.ast[0])
+
     def write_code(self, out):
         if out._newline:
             out.writeline("$%s"  % self.ast[0])
@@ -147,34 +162,38 @@ class Ignored(Node):
 
 class CompilationUnit(Node):
     """Top node representing one file"""
-    def __init__(self, ast_version, fname, *objs):
+    def __init__(self, ast_version, fname, *children):
         super().__init__()
         self.ast_version = ast_version
         self.filename = fname
-        self.objs = objs
+        self.children = children
 
     def imbue(self):
-        for obj in self.objs: obj.imbue(self)
+        for child in self.children: child.imbue(self)
+
+    def resolve(self, objects={}, types={}):
+        for child in self.children: child.resolve(objects, types)
 
     def write_code(self, out):
         out.writeline("! FILE %s" % self.filename)
         out.writeline("! AST VERSION %s" % ".".join(self.ast_version))
-        out.handle(*self.objs, sep='\n')
+        out.handle(*self.children, sep='\n')
         out.writeline("! END FILE %s" % self.filename)
 
-    def write_cdecl(self, out):
-        out.writeline("/* Start declarations for %s */" % self.filename)
-        out.handle(*self.objs, method="write_cdecl")
-        out.writeline("/* End declarations for %s */" % self.filename)
-
+    def write_cdecl(self, wrap):
+        wrap.decls += ["/* Start declarations for file %s */" % self.filename]
+        for obj in self.children:
+            obj.write_cdecl(wrap)
+        wrap.decls += ["/* End declarations for file %s */" % self.filename]
 
 
 class Subroutine(Node):
-    def __init__(self, name, prefixes, args, bindc, decls):
+    def __init__(self, name, prefixes, argnames, bindc, decls):
         self.name = name
         self.prefixes = prefixes
         self.suffixes = (bindc,) if bindc is not None else ()
-        self.args = args
+        self.argnames = argnames
+        self.returns = None
         self.decls = decls
 
     def imbue(self, parent):
@@ -182,19 +201,30 @@ class Subroutine(Node):
         for attr in self.prefixes + self.suffixes:
             attr.imbue(self)
 
-    def write_code(self, out):
+    def resolve(self, objects, types):
+        objects = dict(objects)
+        types = dict(types)
+        for decl in self.decls:
+            decl.resolve(objects, types)
+
+    def write_code_header(self, out):
         out.handle(*self.prefixes, sep=" ")
-        out.write("SUBROUTINE %s(" % self.name)
-        out.handle(*self.args, sep=", ")
-        out.write(") ")
-        out.handle(*self.suffixes, sep=" ")
+        out.write("SUBROUTINE %s(%s)" % (self.name, ", ".join(self.argnames)))
+        if self.suffixes:
+            out.write(" ")
+            out.handle(*self.suffixes, sep=" ")
+
+    def write_code(self, out):
+        self.write_code_header(out)
         with out.indent(""):
             out.handle(*self.decls)
         out.writeline("END SUBROUTINE %s" % self.name)
 
-    def write_cdecl(self, out):
-        if self.cname is None: return
-        out.writeline("void %s();" % self.cname)
+    def write_cdecl(self, wrap):
+        if self.cname is None:
+            wrap.decls += ["/* NOTE: unable to wrap %s. */" % self.name]
+            return
+        wrap.decls += ["void %s();" % self.cname]
 
 
 class BindC(Node):
@@ -211,6 +241,87 @@ class BindC(Node):
             out.write("BIND(C)")
         else:
             out.write("BIND(C,NAME='%s')" % self.cname)
+
+
+class EntityDecl:
+    def __init__(self, type_, attrs, entity_list):
+        self.entities = tuple(Entity(type_, attrs, *entity)
+                              for entity in entity_list)
+
+    def imbue(self, parent):
+        for entity in self.entities:
+            entity.imbue(parent)
+
+    def resolve(self, objects, types):
+        for entity in self.entities:
+            entity.resolve(objects, types)
+
+    def write_code(self, out):
+        out.handle(*self.entities)
+
+
+class Entity(Node):
+    def __init__(self, type_, attrs, name, shape, len_, init):
+        self.type_ = type_
+        self.attrs = attrs
+        self.name = name
+        self.shape = shape
+        self.len_ = len_
+        self.init = init
+
+    def imbue(self, parent):
+        pass
+
+    def resolve(self, objects, types):
+        self.type_.resolve(objects, types)
+        objects[self.name] = self
+
+    def write_code(self, out):
+        out.handle(self.type_)
+        if self.attrs:
+            out.write(", ")
+            out.handle(*self.attrs, sep=", ")
+        out.write(" :: %s" % self.name)
+        if self.shape:
+            out.handle(self.shape)
+        if self.len_:
+            out.handle(self.len_)
+        if self.init:
+            out.handle(self.init)
+        out.writeline()
+
+
+class Opaque:
+    def __init__(self, module, name):
+        self.module = module
+        self.name = name
+
+    @property
+    def fqname(self): return "%%" + self.name
+
+
+class IsoCBindingModule:
+    NAME = "iso_c_binding"
+    TAGS = (
+        'c_int', 'c_short', 'c_long', 'c_long_long', 'c_signed_char',
+        'c_size_t', 'c_int8_t', 'c_int16_t', 'c_int32_t', 'c_int64_t',
+        'c_int_least8_t', 'c_int_least16_t', 'c_int_least32_t',
+        'c_int_least64_t', 'c_int_fast8_t', 'c_int_fast16_t', 'c_int_fast32_t',
+        'c_int_fast64_t', 'c_intmax_t', 'c_intptr_t', 'c_ptrdiff_t', 'c_float',
+        'c_double', 'c_long_double', 'c_float128', 'c_float_complex',
+        'c_double_complex', 'c_long_double_complex', 'c_bool', 'c_char'
+        )
+    TYPES = 'c_ptr', 'c_funptr'
+
+    @property
+    def name(self): return self.NAME
+
+    @property
+    def modtype(self): return "intrinsic"
+
+    def __init__(self):
+        self.objects = {tag: Opaque(self, tag) for tag in self.TAGS}
+        self.types = {name: Opaque(self, name) for name in self.TYPES}
 
 
 class Module(Node):
@@ -239,8 +350,15 @@ class Use(Node):
         self.only = only is not None
         self.symbollist = symbollist
 
-    def imbue(self, parent):
-        parent.use[self.modulename] = self
+    def imbue(self, parent): pass
+
+    def resolve(self, objects, types):
+        # TODO: do something slightly more useful
+        if self.modulename != 'iso_c_binding':
+            return
+        self.ref = IsoCBindingModule()
+        objects.update(self.ref.objects)
+        types.update(self.ref.types)
 
     def write_code(self, out):
         out.write("USE %s" % self.modulename)
@@ -250,6 +368,40 @@ class Use(Node):
             out.write(", ")
         out.handle(*self.symbollist, sep=", ")
         out.writeline()
+
+
+class Ref(Node):
+    def __init__(self, name):
+        self.name = name
+        self.fqname = name
+
+    def resolve(self, objects, types):
+        try:
+            self.ref = objects[self.name]
+        except KeyError:
+            print("DID NOT FIND %s" % self.name)
+            self.ref = None
+        else:
+            self.fqname = self.ref.fqname
+
+    def write_code(self, out):
+        out.write(self.fqname)
+
+
+class IntegerType(Node):
+    def __init__(self, kind):
+        self.kind = kind
+
+    def resolve(self, objects, types):
+        if self.kind is not None:
+            self.kind.resolve(objects, types)
+
+    def write_code(self, out):
+        out.write("INTEGER")
+        if self.kind is not None:
+            out.write("(KIND=")
+            out.handle(self.kind)
+            out.write(")")
 
 
 def unpack(arg):
@@ -276,8 +428,16 @@ HANDLERS = {
     'arg_list':          unpack_sequence,
     'sub_prefix_list':   unpack_sequence,
     'bind_c':            BindC,
+    'entity_decl':       EntityDecl,
+    'entity_attrs':      unpack_sequence,
+    'entity_list':       unpack_sequence,
+    'entity':            unpack_sequence,
+
+    'integer_type':      IntegerType,
+    'kind_sel':          unpack,
 
     'id':                lambda name: name.lower(),
+    'ref':               Ref,
     }
 
 TRANSFORMER = sexpr_transformer(HANDLERS, Ignored)
@@ -319,6 +479,9 @@ if __name__ == '__main__':
     ast = parser.compilation_unit(parser.TokenStream(slexer, fname=fname))
     asr = TRANSFORMER(ast)
     asr.imbue()
-    #print (str(asr), end="")
-    #print ()
-    asr.write_cdecl(SyntaxWriter(sys.stdout))
+    asr.resolve()
+    print (str(asr), end="", file=sys.stderr)
+
+    decl = CWrapper()
+    asr.write_cdecl(decl)
+    print (decl.get())
