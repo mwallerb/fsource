@@ -386,7 +386,7 @@ class Ref(Node):
             self.fqname = self.ref.fqname
 
     def write_code(self, out):
-        out.write(self.name)
+        out.write(self.fqname)
 
 
 class IntegerType(Node):
@@ -396,7 +396,7 @@ class IntegerType(Node):
     _STDINT = {'<stdint.h>'}
     _NONE = set()
     KIND_MAPS = {
-        '%%c_int':         ('int',         _NONE    'intc',     'c_int'),
+        '%%c_int':         ('int',         _NONE,   'intc',     'c_int'),
         '%%c_short':       ('short',       _NONE,   'short',    'c_short'),
         '%%c_long':        ('long',        _NONE,   'int_',     'c_long'),
         '%%c_long_long':   ('long long',   _NONE,   'longlong', 'c_longlong'),
