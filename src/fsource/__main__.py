@@ -7,11 +7,13 @@ See LICENSE.txt for permissions on usage, modification and distribution
 """
 from __future__ import print_function
 import argparse
+import errno
 import time
 import sys
 import json
+import textwrap
 
-from . import __version__
+from . import __version__, __version_tuple__
 from . import splicer
 from . import lexer
 from . import parser
@@ -39,29 +41,32 @@ class Stopwatch:
 
 def get_parser():
     """Return argument parser"""
+    command_summary = textwrap.dedent("""\
+        Fortran static analyis tool
+
+        available commands:
+          parse         construct abstract syntax tree for declarations
+          lex           split source into tokens
+          splice        split source into sequence of logical lines
+        """)
+
     p = argparse.ArgumentParser(
-        prog='fsource',
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        description="Fortran static analysis tool",
-        usage="fsource [--help] [OPTIONS] COMMAND FILE [FILE ...]",
-        epilog="""\
-available commands:
-  parse         construct an abstract syntax tree for declarations
-  lex           splits source into tokens
-  splice        splits source into sequence of logical lines
-"""
-        )
+            prog='fsource',
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            description=command_summary,
+            usage="fsource COMMAND FILE [FILE ...]"
+            )
     p.add_argument('command', metavar='COMMAND',
                    choices=('splice', 'lex', 'parse'),
-                   help='command to execute (one of: parse, lex, splice)')
+                   help=argparse.SUPPRESS)
     p.add_argument('files', metavar='FILE', type=str, nargs='+',
-                   help='files to parse')
+                   help="Fortran file(s) to process")
     p.add_argument('--version', action='version',
                    version='%(prog)s ' + __version__)
     p.add_argument('--fixed-form', dest='form', action='store_const',
-                   const='fixed', default=None, help='Force fixed form input')
+                   const='fixed', default=None, help='force fixed form input')
     p.add_argument('--free-form', dest='form', action='store_const',
-                   const='free', help='Force free form input')
+                   const='free', help='force free form input')
     p.add_argument('--time', dest='output', action='store_const',
                    const='time', default='json',
                    help='process files but print timings only')
@@ -102,7 +107,8 @@ def pprint_lex(mylexer, out, filename=None):
     encode_string = json.encoder.encode_basestring
 
     out.write('[\n')
-    out.write('["lex_version", "1.0"],\n')
+    out.write('["lex_version", %s],\n' %
+              ", ".join('"%s"' % v for v in __version_tuple__))
     out.write('["filename", %s],\n' % encode_string(filename))
     for _, _, cat, token in mylexer:
         out.write('["%s",%s]' % (lexer.CAT_NAMES[cat], encode_string(token)))
@@ -152,7 +158,7 @@ def pprint_parser(ast, out, level=0):
         True: 'true',
         False: 'false',
         None: 'null'
-    }
+        }
 
     if isinstance(ast, tuple):
         out.write("[" + encode_basestring(ast[0]))
@@ -205,8 +211,8 @@ def main():
         if args.output == 'time':
             sys.stderr.write("Elapsed: %g sec\n" % rabbit.total())
     except IOError as e:
-        p.error(e)
-
+        if e.errno != errno.EPIPE:
+            raise
 
 if __name__ == '__main__':
     main()

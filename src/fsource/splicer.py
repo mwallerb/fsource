@@ -4,13 +4,6 @@ Line handling and preprocessing for free/fixed-form Fortran.
 Uses regular expressions to split up a Fortran source file into a sequence
 of logical lines together with line types.
 
-Lexical analysis must deal with three ambiguities in the Fortran grammar:
-
- 1. The 'FORMAT' statement is a bit of an oddball, as it allows tokens that
-    are illegal everywhere else, e.g., 3I6 or ES13.2.  The lexer works
-    around this by returning the format line as single token of category
-    `CAT_FORMAT`.
-
 Copyright 2019 Markus Wallerberger
 Released under the GNU Lesser General Public License, Version 3 only.
 See LICENSE.txt for permissions on usage, modification and distribution
@@ -33,57 +26,43 @@ class SpliceError(common.ParsingError):
 
 def get_freeform_line_regex():
     """Discriminate line type"""
-    ws = r"""[ \t]+"""
     endline = r"""(?:\n|\r\n?)"""
-    anything = r"""[^\r\n]*"""
-    comment = r"""(?:![^\r\n]*)"""
-    lineno = r"""[0-9]{1,5}(?=[ \t])"""
-    include = r"""include{ws}{anything}""".format(ws=ws, anything=anything)
-    preproc = r"""\#{anything}""".format(anything=anything)
+    comment = r"""(?:!.*)"""
     atom = r"""(?: [^!&'"\r\n] | '(?:''|[^'\r\n])*' | "(?:""|[^"\r\n])*" )"""
-    format_ = r"""{lineno}{ws}format[ \t]*\({anything}""".format(
-                    ws=ws, anything=anything, lineno=lineno)
     truncstr = r"""(?: '(?:''|[^'\r\n])*
                      | "(?:""|[^"\r\n])*
                      )
-            """
-    line = r"""(?ix) ^[ \t]*
-        (?: ( {preproc} ) {endline}                  # 1 preprocessor stmt
-            | ( {include} {endline} )                # 2 include line
-            | ( {format} {endline} )                 # 3 format stmt
-            | ( {atom}* ) (?:                        # 4 whole line part
-                  ( {comment}? {endline} )             # 5 full line end
-                | ( & [ \t]* {comment}? {endline} )    # 6 truncated line end
-                | ( {truncstr} ) &[ \t]* {endline}     # 7 truncated string end
+                """
+    line = r"""(?x) ^[ \t]*
+        (?: ( \# .* ) {endline}                      # 1 preprocessor stmt
+            | ( {atom}* ) (?:                        # 2 whole line part
+                  ( {comment}? {endline} )           # 3 full line end
+                | ( & [ \t]* {comment}? {endline} )  # 4 truncated line end
+                | ( {truncstr} ) &[ \t]* {endline}   # 5 truncated string end
               )
             ) $
-        """.format(preproc=preproc, include=include, format=format_,
-                   atom=atom, truncstr=truncstr, comment=comment,
+        """.format(atom=atom, truncstr=truncstr, comment=comment,
                    endline=endline)
 
     return re.compile(line)
 
 
 FREE_PREPROC = 1
-FREE_INCLUDE = 2
-FREE_FORMAT = 3
-FREE_WHOLE_PART = 4
-FREE_FULL_END = 5
-FREE_TRUNC_END = 6
-FREE_TRUNC_STRING_END = 7
+FREE_WHOLE_PART = 2
+FREE_FULL_END = 3
+FREE_TRUNC_END = 4
+FREE_TRUNC_STRING_END = 5
 
 
 def get_freeform_contd_regex():
     """Discriminate line type for free-form file"""
-    anything = r"""[^\r\n]+"""
     endline = r"""(?:\n|\r\n?)"""
-    comment = r"""(?:![^\r\n]*)"""
     line = r"""(?x) ^[ \t]*
             (?:
-                ( {comment} {endline} )              # 1 comment line (ignored)
-              | &? [ \t]* ( {anything} {endline} )   # 2 spill
+                ( ! .* {endline} )              # 1 comment line (ignored)
+              | &? [ \t]* ( .+ {endline} )      # 2 spill
               ) $
-            """.format(anything=anything, comment=comment, endline=endline)
+            """.format(endline=endline)
     return re.compile(line)
 
 
@@ -91,11 +70,9 @@ CONTD_COMMENT = 1
 CONTD_SPILL = 2
 
 LINECAT_NORMAL = 1
-LINECAT_INCLUDE = 2
-LINECAT_FORMAT = 3
-LINECAT_PREPROC = 4
+LINECAT_PREPROC = 2
 
-LINECAT_NAMES = (None, 'line', 'include', 'format', 'preproc', 'comment')
+LINECAT_NAMES = (None, 'line', 'preproc')
 
 
 def splice_free_form(mybuffer):
@@ -133,42 +110,35 @@ def splice_free_form(mybuffer):
             stub += match.group(FREE_WHOLE_PART)
             if discr == FREE_TRUNC_STRING_END:
                 trunc_str = match.group(FREE_TRUNC_STRING_END)
-        elif discr == FREE_PREPROC:
+        else: # discr == FREE_PREPROC:
             ppstmt = match.group(FREE_PREPROC)
             if ppstmt[-1] == '\\':
                 trunc_str = ppstmt[:-1]
             else:
                 yield lineno, LINECAT_PREPROC, ppstmt + '\n'
-        elif discr == FREE_FORMAT:
-            yield lineno, LINECAT_FORMAT, line
-        else:
-            yield lineno, LINECAT_INCLUDE, line
 
     if stub or trunc_str:
         raise SpliceError(fname, lineno, line,
                           "File ends with line continuation marker")
 
 
-def get_fixedform_line_regex():
+def get_fixedform_line_regex(margin):
     """Discriminate line type for fixed-form file"""
-    line = r"""(?isx) ^
-        (?: [cC*!](.*)                                        # 1: comment
-            | [ ]{5}[^ 0] (.*)                                # 2: continuation
-            | [ \t]* (\#.*)                                   # 3: preprocessor
-            | [ ]{6} [ \t]* (include[ \t].*)                  # 4: include line
-            | ( [\d ]{5}[ 0] [ \t]* format[ \t]* (?:\(.*)?)   # 5: format line
-            | ( [\d ]{5}[ 0] [ \t]* .* )                      # 6: normal line
-            ) $
-            """
+    line = r"""(?mx) ^
+        (?: [cC*!] (.*)                                   # 1: comment
+          | [ ]    [ ]{{4}}  [^ 0]  (.{{0,{body}}}) .*    # 2: continuation
+          | [ ]*                    (\#.*)                # 3: preprocessor
+          | (    [\d ]{{5}}  [ 0]    .{{0,{body}}}
+            |    [ ]{{0,5}} $                     ) .*    # 4: normal line
+          ) $
+          """.format(body=margin-6)
     return re.compile(line)
 
 
 FIXED_COMMENT = 1
 FIXED_CONTD = 2
 FIXED_PREPROC = 3
-FIXED_INCLUDE = 4
-FIXED_FORMAT = 5
-FIXED_OTHER = 6
+FIXED_OTHER = 4
 
 
 def splice_fixed_form(mybuffer, margin=72):
@@ -177,18 +147,11 @@ def splice_fixed_form(mybuffer, margin=72):
     # line, so we need to store the previous current line
     cat = None
     stub = None
-    line_regex = get_fixedform_line_regex()
+    line_regex = get_fixedform_line_regex(margin)
 
     fname = mybuffer.name
     lineno = 0
     for lineno, line in enumerate(mybuffer):
-        # Fixed-form line continuation works like this: the line is truncated
-        # at 72 characters and the continuation line is appended directly (you
-        # are allowed to break a token across lines).  This means we have to
-        # pad lines shorter than this with at least one whitespace character.
-        line = line.rstrip('\r\n')
-        line = (line + '      ')[:margin]
-
         match = line_regex.match(line)
         if not match:
             raise SpliceError(fname, lineno, line, "invalid fixed-form line")
@@ -213,11 +176,6 @@ def splice_fixed_form(mybuffer, margin=72):
             stub = match.group(FIXED_OTHER)
         elif discr == FIXED_COMMENT:
             yield lineno, LINECAT_NORMAL, "!" + match.group(FIXED_COMMENT) + "\n"
-        elif discr == FIXED_FORMAT:
-            cat = LINECAT_FORMAT
-            stub = match.group(FIXED_FORMAT)
-        elif discr == FIXED_INCLUDE:
-            yield lineno, LINECAT_INCLUDE, match.group(FIXED_INCLUDE) + "\n"
         else:  # discr == FIXED_PREPROC
             ppstmt = match.group(FIXED_PREPROC)
             if ppstmt[-1] == '\\':

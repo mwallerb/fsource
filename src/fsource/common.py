@@ -39,7 +39,9 @@ class ParsingError(Exception):
         if self.msg is not None:
             errstr += ": " + self.msg + "\n"
         if self.line is not None:
-            errstr += "|\n|\t%s" % self.line
+            errstr += "|\n"
+            for line in self.line.splitlines():
+                errstr += "|\t%s\n" % line
             if self.colbegin is not None:
                 errstr += "|\t" + " " * self.colbegin + "^"
                 if self.colend is not None:

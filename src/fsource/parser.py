@@ -47,6 +47,10 @@ class NoMatch(Exception):
     """
 
 
+class EndOfBlock(Exception):
+    """A performance-enhancing exception"""
+
+
 class ParserError(common.ParsingError):
     """Current rule does not match even though it should, fail meaningfully.
 
@@ -80,7 +84,6 @@ class TokenStream:
         self.fname = fname
         self.tokens = tuple(tokens)
         self.pos = pos
-        self.stack = []
 
     def peek(self):
         """Get current token without consuming it"""
@@ -100,18 +103,6 @@ class TokenStream:
         return self.tokens[pos]
 
     next = __next__       # Python 2
-
-    def push(self):
-        """Create a rollback point at the current token and push it"""
-        self.stack.append(self.pos)
-
-    def backtrack(self):
-        """Remove and return to the last rollback point"""
-        self.pos = self.stack.pop()
-
-    def commit(self):
-        """Remove the last rollback point"""
-        self.stack.pop()
 
     def produce(self, header, *args):
         """Produce a node in the abstract syntax tree."""
@@ -152,15 +143,13 @@ def rule(fn):
     backtrack to the rollback point.
     """
     def rule_setup(tokens, *args):
-        tokens.push()
+        begin_pos = tokens.pos
         try:
-            value = fn(tokens, *args)
+            return fn(tokens, *args)
         except NoMatch:
-            tokens.backtrack()
+            tokens.pos = begin_pos
             raise
-        else:
-            tokens.commit()
-            return value
+
     return rule_setup
 
 
@@ -366,16 +355,16 @@ def implied_do(tokens):
     expect(tokens, '(')
     args.append(expr(tokens))
     expect(tokens, ',')
-    with LockedIn(tokens, "invalid implied do"):
-        while True:
-            try:
-                do_ctrl_result = do_ctrl(tokens)
-            except NoMatch:
-                args.append(expr(tokens))
-                expect(tokens, ',')
-            else:
-                expect(tokens, ')')
-                return tokens.produce('impl_do', do_ctrl_result, *args)
+    while True:
+        try:
+            do_ctrl_result = do_ctrl(tokens)
+            break
+        except NoMatch:
+            args.append(expr(tokens))
+            expect(tokens, ',')
+
+    expect(tokens, ')')
+    return tokens.produce('impl_do', do_ctrl_result, *args)
 
 def inplace_array(open_delim, close_delim):
     @rule
@@ -426,22 +415,6 @@ def argument(tokens):
         return item
 
 subscript_sequence = comma_sequence(argument, 'sub_list', allow_empty=True)
-
-def lvalue(tokens):
-    # lvalue is subject to stricter scrutiny, than an expression, since it
-    # is used in the assignment statement.
-    result = id_ref(tokens)
-    with LockedIn(tokens, "invalid lvalue"):
-        while True:
-            if marker(tokens, '('):
-                seq = subscript_sequence(tokens)
-                expect(tokens, ')')
-                result = tokens.produce('call', result, *seq[1:])
-            if marker(tokens, '%'):
-                dependant = id_ref(tokens)
-                result = tokens.produce('resolve', result, dependant)
-            else:
-                return result
 
 def prefix_op_handler(subglue, action):
     def prefix_op_handle(tokens):
@@ -501,6 +474,12 @@ def call_handler(tokens, lhs):
     expect(tokens, ')')
     return tokens.produce('call', lhs, *seq[1:])
 
+def resolve_handler(tokens, lhs):
+    tokens.advance()
+    rhs = id_ref(tokens)
+    return tokens.produce('resolve', lhs, rhs)
+
+
 _PREFIX_OP_HANDLERS = {
     "not":    prefix_op_handler( 50, 'not_'),
     "+":      prefix_op_handler(110, 'pos'),
@@ -528,7 +507,7 @@ _INFIX_OP_HANDLERS = {
     "/":      ( 90, infix_op_handler( 91, 'div')),
     "**":     (100, infix_op_handler(100, 'pow')),
     "_":      (130, infix_op_handler(131, 'kind')),
-    "%":      (140, infix_op_handler(141, 'resolve')),
+    "%":      (140, resolve_handler),
     "(":      (140, call_handler),
     }
 _INFIX_OP_HANDLERS.update({
@@ -591,6 +570,23 @@ def expr(tokens, min_glue=0):
         raise ParserError(tokens, "Invalid expression")
 
 _optional_expr = optional(expr)
+
+
+def lvalue(tokens):
+    # lvalue is subject to stricter scrutiny, than an expression, since it
+    # is used in the assignment statement.
+    result = id_ref(tokens)
+    try:
+        while True:
+            token = tokens.peek()[3]
+            if token == '(':
+                result = call_handler(tokens, result)
+            elif token == '%':
+                result = resolve_handler(tokens, result)
+            else:
+                return result
+    except NoMatch:
+        raise ParserError(tokens, "Invalid lvalue")
 
 # -----------
 
@@ -896,12 +892,10 @@ def preproc_stmt(tokens):
     return ('preproc_stmt', expect_cat(tokens, lexer.CAT_PREPROC))
 
 def block(inner_rule, production_tag='block'):
-    # Fortran blocks are delimited by one of these words, so we can use
-    # them in failing fast
     def block_rule(tokens):
         stmts = []
         while True:
-            cat, token = tokens.peek()[2:]
+            cat = tokens.peek()[2]
             if cat == lexer.CAT_INT:
                 tokens.advance()
             elif cat == lexer.CAT_EOS:
@@ -919,7 +913,7 @@ def block(inner_rule, production_tag='block'):
 
 component_block = block(entity_decl, 'component_block')
 
-public_stmt =  tag_stmt('public', 'public')
+public_stmt = tag_stmt('public', 'public')
 
 private_stmt = tag_stmt('private', 'private')
 
@@ -1067,29 +1061,45 @@ def rename(tokens):
 rename_sequence = comma_sequence(rename, 'rename_list')
 
 @rule
+def bracketed_oper(tokens):
+    expect(tokens, '(')
+    cat, token = next(tokens)[2:]
+    if cat == lexer.CAT_CUSTOM_DOT:
+        oper = tokens.produce('custom_op', token)
+    elif cat == lexer.CAT_SYMBOLIC_OP or lexer.CAT_BUILTIN_DOT:
+        oper = token
+    expect(tokens, ')')
+    return oper
+
+@rule
+def bracketed_slashes(tokens):
+    # It is impossible for the lexer to disambiguate between an empty
+    # in-place array (//) and bracketed slashes, so we handle it here:
+    bracketed_slash_re = re.compile(r'\((//?)\)')
+    tokstr = ''
+    for _ in range(3):
+        token = next(tokens)[3]
+        tokstr += token
+        match = bracketed_slash_re.match(tokstr)
+        if match:
+            return match.group(1)
+    else:
+        raise NoMatch()
+
+@rule
 def oper_spec(tokens):
     if marker(tokens, 'assignment'):
         expect(tokens, '(')
         expect(tokens, '=')
         expect(tokens, ')')
-        return tokens.produce('oper_spec', '=')
+        oper = '='
     else:
         expect(tokens, 'operator')
         try:
-            # It is impossible for the lexer to disambiguate between an empty
-            # in-place array (//) and bracketed slashes, so we handle it here:
-            oper = expect_cat(tokens, lexer.CAT_BRACKETED_SLASH)
+            oper = bracketed_oper(tokens)
         except NoMatch:
-            expect(tokens, '(')
-            cat, token = next(tokens)[2:]
-            if cat == lexer.CAT_CUSTOM_DOT:
-                oper = tokens.produce('custom_op', token)
-            elif cat == lexer.CAT_SYMBOLIC_OP or lexer.CAT_BUILTIN_DOT:
-                oper = token
-            else:
-                raise NoMatch()
-            expect(tokens, ')')
-        return tokens.produce('oper_spec', oper)
+            oper = bracketed_slashes(tokens)
+    return tokens.produce('oper_spec', oper)
 
 def iface_name(tokens):
     try:
@@ -1135,7 +1145,7 @@ _USE_ATTR_HANDLERS = {
     'non_intrinsic': tag('non_intrinsic', 'non_intrinsic'),
     }
 
-use_attr = prefixes(_USE_ATTR_HANDLERS )
+use_attr = prefixes(_USE_ATTR_HANDLERS)
 
 use_attrs = attribute_sequence(use_attr, 'use_attrs')
 
@@ -1218,7 +1228,6 @@ def implicit_stmt(tokens):
             eos(tokens)
             return specs
 
-@rule
 def dummy_arg(tokens):
     if marker(tokens, '*'):
         return '*'
@@ -1284,7 +1293,6 @@ _FUNC_PREFIX_HANDLERS = {
 
 func_modifier = prefixes(_FUNC_PREFIX_HANDLERS)
 
-@rule
 def func_prefix(tokens):
     try:
         return func_modifier(tokens)
@@ -1301,7 +1309,6 @@ def result_suffix(tokens):
     expect(tokens, ')')
     return ('result', res)
 
-@rule
 def func_suffix(tokens):
     try:
         return result_suffix(tokens)
@@ -1338,7 +1345,6 @@ def function_decl(tokens):
         return tokens.produce('function_decl', name, prefixes_, args, suffixes,
                               declarations_)
 
-@rule
 def subprogram_decl(tokens):
     try:
         return subroutine_decl(tokens)
@@ -1585,6 +1591,12 @@ def data_stmt(tokens):
     ignore_stmt(tokens)
     return tokens.produce('data_stmt')
 
+def derived_type_decl_or_entity(tokens):
+    try:
+        return entity_decl(tokens)
+    except NoMatch:
+        return type_decl(tokens)
+
 # TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
     'use':         use_stmt,
@@ -1607,21 +1619,15 @@ _DECLARATION_HANDLERS = {
     'save':        save_stmt,
     }
 
-prefixed_declaration_stmt = prefixes(_DECLARATION_HANDLERS)
+# Entity declarations begin with a type, but 'type' may also be a derived
+# type definition
+_DECLARATION_HANDLERS.update(
+    {prefix: entity_decl for prefix in _TYPE_SPEC_HANDLERS})
+_DECLARATION_HANDLERS['type'] = derived_type_decl_or_entity
 
-@rule
-def declaration_stmt(tokens):
-    try:
-        return prefixed_declaration_stmt(tokens)
-    except NoMatch:
-        try:
-            return type_decl(tokens)
-        except NoMatch:
-            return entity_decl(tokens)
+declaration_stmt = prefixes(_DECLARATION_HANDLERS)
 
 declaration_part = block(declaration_stmt, 'declaration_block')
-
-fenced_declaration_part = block(declaration_stmt, 'declaration_block')
 
 @rule
 def construct_tag(tokens):
@@ -1894,7 +1900,22 @@ def where_construct(tokens):
                 execution_part(tokens)
             end_where_stmt(tokens)
 
-# ELSE WHERE
+def fast_end_handler(tokens):
+    # In traditional recursive descent parsing of a block, we would try to
+    # match every possible statement before deciding the block is complete
+    # and trying to match an end statement.  To speed this up, we raise
+    # `EndOfBlock` here whenever we encounter a valid "END something"
+    begin_pos = tokens.pos
+    tokens.advance()
+    try:
+        cat, token = tokens.peek()[2:]
+        if cat == lexer.CAT_WORD or cat == lexer.CAT_EOS:
+            raise EndOfBlock()
+        else:
+            raise NoMatch()
+    finally:
+        tokens.pos = begin_pos
+
 CONSTRUCT_HANDLERS = {
     'if':         if_construct,
     'do':         do_construct,
@@ -1934,6 +1955,16 @@ STMT_HANDLERS = {
 
     # placement in execution part is discouraged, but occasionally used
     'data':       data_stmt,
+
+    # use fast end handlers
+    'end':           fast_end_handler,
+    'endif':         fast_end_handler,
+    'enddo':         fast_end_handler,
+    'endwhere':      fast_end_handler,
+    'endselect':     fast_end_handler,
+    'endsubroutine': fast_end_handler,
+    'endfunction':   fast_end_handler,
+    'contains':      fast_end_handler
     }
 STMT_HANDLERS.update(CONSTRUCT_HANDLERS)
 
@@ -1951,10 +1982,10 @@ def assignment_stmt(tokens):
         eos(tokens)
 
 @rule
-def format_stmt(tokens):
-    expect_cat(tokens, lexer.CAT_FORMAT)
+def tagged_construct(tokens):
+    construct_tag(tokens)
+    construct(tokens)
 
-@rule
 def execution_stmt(tokens):
     try:
         prefixed_stmt(tokens)
@@ -1962,16 +1993,10 @@ def execution_stmt(tokens):
         try:
             assignment_stmt(tokens)
         except NoMatch:
-            try:
-                # This is the least likely, so it moved here.
-                construct_tag(tokens)
-                construct(tokens)
-            except NoMatch:
-                format_stmt(tokens)
+            tagged_construct(tokens)
+    except EndOfBlock:
+        raise NoMatch()
 
-# FIXME: even though this incurs a runtime penalty, we cannot use a simple
-#        fence here, since it is technically allowed to cause maximum confusion
-#        by naming a variable 'end'.
 execution_part = block(execution_stmt, 'execution_block')
 
 end_module_stmt = end_stmt('module', require_type=False)
@@ -1984,7 +2009,7 @@ def module_decl(tokens):
         eos(tokens)
 
     with LockedIn(tokens, "malformed statement inside module"):
-        decls = fenced_declaration_part(tokens)
+        decls = declaration_part(tokens)
         cont = optional_contained_part(tokens)
         end_module_stmt(tokens)
         return tokens.produce('module_decl', name, decls, cont)
@@ -2045,7 +2070,6 @@ _PROGRAM_UNIT_HANDLERS = {
 
 prefixed_program_unit = prefixes(_PROGRAM_UNIT_HANDLERS)
 
-@rule
 def program_unit(tokens):
     try:
         return prefixed_program_unit(tokens)
