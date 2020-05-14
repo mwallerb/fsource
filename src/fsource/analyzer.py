@@ -4,7 +4,6 @@ Released under the GNU Lesser General Public License, Version 3 only.
 See LICENSE.txt for permissions on usage, modification and distribution
 """
 from __future__ import print_function
-from collections import OrderedDict
 
 import io
 import sys
@@ -13,6 +12,11 @@ import contextlib
 from . import parser
 from . import lexer
 from . import common
+
+if sys.version_info >= (3, 7):
+    OrderedDict = dict
+else:
+    from collections import OrderedDict
 
 
 def sexpr_transformer(branch_map, fallback=None):
@@ -189,6 +193,11 @@ class CompilationUnit(Node):
         wrap.decls += ["/* End declarations for file %s */" % self.filename]
 
 
+class Unspecified(Node):
+    def __init__(self, name):
+        self.name = name
+
+
 class Subroutine(Node):
     def __init__(self, name, prefixes, argnames, bindc, decls):
         self.name = name
@@ -200,8 +209,11 @@ class Subroutine(Node):
 
     def imbue(self, parent):
         self.cname = None
+        self.args = [Unspecified(name) for name in self.argnames]
         for attr in self.prefixes + self.suffixes:
             attr.imbue(self)
+        for decl in self.decls:
+            decl.imbue(self)
 
     def resolve(self, objects, types):
         objects = dict(objects)
@@ -226,7 +238,30 @@ class Subroutine(Node):
         if self.cname is None:
             wrap.decls += ["/* NOTE: unable to wrap %s. */" % self.name]
             return
-        wrap.decls += ["void %s();" % self.cname]
+
+        # arg decls
+        headers = set()
+        args = []
+        for arg in self.args:
+            arg_str, arg_headers = arg.get_cdecl()
+            headers |= arg_headers
+            args.append(arg_str)
+        args = ", ".join(args)
+
+        wrap.decls += ["void %s(%s);" % (self.cname, args)]
+        wrap.headers |= headers
+
+
+class Intent(Node):
+    def __init__(self, in_, out):
+        self.in_ = bool(in_)
+        self.out = bool(out)
+
+    def imbue(self, parent):
+        parent.intent = self.in_, self.out
+
+    def write_code(self, out):
+        out.write("intent(%s%s)" % ("in" * self.in_, "out" * self.out))
 
 
 class BindC(Node):
@@ -272,7 +307,29 @@ class Entity(Node):
         self.init = init
 
     def imbue(self, parent):
-        pass
+        # Add self to arguments
+        self.entity_type = 'variable'
+        self.intent = None
+        self.passby = None
+
+        # Add self to arguments if applicable
+        try:
+            index = getattr(parent, "argnames", []).index(self.name)
+        except ValueError:
+            pass
+        else:
+            parent.args[index] = self
+            self.entity_type = 'argument'
+            self.intent = True, True
+            self.passby = 'reference'
+
+        for attr in self.attrs:
+            attr.imbue(self)
+
+        self.c_pointer = (self.shape is not None or self.len_ is not None or
+                          self.passby == 'reference')
+        self.c_const = (self.entity_type == 'parameter' or
+                        self.entity_type == 'argument' and not self.intent[1])
 
     def resolve(self, objects, types):
         self.type_.resolve(objects, types)
@@ -291,6 +348,13 @@ class Entity(Node):
         if self.init:
             out.handle(self.init)
         out.writeline()
+
+    def get_cdecl(self):
+        type_decl, type_header = self.type_.get_cdecl()
+
+        cdecl = "%s%s %s%s" % ("const " * self.c_pointer, type_decl,
+                               "*" * self.c_const, self.name)
+        return cdecl, type_header
 
 
 class Opaque:
@@ -425,7 +489,7 @@ class IntegerType(Node):
             out.handle(self.kind)
             out.write(")")
 
-    def return_cdecl(self, wrap):
+    def get_cdecl(self):
         if self.kind is None:
             raise RuntimeError("Cannot wrap")
         ctype, cheaders, _, _ = self.KIND_MAPS[self.kind.fqname]
@@ -456,6 +520,7 @@ HANDLERS = {
     'arg_list':          unpack_sequence,
     'sub_prefix_list':   unpack_sequence,
     'bind_c':            BindC,
+    'intent':            Intent,
     'entity_decl':       EntityDecl,
     'entity_attrs':      unpack_sequence,
     'entity_list':       unpack_sequence,
