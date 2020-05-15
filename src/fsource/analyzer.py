@@ -119,6 +119,20 @@ class CWrapper:
         return "\n".join(self.decls)
 
 
+class Context:
+    """Current context"""
+    def __init__(self, entities={}, derived_types={}):
+        self.entities = entities
+        self.derived_types = derived_types
+
+    def copy(self):
+        return Context(dict(self.entities), dict(self.derived_types))
+
+    def update(self, other):
+        self.entities.update(other.entities)
+        self.derived_types.update(other.derived_types)
+
+
 class Node(object):
     def imbue(self, parent):
         """
@@ -131,8 +145,14 @@ class Node(object):
         """
         raise NotImplementedError("imbue is not implemented")
 
-    def resolve(self, objects, types):
-        """Resolves references"""
+    def resolve(self, context):
+        """
+        Resolves names in `self` given a current name `context`.
+
+        This function is called after `imbue()` on each node in the order of
+        appearence in the tree.  The current node takes the current `context`,
+        looking up references in context and augmenting it as necessary.
+        """
         raise NotImplementedError("resolve is not implemented")
 
     def write_code(self, out):
@@ -156,7 +176,7 @@ class Ignored(Node):
     def imbue(self, parent):
         print("CANNOT IMBUE %s WITH %s" % (parent, self.ast[0]))
 
-    def resolve(self, objects, types):
+    def resolve(self, context):
         print("CANNOT RESOLVE %s" % self.ast[0])
 
     def write_code(self, out):
@@ -177,8 +197,8 @@ class CompilationUnit(Node):
     def imbue(self):
         for child in self.children: child.imbue(self)
 
-    def resolve(self, objects={}, types={}):
-        for child in self.children: child.resolve(objects, types)
+    def resolve(self, context):
+        for child in self.children: child.resolve(context)
 
     def write_code(self, out):
         out.writeline("! file %s" % self.filename)
@@ -215,11 +235,10 @@ class Subroutine(Node):
         for decl in self.decls:
             decl.imbue(self)
 
-    def resolve(self, objects, types):
-        objects = dict(objects)
-        types = dict(types)
+    def resolve(self, context):
+        subcontext = context.copy()
         for decl in self.decls:
-            decl.resolve(objects, types)
+            decl.resolve(subcontext)
 
     def write_code_header(self, out):
         out.handle(*self.prefixes, sep=" ")
@@ -289,9 +308,9 @@ class EntityDecl:
         for entity in self.entities:
             entity.imbue(parent)
 
-    def resolve(self, objects, types):
+    def resolve(self, context):
         for entity in self.entities:
-            entity.resolve(objects, types)
+            entity.resolve(context)
 
     def write_code(self, out):
         out.handle(*self.entities)
@@ -331,9 +350,9 @@ class Entity(Node):
         self.c_const = (self.entity_type == 'parameter' or
                         self.entity_type == 'argument' and not self.intent[1])
 
-    def resolve(self, objects, types):
-        self.type_.resolve(objects, types)
-        objects[self.name] = self
+    def resolve(self, context):
+        self.type_.resolve(context)
+        context.entities[self.name] = self
 
     def write_code(self, out):
         out.handle(self.type_)
@@ -385,9 +404,12 @@ class IsoCBindingModule:
     @property
     def modtype(self): return "intrinsic"
 
-    def __init__(self):
-        self.objects = {tag: Opaque(self, tag) for tag in self.TAGS}
-        self.types = {name: Opaque(self, name) for name in self.TYPES}
+    @property
+    def context(self):
+        return Context(
+            entities={tag: Opaque(self, tag) for tag in self.TAGS},
+            derived_types={name: Opaque(self, name) for name in self.TYPES}
+            )
 
 
 class Module(Node):
@@ -418,13 +440,13 @@ class Use(Node):
 
     def imbue(self, parent): pass
 
-    def resolve(self, objects, types):
+    def resolve(self, context):
         # TODO: do something slightly more useful
         if self.modulename != 'iso_c_binding':
             return
+
         self.ref = IsoCBindingModule()
-        objects.update(self.ref.objects)
-        types.update(self.ref.types)
+        context.update(self.ref.context)
 
     def write_code(self, out):
         out.write("use %s" % self.modulename)
@@ -441,9 +463,9 @@ class Ref(Node):
         self.name = name
         self.fqname = name
 
-    def resolve(self, objects, types):
+    def resolve(self, context):
         try:
-            self.ref = objects[self.name]
+            self.ref = context.entities[self.name]
         except KeyError:
             print("DID NOT FIND %s" % self.name)
             self.ref = None
@@ -478,9 +500,9 @@ class IntegerType(Node):
     def __init__(self, kind):
         self.kind = kind
 
-    def resolve(self, objects, types):
+    def resolve(self, context):
         if self.kind is not None:
-            self.kind.resolve(objects, types)
+            self.kind.resolve(context)
 
     def write_code(self, out):
         out.write(self.FTYPE)
@@ -572,7 +594,7 @@ if __name__ == '__main__':
     ast = parser.compilation_unit(parser.TokenStream(slexer, fname=fname))
     asr = TRANSFORMER(ast)
     asr.imbue()
-    asr.resolve()
+    asr.resolve(Context())
     print (str(asr), end="", file=sys.stderr)
 
     decl = CWrapper()
