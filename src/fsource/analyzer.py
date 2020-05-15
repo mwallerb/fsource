@@ -121,16 +121,33 @@ class CWrapper:
 
 class Context:
     """Current context"""
-    def __init__(self, entities={}, derived_types={}):
+    def __init__(self, entities={}, derived_types={}, modules={}):
         self.entities = entities
         self.derived_types = derived_types
+        self.modules = modules
 
     def copy(self):
-        return Context(dict(self.entities), dict(self.derived_types))
+        return Context(dict(self.entities),
+                       dict(self.derived_types),
+                       dict(self.modules))
 
-    def update(self, other):
-        self.entities.update(other.entities)
-        self.derived_types.update(other.derived_types)
+    def update(self, other, filter=None):
+        if filter is None:
+            filter = lambda other_dict: other_dict
+
+        self.entities.update(filter(other.entities))
+        self.derived_types.update(filter(other.derived_types))
+        self.modules.update(filter(other.modules))
+
+    def get_module(self, name):
+        try:
+            return self.intrinsic_modules[name]
+        except KeyError:
+            return self.modules[name]
+
+    @property
+    def intrinsic_modules(self):
+        return {'iso_c_binding': IsoCBindingModule()}
 
 
 class Node(object):
@@ -440,13 +457,19 @@ class Use(Node):
 
     def imbue(self, parent): pass
 
+    def filter_names(self, names):
+        # TODO: handle renames and only
+        return names
+
     def resolve(self, context):
-        # TODO: do something slightly more useful
-        if self.modulename != 'iso_c_binding':
+        try:
+            self.ref = context.get_module(self.modulename)
+        except KeyError:
+            print("Cannot find module")
+            self.ref = None
             return
 
-        self.ref = IsoCBindingModule()
-        context.update(self.ref.context)
+        context.update(self.ref.context, self.filter_names)
 
     def write_code(self, out):
         out.write("use %s" % self.modulename)
