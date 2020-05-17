@@ -8,6 +8,7 @@ from __future__ import print_function
 import io
 import sys
 import contextlib
+import textwrap
 
 from . import parser
 from . import lexer
@@ -59,64 +60,20 @@ def sexpr_transformer(branch_map, fallback=None):
     return transformer
 
 
-class SyntaxWriter:
-    """
-    IO object that handles indentation.
-    """
-    def __init__(self, out=None, indenttext="    "):
-        if out is None:
-            out = io.StringIO()
-        self.out = out
-        self.indenttext = indenttext
-        self.prefix = ""
-        self._write = self.out.write
-        self._newline = True
-
-    def _handle_newline(self):
-        if self._newline:
-            self._newline = False
-            self._write(self.prefix)
-
-    def write(self, text):
-        self._handle_newline()
-        self._write(text)
-
-    def writeline(self, line=None):
-        self._handle_newline()
-        if line:
-            self._write(line)
-        self._write("\n")
-        self._newline = True
-
-    def handle(self, *objs, sep=None):
-        if not objs:
-            return
-        objs[0].write_code(self)
-        for obj in objs[1:]:
-            if sep: self._write(sep)
-            obj.write_code(self)
-
-    @contextlib.contextmanager
-    def indent(self, header=None):
-        if header is not None:
-            self.writeline(header)
-
-        # Add to prefix
-        oldprefix = self.prefix
-        try:
-            self.prefix += self.indenttext
-            yield
-        finally:
-            self.prefix = oldprefix
-
-
 class CWrapper:
-    def __init__(self):
-        self.headers = set()
-        self.decls = []
+    @classmethod
+    def union(cls, *elems, sep=" "):
+        wraps = tuple(elem.cdecl() for elem in elems)
+        return cls(" ".join(w.decl for w in wraps),
+                   set().union(*(w.headers for w in wraps))
+                   )
 
-    def get(self):
-        return "\n".join(self.decls)
+    def __init__(self, decl="", headers=set()):
+        self.decl = decl
+        self.headers = headers
+
+    def __str__(self):
+        return "".join("#include %s\n" % h for h in self.headers) + self.decl
 
 
 class Context:
@@ -150,6 +107,10 @@ class Context:
         return {'iso_c_binding': IsoCBindingModule()}
 
 
+def fcode(obj):
+    return obj.fcode()
+
+
 class Node(object):
     def imbue(self, parent):
         """
@@ -172,17 +133,9 @@ class Node(object):
         """
         raise NotImplementedError("resolve is not implemented")
 
-    def write_code(self, out):
-        """Write code of self to SyntaxWriter"""
-        raise NotImplementedError("write_code not implemented")
-
-    def get_code(self):
+    def fcode(self):
         """Get code of self as string"""
-        out = SyntaxWriter()
-        self.write_code(out)
-        return str(out.out.getvalue())
-
-    __str__ = get_code
+        raise NotImplementedError("want code")
 
 
 class Ignored(Node):
@@ -196,11 +149,8 @@ class Ignored(Node):
     def resolve(self, context):
         print("CANNOT RESOLVE %s" % self.ast[0])
 
-    def write_code(self, out):
-        if out._newline:
-            out.writeline("$%s"  % self.ast[0])
-        else:
-            out.write("$%s"  % self.ast[0])
+    def fcode(self):
+        return "$%s$" % self.ast[0]
 
 
 class CompilationUnit(Node):
@@ -217,17 +167,18 @@ class CompilationUnit(Node):
     def resolve(self, context):
         for child in self.children: child.resolve(context)
 
-    def write_code(self, out):
-        out.writeline("! file %s" % self.filename)
-        out.writeline("! ast version %s" % ".".join(self.ast_version))
-        out.handle(*self.children, sep='\n')
-        out.writeline("! end file %s" % self.filename)
+    def fcode(self):
+        return textwrap.dedent("""\
+            ! file {file}
+            ! ast version {astv}
+            {decls}! end file {file}
+            """).format(file=self.filename,
+                        astv=str(self.ast_version),
+                        decls="\n".join(map(fcode, self.children))
+                        )
 
-    def write_cdecl(self, wrap):
-        wrap.decls += ["/* Start declarations for file %s */" % self.filename]
-        for obj in self.children:
-            obj.write_cdecl(wrap)
-        wrap.decls += ["/* End declarations for file %s */" % self.filename]
+    def cdecl(self):
+        return CWrapper.union(*self.children)
 
 
 class Unspecified(Node):
@@ -257,35 +208,35 @@ class Subroutine(Node):
         for decl in self.decls:
             decl.resolve(subcontext)
 
-    def write_code_header(self, out):
-        out.handle(*self.prefixes, sep=" ")
-        out.write("subroutine %s(%s)" % (self.name, ", ".join(self.argnames)))
-        if self.suffixes:
-            out.write(" ")
-            out.handle(*self.suffixes, sep=" ")
+    def fcode_header(self):
+        return "{prefixes}{sep}subroutine {name}({args}) {suffixes}".format(
+            prefixes=" ".join(map(fcode, self.prefixes)),
+            sep=" " if self.prefixes else "",
+            name=self.name,
+            args=", ".join(self.argnames),
+            suffixes=" ".join(map(fcode, self.suffixes))
+            )
 
-    def write_code(self, out):
-        self.write_code_header(out)
-        with out.indent(""):
-            out.handle(*self.decls)
-        out.writeline("end subroutine %s" % self.name)
+    def fcode(self):
+        return "{header}\n{decls}end subroutine {name}\n".format(
+            header=self.fcode_header(),
+            decls="".join(map(fcode, self.decls)),
+            name=self.name
+            )
 
-    def write_cdecl(self, wrap):
+    def cdecl(self):
         if self.cname is None:
-            wrap.decls += ["/* NOTE: unable to wrap %s. */" % self.name]
-            return
+            print("Unable to wrap", self.cname)
+            return CWrapper()
 
         # arg decls
-        headers = set()
-        args = []
-        for arg in self.args:
-            arg_str, arg_headers = arg.get_cdecl()
-            headers |= arg_headers
-            args.append(arg_str)
-        args = ", ".join(args)
-
-        wrap.decls += ["void %s(%s);" % (self.cname, args)]
-        wrap.headers |= headers
+        args = CWrapper.union(*self.args, sep=", ")
+        ret = CWrapper("void");
+        return CWrapper(
+            "{ret} {name}({args});\n".format(ret=ret.decl, name=self.cname,
+                                             args=args.decl),
+            ret.headers | args.headers
+            )
 
 
 class Intent(Node):
@@ -296,8 +247,8 @@ class Intent(Node):
     def imbue(self, parent):
         parent.intent = self.in_, self.out
 
-    def write_code(self, out):
-        out.write("intent(%s%s)" % ("in" * self.in_, "out" * self.out))
+    def fcode(self):
+        return "intent({}{})".format("in" * self.in_, "out" * self.out)
 
 
 class BindC(Node):
@@ -309,11 +260,11 @@ class BindC(Node):
             self.cname = parent.name
         parent.cname = self.cname
 
-    def write_code(self, out):
+    def fcode(self):
         if self.cname is None:
-            out.write("bind(C)")
+            return "bind(C)"
         else:
-            out.write("bind(C, name='%s')" % self.cname)
+            return "bind(C, name='{}')".format(self.cname)
 
 
 class EntityDecl:
@@ -329,8 +280,8 @@ class EntityDecl:
         for entity in self.entities:
             entity.resolve(context)
 
-    def write_code(self, out):
-        out.handle(*self.entities)
+    def fcode(self):
+        return "".join(map(fcode, self.entities))
 
 
 class Entity(Node):
@@ -371,26 +322,22 @@ class Entity(Node):
         self.type_.resolve(context)
         context.entities[self.name] = self
 
-    def write_code(self, out):
-        out.handle(self.type_)
-        if self.attrs:
-            out.write(", ")
-            out.handle(*self.attrs, sep=", ")
-        out.write(" :: %s" % self.name)
-        if self.shape:
-            out.handle(self.shape)
-        if self.len_:
-            out.handle(self.len_)
-        if self.init:
-            out.handle(self.init)
-        out.writeline()
+    def fcode(self):
+        return "{type}{attrs} :: {name}{shape}{len} {init}\n".format(
+            type=fcode(self.type_),
+            attrs="".join(", " + fcode(a) for a in self.attrs),
+            name=self.name,
+            shape=fcode(self.shape) if self.shape is not None else "",
+            len=fcode(self.len_) if self.len_ is not None else "",
+            init=fcode(self.init) if self.len_ is not None else ""
+            )
 
-    def get_cdecl(self):
-        type_decl, type_header = self.type_.get_cdecl()
-
-        cdecl = "%s%s %s%s" % ("const " * self.c_pointer, type_decl,
-                               "*" * self.c_const, self.name)
-        return cdecl, type_header
+    def cdecl(self):
+        type_ = self.type_.cdecl()
+        return CWrapper("{const}{type_} {ptr}{name}".format(
+                            const="const " * self.c_pointer, type_=type_.decl,
+                            ptr="*" * self.c_const, name=self.name),
+                        type_.headers)
 
 
 class Opaque:
@@ -439,12 +386,17 @@ class Module(Node):
     def imbue(self, parent):
         parent.modules[self.name] = self
 
-    def write_code(self, out):
-        with out.indent("module %s" % self.name):
-            out.handle(*self.decls)
-        with out.indent("contains"):
-            out.handle(*self.contained, sep="\n")
-        out.writeline("end module %s" % self.name)
+    def fcode(self):
+        return textwrap.dedent("""\
+            module {name}
+            {decls}
+            contains
+            {contained}
+            end module {name}
+            """).format(name=self.name,
+                        decls="".join(map(fcode, self.decls)),
+                        contained="\n".join(map(fcode, self.contained))
+                        )
 
 
 class Use(Node):
@@ -471,14 +423,12 @@ class Use(Node):
 
         context.update(self.ref.context, self.filter_names)
 
-    def write_code(self, out):
-        out.write("use %s" % self.modulename)
-        if self.only:
-            out.write(", only: ")
-        elif self.symbollist:
-            out.write(", ")
-        out.handle(*self.symbollist, sep=", ")
-        out.writeline()
+    def fcode(self):
+        return "use {name}{sep}{only}{symlist}\n".format(
+            name=self.modulename,
+            sep=", " if self.only or self.symbollist else "",
+            only="only: " if self.only else "",
+            symlist=", ".join(map(fcode, self.symbollist)))
 
 
 class Ref(Node):
@@ -495,8 +445,8 @@ class Ref(Node):
         else:
             self.fqname = self.ref.fqname
 
-    def write_code(self, out):
-        out.write(self.fqname)
+    def fcode(self):
+        return self.fqname
 
 
 class IntegerType(Node):
@@ -527,18 +477,18 @@ class IntegerType(Node):
         if self.kind is not None:
             self.kind.resolve(context)
 
-    def write_code(self, out):
-        out.write(self.FTYPE)
-        if self.kind is not None:
-            out.write("(kind=")
-            out.handle(self.kind)
-            out.write(")")
+    def fcode(self):
+        if self.kind is None:
+            return self.FTYPE
+        return "{ftype}(kind={kind})".format(ftype=self.FTYPE,
+                                             kind=fcode(self.kind))
 
-    def get_cdecl(self):
+    def cdecl(self):
         if self.kind is None:
             raise RuntimeError("Cannot wrap")
+
         ctype, cheaders, _, _ = self.KIND_MAPS[self.kind.fqname]
-        return ctype, cheaders
+        return CWrapper(ctype, cheaders)
 
 
 def unpack(arg):
@@ -618,8 +568,6 @@ if __name__ == '__main__':
     asr = TRANSFORMER(ast)
     asr.imbue()
     asr.resolve(Context())
-    print (str(asr), end="", file=sys.stderr)
+    print (asr.fcode(), end="", file=sys.stderr)
 
-    decl = CWrapper()
-    asr.write_cdecl(decl)
-    print (decl.get())
+    print (str(asr.cdecl()))
