@@ -64,7 +64,7 @@ class CWrapper:
     @classmethod
     def union(cls, *elems, sep=" "):
         wraps = tuple(elem.cdecl() for elem in elems)
-        return cls(" ".join(w.decl for w in wraps),
+        return cls(sep.join(w.decl for w in wraps),
                    set().union(*(w.headers for w in wraps))
                    )
 
@@ -74,6 +74,12 @@ class CWrapper:
 
     def __str__(self):
         return "".join("#include %s\n" % h for h in self.headers) + self.decl
+
+
+class PyWrapper:
+    def __init__(self, annotate="", wrap=""):
+        self.annotate = annotate
+        self.wrap = wrap
 
 
 class Context:
@@ -335,9 +341,19 @@ class Entity(Node):
     def cdecl(self):
         type_ = self.type_.cdecl()
         return CWrapper("{const}{type_} {ptr}{name}".format(
-                            const="const " * self.c_pointer, type_=type_.decl,
-                            ptr="*" * self.c_const, name=self.name),
+                            const="const " * self.c_const, type_=type_.decl,
+                            ptr="*" * self.c_pointer, name=self.name),
                         type_.headers)
+
+
+class PassByValue(Node):
+    def __init__(self): pass
+
+    def imbue(self, parent): parent.passby = 'value'
+
+    def resolve(self): pass
+
+    def fcode(self): return "value"
 
 
 class Opaque:
@@ -345,8 +361,19 @@ class Opaque:
         self.module = module
         self.name = name
 
-    @property
-    def fqname(self): return "%%" + self.name
+    def fcode(self): return "%%" + self.name
+
+
+class CPtrType:
+    def __init__(self, module, name):
+        self.module = module
+        self.name = name
+
+    def fcode(self):
+        return "type(%%{})".format(self.name)
+
+    def cdecl(self):
+        return CWrapper("void *")
 
 
 class IsoCBindingModule:
@@ -372,7 +399,7 @@ class IsoCBindingModule:
     def context(self):
         return Context(
             entities={tag: Opaque(self, tag) for tag in self.TAGS},
-            derived_types={name: Opaque(self, name) for name in self.TYPES}
+            derived_types={name: CPtrType(self, name) for name in self.TYPES}
             )
 
 
@@ -434,7 +461,6 @@ class Use(Node):
 class Ref(Node):
     def __init__(self, name):
         self.name = name
-        self.fqname = name
 
     def resolve(self, context):
         try:
@@ -442,14 +468,38 @@ class Ref(Node):
         except KeyError:
             print("DID NOT FIND %s" % self.name)
             self.ref = None
-        else:
-            self.fqname = self.ref.fqname
 
     def fcode(self):
-        return self.fqname
+        if self.ref is None:
+            return self.name
+        return self.ref.fcode()
 
 
-class IntegerType(Node):
+class PrimitiveType(Node):
+    FTYPE = '$$$null_type$$$'
+    KIND_MAPS = {}
+
+    def __init__(self, kind):
+        self.kind = kind
+
+    def resolve(self, context):
+        if self.kind is not None:
+            self.kind.resolve(context)
+
+    def fcode(self):
+        if self.kind is None:
+            return self.FTYPE
+        return "{ftype}(kind={kind})".format(ftype=self.FTYPE,
+                                             kind=fcode(self.kind))
+
+    def cdecl(self):
+        if self.kind is None:
+            raise RuntimeError("Cannot wrap")
+        ctype, cheaders = self.KIND_MAPS[self.kind.fcode()][:2]
+        return CWrapper(ctype, cheaders)
+
+
+class IntegerType(PrimitiveType):
     FTYPE = 'integer'
 
     _STDDEF = {'<stddef.h>'}
@@ -469,26 +519,114 @@ class IntegerType(Node):
         '%%c_intptr_t':    ('intptr_t',    _STDINT, 'intp',     'c_ssize_t'),
         '%%c_ptrdiff_t':   ('ptrdiff_t',   _STDINT, 'intp',     'c_ssize_t'),
         }
+    KIND_MAPS.update({
+        '1': KIND_MAPS['%%c_int8_t'],
+        '2': KIND_MAPS['%%c_int16_t'],
+        '4': KIND_MAPS['%%c_int32_t'],
+        '8': KIND_MAPS['%%c_int64_t']
+        })
 
-    def __init__(self, kind):
+
+class RealType(PrimitiveType):
+    FTYPE = 'real'
+
+    _NONE = set()
+    KIND_MAPS = {
+        '%%c_float':       ('float',       _NONE, 'float32', 'c_float'),
+        '%%c_double':      ('double',      _NONE, 'float64', 'c_double'),
+        '%%c_long_double': ('long double', _NONE, 'longdouble', 'c_longdouble')
+        }
+    KIND_MAPS.update({
+        '4': KIND_MAPS['%%c_float'],
+        '8': KIND_MAPS['%%c_double']
+        })
+
+
+class ComplexType(PrimitiveType):
+    FTYPE = 'complex'
+
+    _NONE = set()
+    KIND_MAPS = {
+        '%%c_float_complex': ('float _Complex', _NONE, 'complex64', 'c_float'),
+        '%%c_double_complex': ('double _Complex', _NONE, 'complex128', 'c_double'),
+        '%%c_long_double_complex':
+                ('long double _Complex', _NONE, 'clongdouble', 'c_longdouble'),
+        }
+    KIND_MAPS.update({
+        '8': KIND_MAPS['%%c_float_complex'],
+        '16': KIND_MAPS['%%c_double_complex']
+        })
+
+
+class CharacterType:
+    KIND_MAPS = {
+        '%%c_char': ('char', set(), 'char', 'c_char'),
+        }
+    KIND_MAPS['1'] = KIND_MAPS['%%c_char']
+
+    def __init__(self, char_sel):
+        if char_sel is None:
+            char_sel = None, None
+        len_, kind = char_sel
+        self.len_ = len_
         self.kind = kind
 
+    def imbue(self, parent):
+        # TODO: imbue length onto entities
+        pass
+
     def resolve(self, context):
+        if self.len_ is not None:
+            self.len_.resolve(context)
         if self.kind is not None:
             self.kind.resolve(context)
 
     def fcode(self):
-        if self.kind is None:
-            return self.FTYPE
-        return "{ftype}(kind={kind})".format(ftype=self.FTYPE,
-                                             kind=fcode(self.kind))
+        if self.kind is None and self.len_ is None:
+            return "character"
+        return "character({})".format(
+            ", ".join("{}={}".format(k, v if isinstance(v,str) else v.fcode())
+                      for k, v in {'len':self.len_, 'kind':self.kind}.items()
+                      if v is not None))
 
     def cdecl(self):
         if self.kind is None:
-            raise RuntimeError("Cannot wrap")
-
-        ctype, cheaders, _, _ = self.KIND_MAPS[self.kind.fqname]
+            return CWrapper("char")
+        ctype, cheaders = self.KIND_MAPS[self.kind.fcode()][:2]
         return CWrapper(ctype, cheaders)
+
+
+class IntLiteral(Node):
+    def __init__(self, token):
+        self.token = token
+        self.value = int(token)
+        self.kind = None
+
+    def imbue(self, parent): pass
+
+    def resolve(self, context): pass
+
+    def fcode(self): return self.token
+
+
+class DerivedTypeRef(Node):
+    def __init__(self, name):
+        self.name = name
+
+    def resolve(self, context):
+        try:
+            self.ref = context.derived_types[self.name]
+        except KeyError:
+            print("DID NOT FIND %s" % self.name)
+            self.ref = None
+
+    def fcode(self):
+        if self.ref is not None:
+            return self.ref.fcode()
+        return "type({})".format(self.name)
+
+    def cdecl(self):
+        return self.ref.cdecl()
 
 
 def unpack(arg):
@@ -515,17 +653,26 @@ HANDLERS = {
     'arg_list':          unpack_sequence,
     'sub_prefix_list':   unpack_sequence,
     'bind_c':            BindC,
-    'intent':            Intent,
+
     'entity_decl':       EntityDecl,
     'entity_attrs':      unpack_sequence,
     'entity_list':       unpack_sequence,
     'entity':            unpack_sequence,
 
+    'intent':            Intent,
+    'value':             PassByValue,
+
     'integer_type':      IntegerType,
+    'real_type':         RealType,
+    'complex_type':      ComplexType,
+    'character_type':    CharacterType,
+    'type':              DerivedTypeRef,
     'kind_sel':          unpack,
+    'char_sel':          unpack_sequence,
 
     'id':                lambda name: name.lower(),
     'ref':               Ref,
+    'int':               IntLiteral,
     }
 
 TRANSFORMER = sexpr_transformer(HANDLERS, Ignored)
@@ -569,5 +716,5 @@ if __name__ == '__main__':
     asr.imbue()
     asr.resolve(Context())
     print (asr.fcode(), end="", file=sys.stderr)
-
+    print ()
     print (str(asr.cdecl()))
