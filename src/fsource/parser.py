@@ -669,7 +669,7 @@ def _typename_handler(tokens):
     with LockedIn(tokens, "invalid derived type specifier"):
         typename = identifier(tokens)
         expect(tokens, ')')
-        return ('type', typename)
+        return ('derived_type', typename)
 
 def _class_handler(tokens):
     expect(tokens, 'class')
