@@ -296,6 +296,20 @@ class BindC(Node):
             return "bind(C, name='{}')".format(self.cname)
 
 
+class ResultName(Node):
+    def __init__(self, name):
+        self.name = name
+
+    def imbue(self, parent):
+        parent.retval.name = self.name
+
+    def resolve(self, context): pass
+
+    def fcode(self):
+        return "result({})".format(self.name)
+
+
+
 class EntityDecl:
     def __init__(self, type_, attrs, entity_list):
         self.entities = tuple(Entity(type_, attrs, *entity)
@@ -543,6 +557,12 @@ class PrimitiveType(Node):
     def __init__(self, kind):
         self.kind = kind
 
+    def imbue(self, parent):
+        # A type may imbue a function as its return type.
+        if isinstance(parent, Function):
+            retval = Entity(self, (), parent.name, None, None, None)
+            retval.imbue(parent)
+
     def resolve(self, context):
         if self.kind is not None:
             self.kind.resolve(context)
@@ -687,6 +707,13 @@ class DerivedTypeRef(Node):
     def __init__(self, name):
         self.name = name
 
+    def imbue(self, parent):
+        # A type may imbue a function as its return type.
+        # TODO: duplication with PrimitiveType, merge? Also, somewhat hacky
+        if isinstance(parent, Function):
+            retval = Entity(self, (), parent.name, None, None, None)
+            retval.imbue(parent)
+
     def resolve(self, context):
         try:
             self.ref = context.derived_types[self.name]
@@ -700,6 +727,8 @@ class DerivedTypeRef(Node):
         return "type({})".format(self.name)
 
     def cdecl(self):
+        if self.ref is None:
+            raise ValueError("cannot wrap this type...")
         return self.ref.cdecl()
 
 
@@ -735,6 +764,7 @@ HANDLERS = {
     'func_prefix_list':  unpack_sequence,
     'func_suffix_list':  unpack_sequence,
     'bind_c':            BindC,
+    'result':            ResultName,
 
     'entity_decl':       EntityDecl,
     'entity_attrs':      unpack_sequence,
