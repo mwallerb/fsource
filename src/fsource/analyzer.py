@@ -192,41 +192,44 @@ class Unspecified(Node):
         self.name = name
 
 
-class Subroutine(Node):
-    def __init__(self, name, prefixes, argnames, bindc, decls):
+class Subprogram(Node):
+    FTYPE = '@@@'
+
+    def __init__(self, name, prefixes, argnames, suffixes, decls):
         self.name = name
         self.prefixes = prefixes
-        self.suffixes = (bindc,) if bindc is not None else ()
+        self.suffixes = suffixes
         self.argnames = argnames
-        self.returns = None
         self.decls = decls
 
     def imbue(self, parent):
         self.cname = None
         self.args = [Unspecified(name) for name in self.argnames]
-        for attr in self.prefixes + self.suffixes:
-            attr.imbue(self)
-        for decl in self.decls:
-            decl.imbue(self)
+        self.retval = Unspecified(self.name) if self.FTYPE == 'function' else None
+        print (self.prefixes + self.suffixes + self.decls)
+        for obj in self.prefixes + self.suffixes + self.decls:
+            obj.imbue(self)
 
     def resolve(self, context):
         subcontext = context.copy()
-        for decl in self.decls:
-            decl.resolve(subcontext)
+        for obj in self.prefixes + self.suffixes + self.decls:
+            obj.resolve(subcontext)
 
     def fcode_header(self):
-        return "{prefixes}{sep}subroutine {name}({args}) {suffixes}".format(
+        return "{prefixes}{sep}{tag} {name}({args}) {suffixes}".format(
             prefixes=" ".join(map(fcode, self.prefixes)),
             sep=" " if self.prefixes else "",
+            tag=self.FTYPE,
             name=self.name,
             args=", ".join(self.argnames),
             suffixes=" ".join(map(fcode, self.suffixes))
             )
 
     def fcode(self):
-        return "{header}\n{decls}end subroutine {name}\n".format(
+        return "{header}\n{decls}end {tag} {name}\n".format(
             header=self.fcode_header(),
             decls="".join(map(fcode, self.decls)),
+            tag=self.FTYPE,
             name=self.name
             )
 
@@ -237,12 +240,30 @@ class Subroutine(Node):
 
         # arg decls
         args = CWrapper.union(*self.args, sep=", ")
-        ret = CWrapper("void");
+        if self.retval is not None:
+            ret = self.retval.type_.cdecl()
+        else:
+            ret = CWrapper("void")
         return CWrapper(
             "{ret} {name}({args});\n".format(ret=ret.decl, name=self.cname,
                                              args=args.decl),
             ret.headers | args.headers
             )
+
+
+class Subroutine(Subprogram):
+    FTYPE = 'subroutine'
+
+    def __init__(self, name, prefixes, argnames, bindc, decls):
+        Subprogram.__init__(self, name, prefixes, argnames,
+                            (bindc,) if bindc is not None else (), decls)
+
+
+class Function(Subprogram):
+    FTYPE = 'function'
+
+    def __init__(self, name, prefixes, argnames, suffixes, decls):
+        Subprogram.__init__(self, name, prefixes, argnames, suffixes, decls)
 
 
 class Intent(Node):
@@ -265,6 +286,8 @@ class BindC(Node):
         if self.cname is None:
             self.cname = parent.name
         parent.cname = self.cname
+
+    def resolve(self, context): pass
 
     def fcode(self):
         if self.cname is None:
@@ -305,16 +328,20 @@ class Entity(Node):
         self.intent = None
         self.passby = None
 
-        # Add self to arguments if applicable
-        try:
-            index = getattr(parent, "argnames", []).index(self.name)
-        except ValueError:
-            pass
-        else:
-            parent.args[index] = self
-            self.entity_type = 'argument'
-            self.intent = True, True
-            self.passby = 'reference'
+        if isinstance(parent, DerivedType):
+            parent.fields.append(self)
+            self.entity_type = 'field'
+        elif isinstance(parent, Subprogram):
+            # Add self to arguments if applicable
+            if self.name in parent.argnames:
+                parent.args[parent.argnames.index(self.name)] = self
+                self.entity_type = 'argument'
+                self.intent = True, True
+                self.passby = 'reference'
+            elif parent.retval is not None and self.name == parent.retval.name:
+                parent.retval = self
+                self.entity_type = 'return'
+                self.passby = 'value'
 
         for attr in self.attrs:
             attr.imbue(self)
@@ -344,7 +371,6 @@ class Entity(Node):
                             const="const " * self.c_const, type_=type_.decl,
                             ptr="*" * self.c_pointer, name=self.name),
                         type_.headers)
-
 
 class PassByValue(Node):
     def __init__(self): pass
@@ -401,6 +427,41 @@ class IsoCBindingModule:
             entities={tag: Opaque(self, tag) for tag in self.TAGS},
             derived_types={name: CPtrType(self, name) for name in self.TYPES}
             )
+
+
+class DerivedType(Node):
+    def __init__(self, name, attrs, tags, decls, proc):
+        self.name = name
+        self.attrs = attrs
+        self.tags = tags
+        self.decls = decls
+        self.procs = [] if proc is None else proc
+
+    def imbue(self, parent):
+        self.is_private = False
+        self.is_sequence = False
+        for tag in self.tags:
+            tag.imbue(self)
+
+        self.fields = []
+        for decl in self.decls:
+            decl.imbue(self)
+
+    def resolve(self, context):
+        context.derived_types[self.name] = self
+        context = context.copy()
+        for decl in self.decls:
+            decl.resolve(context)
+        for proc in self.procs:
+            proc.resolve(context)
+
+    def fcode(self):
+        return "type{attrs} :: {name}\n{tags}{decls}end type {name}\n".format(
+                    name=self.name,
+                    attrs="".join(", " + a.fcode() for a in self.attrs),
+                    tags="".join(map(fcode, self.tags)),
+                    decls="".join(map(fcode, self.decls))
+                    )
 
 
 class Module(Node):
@@ -461,13 +522,13 @@ class Use(Node):
 class Ref(Node):
     def __init__(self, name):
         self.name = name
+        self.ref = None
 
     def resolve(self, context):
         try:
             self.ref = context.entities[self.name]
         except KeyError:
             print("DID NOT FIND %s" % self.name)
-            self.ref = None
 
     def fcode(self):
         if self.ref is None:
@@ -662,9 +723,17 @@ HANDLERS = {
     'contained_block':   unpack_sequence,
     'use_stmt':          Use,
 
+    'type_decl':         DerivedType,
+    'type_attrs':        unpack_sequence,
+    'type_tags':         unpack_sequence,
+    'component_block':   unpack_sequence,
+
     'subroutine_decl':   Subroutine,
     'arg_list':          unpack_sequence,
     'sub_prefix_list':   unpack_sequence,
+    'function_decl':     Function,
+    'func_prefix_list':  unpack_sequence,
+    'func_suffix_list':  unpack_sequence,
     'bind_c':            BindC,
 
     'entity_decl':       EntityDecl,
