@@ -62,7 +62,7 @@ def sexpr_transformer(branch_map, fallback=None):
 
 class CWrapper:
     @classmethod
-    def union(cls, *elems, sep=" "):
+    def union(cls, *elems, sep=""):
         wraps = tuple(elem.cdecl() for elem in elems)
         return cls(sep.join(w.decl for w in wraps),
                    set().union(*(w.headers for w in wraps))
@@ -485,8 +485,18 @@ class Module(Node):
         self.decls = decls
         self.contained = contained
 
-    def imbue(self, parent):
-        parent.modules[self.name] = self
+    def imbue(self, _):
+        for obj in self.decls + self.contained:
+            obj.imbue(self)
+
+    def resolve(self, context):
+        subcontext = context.copy()
+        for decl in self.decls + self.contained:
+            decl.resolve(subcontext)
+        self.context = subcontext
+
+        # Module only becomes available after it's declared.
+        context.modules[self.name] = self
 
     def fcode(self):
         return textwrap.dedent("""\
@@ -499,6 +509,10 @@ class Module(Node):
                         decls="".join(map(fcode, self.decls)),
                         contained="\n".join(map(fcode, self.contained))
                         )
+
+    def cdecl(self):
+        return CWrapper.union(*(self.decls + self.contained))
+
 
 
 class Use(Node):
@@ -531,6 +545,10 @@ class Use(Node):
             sep=", " if self.only or self.symbollist else "",
             only="only: " if self.only else "",
             symlist=", ".join(map(fcode, self.symbollist)))
+
+    def cdecl(self):
+        # TODO: Maybe uses pull in dependencies?
+        return CWrapper()
 
 
 class Ref(Node):
