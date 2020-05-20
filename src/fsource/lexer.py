@@ -170,7 +170,7 @@ STRING_LEXER_ACTIONS = _string_lexer_actions()
 def parse_string(tok):
     """Translates a Fortran string literal to a Python string"""
     actions = STRING_LEXER_ACTIONS
-    return "".join(actions[cat](token) for (cat, token)
+    return "".join(actions[cat](token) for (_, _, cat, token)
                    in tokenize_regex(STRING_LEXER_REGEX[tok[0]], tok[1:-1]))
 
 

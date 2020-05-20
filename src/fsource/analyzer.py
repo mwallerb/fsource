@@ -72,7 +72,7 @@ class CWrapper:
         self.decl = decl
         self.headers = headers
 
-    def __str__(self):
+    def get(self):
         return "".join("#include %s\n" % h for h in self.headers) + self.decl
 
 
@@ -206,7 +206,6 @@ class Subprogram(Node):
         self.cname = None
         self.args = [Unspecified(name) for name in self.argnames]
         self.retval = Unspecified(self.name) if self.FTYPE == 'function' else None
-        print (self.prefixes + self.suffixes + self.decls)
         for obj in self.prefixes + self.suffixes + self.decls:
             obj.imbue(self)
 
@@ -280,7 +279,7 @@ class Intent(Node):
 
 class BindC(Node):
     def __init__(self, cname):
-        self.cname = lexer.parse_string(cname) if cname is not None else None
+        self.cname = None if cname is None else cname.value
 
     def imbue(self, parent):
         if self.cname is None:
@@ -385,20 +384,24 @@ class Entity(Node):
         if self.entity_type == 'modulevar':
             if self.cname is None:
                 raise ValueError("cannot wrap")
-            decl = "extern {const}{type_} {ptr}{name};\n"
+            decl = "extern {const}{type_}{ptr}{name}{shape};\n"
         elif self.entity_type == 'field':
-            decl = "  {const}{type_} {ptr}{name};\n"
+            decl = "  {const}{type_}{ptr}{name}{shape};\n"
         else:
-            decl = "{const}{type_} {ptr}{name}"
+            decl = "{const}{type_}{ptr}{name}{shape}"
 
         type_ = self.type_.cdecl()
-        c_pointer = (self.shape is not None or self.len_ is not None or
-                     self.passby == 'reference')
-        c_const = (self.entity_type == 'parameter' or
-                   self.entity_type == 'argument' and not self.intent[1])
-        return CWrapper(decl.format(const="const " * c_const, type_=type_.decl,
-                                    ptr="*" * c_pointer, name=self.name),
-                                    type_.headers)
+        type_.decl += "" if type_.decl.endswith("*") else " "
+        pointer = (self.len_ is not None or
+                   self.passby == 'reference' and self.shape is None)
+        const = (self.entity_type == 'parameter' or
+                 self.entity_type == 'argument' and not self.intent[1])
+        shape = self.shape.cdecl() if self.shape is not None else CWrapper("")
+        return CWrapper(decl.format(
+                            const="const " * const, type_=type_.decl,
+                            ptr="*" * pointer, name=self.name, shape=shape.decl
+                            ),
+                        type_.headers | shape.headers)
 
 class PassByValue(Node):
     def __init__(self): pass
@@ -497,10 +500,10 @@ class DerivedType(Node):
 
     def cdecl(self):
         if self.cname is None:
-            raise ValueError("cannot wrap")
+            raise ValueError("type is missing BIND(C) - cannot wrap")
         fields = CWrapper.union(*self.fields)
         return CWrapper("struct {name} {{\n{fields}}};\n".format(
-                            name=self.cname, fields=fields),
+                            name=self.cname, fields=fields.decl),
                         fields.headers)
 
 
@@ -735,10 +738,14 @@ class CharacterType:
         return CWrapper(ctype, cheaders)
 
 
-class IntLiteral(Node):
+class Literal(Node):
+    @classmethod
+    def parse(cls, token):
+        raise NotImplementedError("meh")
+
     def __init__(self, token):
         self.token = token
-        self.value = int(token)
+        self.value = self.parse(token)
         self.kind = None
 
     def imbue(self, parent): pass
@@ -746,6 +753,99 @@ class IntLiteral(Node):
     def resolve(self, context): pass
 
     def fcode(self): return self.token
+
+
+class IntLiteral(Literal):
+    @classmethod
+    def parse(cls, token):
+        return int(token)
+
+
+class StringLiteral(Literal):
+    @classmethod
+    def parse(cls, token):
+        return lexer.parse_string(token)
+
+
+class Dim(Node):
+    def __init__(self, lower, upper):
+        if lower is None:
+            lower = IntLiteral("1")
+        self.lower = lower
+        self.upper = upper
+
+    def imbue(self, parent): pass
+
+    def resolve(self, context):
+        self.lower.resolve(context)
+
+
+class ExplicitDim(Dim):
+    def resolve(self, context):
+        self.lower.resolve(context)
+        self.upper.resolve(context)
+
+    def imbue(self, parent):
+        if parent.shape_type == 'implied':
+            raise ValueError("Cannot follow implied with explicit dim")
+
+    def fcode(self):
+        return "{}:{}".format(self.lower.fcode(), self.upper.fcode())
+
+    def cdecl(self):
+        try:
+            size = self.upper.value - self.lower.value
+        except AttributeError:
+            raise ValueError("cannot wrap")
+        return CWrapper("[{}]".format(size))
+
+
+class ImpliedDim(Dim):
+    def imbue(self, parent):
+        if parent.shape_type != 'explicit':
+            raise ValueError("Cannot follow non-explicit with implied dim")
+        parent.shape_type = 'implied'
+
+    def fcode(self):
+        return "{}:*".format(self.lower.fcode())
+
+    def cdecl(self):
+        return CWrapper("[]")
+
+
+class DeferredDim(Dim):
+    def imbue(self, parent):
+        if parent.shape_type == 'implied':
+            raise ValueError("Cannot follow implied with explicit dim")
+        parent.shape_type = 'deferred'
+
+    def fcode(self):
+        return "{}:".format(self.lower.fcode())
+
+    def cdecl(self):
+        # Deferred dims cause variables to carry its dimension parameters with
+        # them in a non-bind(C) way
+        raise ValueError("not wrappable")
+
+
+class Shape(Node):
+    def __init__(self, *dims):
+        self.dims = dims
+
+    def imbue(self):
+        self.shape_type = 'explicit'
+        for dim in self.dims:
+            dim.imbue(self)
+
+    def resolve(self, context):
+        for dim in self.dims:
+            dim.resolve(context)
+
+    def fcode(self):
+        return "({})".format(",".join(map(fcode, self.dims)))
+
+    def cdecl(self):
+        return CWrapper.union(*self.dims)
 
 
 class DerivedTypeRef(Node):
@@ -819,6 +919,11 @@ HANDLERS = {
     'intent':            Intent,
     'value':             PassByValue,
 
+    'shape':             Shape,
+    'explicit_dim':      ExplicitDim,
+    'implied_dim':       ImpliedDim,
+    'deferred_dim':      DeferredDim,
+
     'integer_type':      IntegerType,
     'real_type':         RealType,
     'complex_type':      ComplexType,
@@ -831,6 +936,7 @@ HANDLERS = {
     'id':                lambda name: name.lower(),
     'ref':               Ref,
     'int':               IntLiteral,
+    'string':            StringLiteral,
     }
 
 TRANSFORMER = sexpr_transformer(HANDLERS, Ignored)
@@ -845,4 +951,4 @@ if __name__ == '__main__':
     asr.resolve(Context())
     print (asr.fcode(), end="", file=sys.stderr)
     print ()
-    print (str(asr.cdecl()))
+    print (asr.cdecl().get())

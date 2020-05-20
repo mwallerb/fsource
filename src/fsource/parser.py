@@ -651,7 +651,6 @@ def char_selector(tokens):
 
             if marker(tokens, ','):
                 sel = _optional_len_kind_kwd(tokens)
-                print(sel)
                 if sel is None:
                     sel = 'kind' if kind is None else 'len'
                 if sel == 'len':
@@ -731,7 +730,7 @@ def dim_spec(tokens):
     lower = optional_lower_bound(tokens)
     if marker(tokens, '*'):
         # Implied dimension
-        return tokens.produce('implicit_dim', lower, '*')
+        return tokens.produce('implied_dim', lower, '*')
     try:
         # Explicit dimension
         upper = expr(tokens)
