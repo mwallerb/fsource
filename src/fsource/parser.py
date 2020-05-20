@@ -765,10 +765,25 @@ def intent(tokens):
         expect(tokens, ')')
         return tokens.produce('intent', in_, out)
 
+@rule
+def bind_c(tokens):
+    expect(tokens, 'bind')
+    expect(tokens, '(')
+    expect(tokens, 'c')
+    if marker(tokens, ','):
+        expect(tokens, 'name')
+        expect(tokens, '=')
+        name = expr(tokens)
+    else:
+        name = None
+    expect(tokens, ')')
+    return tokens.produce('bind_c', name)
+
 _ENTITY_ATTR_HANDLERS = {
     'parameter':   tag('parameter', 'parameter'),
     'public':      tag('public', 'public'),
     'private':     tag('private', 'private'),
+    'bind':        bind_c,
     'allocatable': tag('allocatable', 'allocatable'),
     'dimension':   prefix('dimension', shape, 'dimension'),
     'external':    tag('external', 'external'),
@@ -851,20 +866,6 @@ def entity_decl(tokens):
     entities = entity_sequence(tokens)
     eos(tokens)
     return tokens.produce('entity_decl', type_, attrs_, entities)
-
-@rule
-def bind_c(tokens):
-    expect(tokens, 'bind')
-    expect(tokens, '(')
-    expect(tokens, 'c')
-    if marker(tokens, ','):
-        expect(tokens, 'name')
-        expect(tokens, '=')
-        name = expr(tokens)
-    else:
-        name = None
-    expect(tokens, ')')
-    return tokens.produce('bind_c', name)
 
 def extends(tokens):
     expect(tokens, 'extends')

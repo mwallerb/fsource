@@ -326,6 +326,9 @@ class EntityDecl:
     def fcode(self):
         return "".join(map(fcode, self.entities))
 
+    def cdecl(self):
+        return CWrapper.union(*self.entities)
+
 
 class Entity(Node):
     def __init__(self, type_, attrs, name, shape, len_, init):
@@ -341,10 +344,14 @@ class Entity(Node):
         self.entity_type = 'variable'
         self.intent = None
         self.passby = None
+        self.cname = None
 
         if isinstance(parent, DerivedType):
             parent.fields.append(self)
             self.entity_type = 'field'
+        elif isinstance(parent, Module):
+            parent.modulevars.append(self)
+            self.entity_type = 'modulevar'
         elif isinstance(parent, Subprogram):
             # Add self to arguments if applicable
             if self.name in parent.argnames:
@@ -359,11 +366,6 @@ class Entity(Node):
 
         for attr in self.attrs:
             attr.imbue(self)
-
-        self.c_pointer = (self.shape is not None or self.len_ is not None or
-                          self.passby == 'reference')
-        self.c_const = (self.entity_type == 'parameter' or
-                        self.entity_type == 'argument' and not self.intent[1])
 
     def resolve(self, context):
         self.type_.resolve(context)
@@ -380,11 +382,23 @@ class Entity(Node):
             )
 
     def cdecl(self):
+        if self.entity_type == 'modulevar':
+            if self.cname is None:
+                raise ValueError("cannot wrap")
+            decl = "extern {const}{type_} {ptr}{name};\n"
+        elif self.entity_type == 'field':
+            decl = "  {const}{type_} {ptr}{name};\n"
+        else:
+            decl = "{const}{type_} {ptr}{name}"
+
         type_ = self.type_.cdecl()
-        return CWrapper("{const}{type_} {ptr}{name}".format(
-                            const="const " * self.c_const, type_=type_.decl,
-                            ptr="*" * self.c_pointer, name=self.name),
-                        type_.headers)
+        c_pointer = (self.shape is not None or self.len_ is not None or
+                     self.passby == 'reference')
+        c_const = (self.entity_type == 'parameter' or
+                   self.entity_type == 'argument' and not self.intent[1])
+        return CWrapper(decl.format(const="const " * c_const, type_=type_.decl,
+                                    ptr="*" * c_pointer, name=self.name),
+                                    type_.headers)
 
 class PassByValue(Node):
     def __init__(self): pass
@@ -452,6 +466,10 @@ class DerivedType(Node):
         self.procs = [] if proc is None else proc
 
     def imbue(self, parent):
+        self.cname = None
+        for attr in self.attrs:
+            attr.imbue(self)
+
         self.is_private = False
         self.is_sequence = False
         for tag in self.tags:
@@ -477,6 +495,14 @@ class DerivedType(Node):
                     decls="".join(map(fcode, self.decls))
                     )
 
+    def cdecl(self):
+        if self.cname is None:
+            raise ValueError("cannot wrap")
+        fields = CWrapper.union(*self.fields)
+        return CWrapper("struct {name} {{\n{fields}}};\n".format(
+                            name=self.cname, fields=fields),
+                        fields.headers)
+
 
 class Module(Node):
     def __init__(self, name, decls, contained):
@@ -486,6 +512,7 @@ class Module(Node):
         self.contained = contained
 
     def imbue(self, _):
+        self.modulevars = []
         for obj in self.decls + self.contained:
             obj.imbue(self)
 
