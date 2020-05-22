@@ -9,6 +9,7 @@ import io
 import sys
 import contextlib
 import textwrap
+import warnings
 
 from . import parser
 from . import lexer
@@ -60,10 +61,26 @@ def sexpr_transformer(branch_map, fallback=None):
     return transformer
 
 
+class NotWrappable(Exception):
+    """Indicates that the construct cannot be wrapped"""
+    def __init__(self, fmt, *args, **kwargs):
+        Exception.__init__(self, fmt.format(*args, **kwargs))
+
+
 class CWrapper:
     @classmethod
-    def union(cls, *elems, sep=""):
-        wraps = tuple(elem.cdecl() for elem in elems)
+    def iter_decls(cls, *elems, forward_errors=True):
+        for elem in elems:
+            try:
+                yield elem.cdecl()
+            except NotWrappable as e:
+                if forward_errors:
+                    raise
+                print("Cannot wrap :" + e.msg)
+
+    @classmethod
+    def union(cls, *elems, sep="", ignore_errors=False):
+        wraps = tuple(cls.iter_decls(*elems, forward_errors=not ignore_errors))
         return cls(sep.join(w.decl for w in wraps),
                    set().union(*(w.headers for w in wraps))
                    )
@@ -74,12 +91,6 @@ class CWrapper:
 
     def get(self):
         return "".join("#include %s\n" % h for h in self.headers) + self.decl
-
-
-class PyWrapper:
-    def __init__(self, annotate="", wrap=""):
-        self.annotate = annotate
-        self.wrap = wrap
 
 
 class Context:
@@ -295,6 +306,17 @@ class BindC(Node):
             return "bind(C, name='{}')".format(self.cname)
 
 
+class DimensionAttr(Node):
+    def __init__(self, shape):
+        self.shape = shape
+
+    def imbue(self, parent):
+        if parent.shape is not None:
+            raise RuntimeError("duplicate shape")
+        parent.shape = self.shape
+        parent.attrs = tuple(a for a in parent.attrs if a is not self)
+
+
 class ResultName(Node):
     def __init__(self, name):
         self.name = name
@@ -383,7 +405,9 @@ class Entity(Node):
     def cdecl(self):
         if self.entity_type == 'modulevar':
             if self.cname is None:
-                raise ValueError("cannot wrap")
+                raise NotWrappable(
+                    "cannot wrap module variable '{}': no BIND(C) attribute",
+                    self.name)
             decl = "extern {const}{type_}{ptr}{name}{shape};\n"
         elif self.entity_type == 'field':
             decl = "  {const}{type_}{ptr}{name}{shape};\n"
@@ -500,7 +524,8 @@ class DerivedType(Node):
 
     def cdecl(self):
         if self.cname is None:
-            raise ValueError("type is missing BIND(C) - cannot wrap")
+            raise NotWrappable("cannot wrap 'type({})' - BIND(C) missing",
+                               self.name)
         fields = CWrapper.union(*self.fields)
         return CWrapper("struct {name} {{\n{fields}}};\n".format(
                             name=self.cname, fields=fields.decl),
@@ -623,7 +648,8 @@ class PrimitiveType(Node):
 
     def cdecl(self):
         if self.kind is None:
-            raise RuntimeError("Cannot wrap")
+            raise NotWrappable("Cannot wrap '{}' - no iso_c_binding kind",
+                               self.fcode())
         ctype, cheaders = self.KIND_MAPS[self.kind.fcode()][:2]
         return CWrapper(ctype, cheaders)
 
@@ -740,8 +766,7 @@ class CharacterType:
 
 class Literal(Node):
     @classmethod
-    def parse(cls, token):
-        raise NotImplementedError("meh")
+    def parse(cls, token): raise NotImplementedError()
 
     def __init__(self, token):
         self.token = token
@@ -787,7 +812,7 @@ class ExplicitDim(Dim):
 
     def imbue(self, parent):
         if parent.shape_type == 'implied':
-            raise ValueError("Cannot follow implied with explicit dim")
+            raise RuntimeError("Cannot follow implied with explicit dim")
 
     def fcode(self):
         return "{}:{}".format(self.lower.fcode(), self.upper.fcode())
@@ -796,14 +821,14 @@ class ExplicitDim(Dim):
         try:
             size = self.upper.value - self.lower.value
         except AttributeError:
-            raise ValueError("cannot wrap")
+            raise NotWrappable("Cannot wrap, dimension is not constant")
         return CWrapper("[{}]".format(size))
 
 
 class ImpliedDim(Dim):
     def imbue(self, parent):
         if parent.shape_type != 'explicit':
-            raise ValueError("Cannot follow non-explicit with implied dim")
+            raise RuntimeError("Cannot follow non-explicit with implied dim")
         parent.shape_type = 'implied'
 
     def fcode(self):
@@ -816,7 +841,7 @@ class ImpliedDim(Dim):
 class DeferredDim(Dim):
     def imbue(self, parent):
         if parent.shape_type == 'implied':
-            raise ValueError("Cannot follow implied with explicit dim")
+            raise RuntimeError("Cannot follow implied with explicit dim")
         parent.shape_type = 'deferred'
 
     def fcode(self):
@@ -873,7 +898,8 @@ class DerivedTypeRef(Node):
 
     def cdecl(self):
         if self.ref is None:
-            raise ValueError("cannot wrap this type...")
+            raise NotWrappable("cannot wrap '{}': declaration not found",
+                               self.fcode())
         return self.ref.cdecl()
 
 
@@ -918,6 +944,7 @@ HANDLERS = {
 
     'intent':            Intent,
     'value':             PassByValue,
+    'dimension':         DimensionAttr,
 
     'shape':             Shape,
     'explicit_dim':      ExplicitDim,
