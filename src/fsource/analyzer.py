@@ -492,8 +492,9 @@ class Opaque:
     def __init__(self, module, name):
         self.module = module
         self.name = name
+        self.fqname = "%%" + self.name
 
-    def fcode(self): return "%%" + self.name
+    def fcode(self): return self.fqname
 
 
 class CPtrType:
@@ -536,12 +537,16 @@ class IsoCBindingModule:
 
 
 class DerivedType(Node):
-    def __init__(self, name, attrs, tags, decls, proc):
+    def __init__(self, name, attrs, tags, decls, procs):
         self.name = name
         self.attrs = attrs
         self.tags = tags
         self.decls = decls
-        self.procs = [] if proc is None else proc
+
+        # TODO: use some better type here
+        if procs is None:
+            procs = TypeBoundProcedureList(False)
+        self.procs = procs
 
     def imbue(self, parent):
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
@@ -558,13 +563,14 @@ class DerivedType(Node):
         for decl in self.decls:
             decl.imbue(self)
 
+        self.procs.imbue(self)
+
     def resolve(self, context):
         context.derived_types[self.name] = self
         context = context.copy()
         for decl in self.decls:
             decl.resolve(context)
-        for proc in self.procs:
-            proc.resolve(context)
+        self.procs.resolve(context)
 
     def fcode(self):
         return "type{attrs} :: {name}\n{tags}{decls}end type {name}\n".format(
@@ -583,6 +589,27 @@ class DerivedType(Node):
         return CWrapper("struct {name} {{\n{fields}}};\n".format(
                             name=self.cname, fields=fields.decl),
                         fields.headers)
+
+
+class TypeBoundProcedureList:
+    def __init__(self, are_private, *procs):
+        self.are_private = are_private
+        self.procs = procs
+
+    def imbue(self, parent):
+        for proc in self.procs:
+            proc.imbue(parent)
+
+    def resolve(self, context):
+        for proc in self.procs:
+            proc.resolve(context)
+
+    def fcode(self):
+        return "".join(map(fcode, self.procs))
+
+    def cdecl(self):
+        # TODO fill this in
+        return CWrapper.fail("type-bound procedures currently unsupported")
 
 
 class Module(Node):
@@ -671,7 +698,7 @@ class Ref(Node):
 
     def fcode(self):
         # We return the *name*, not the object.
-        if self.ref is None:
+        if self.ref is not None:
             return self.ref.fqname
         return self.name
 
@@ -797,7 +824,9 @@ class CharacterType:
 
     def imbue(self, parent):
         # TODO: imbue length onto entities
-        pass
+        if isinstance(parent, Function):
+            retval = Entity(self, (), parent.name, None, None, None)
+            retval.imbue(parent)
 
     def resolve(self, context):
         if self.len_ is not None and self.len_ not in ('*', ':'):
@@ -958,6 +987,7 @@ class DerivedTypeRef(Node):
         return self.ref.cdecl()
 
 
+
 def unpack(arg):
     """Unpack a single argument as-is"""
     return arg
@@ -982,6 +1012,7 @@ HANDLERS = {
     'type_attrs':        unpack_sequence,
     'type_tags':         unpack_sequence,
     'component_block':   unpack_sequence,
+    'type_bound_procedures': TypeBoundProcedureList,
 
     'subroutine_decl':   Subroutine,
     'arg_list':          unpack_sequence,
