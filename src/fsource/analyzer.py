@@ -63,7 +63,7 @@ def sexpr_transformer(branch_map, fallback=None):
 
 class CWrapper:
     @classmethod
-    def union(cls, *elems, sep="", ignore_errors=False):
+    def union(cls, elems, sep="", ignore_errors=False):
         wraps = tuple(elem.cdecl() for elem in elems)
         return cls(sep.join(w.decl for w in wraps),
                    set().union(*(w.headers for w in wraps)),
@@ -187,7 +187,7 @@ class CompilationUnit(Node):
                         )
 
     def cdecl(self):
-        return CWrapper.union(*self.children)
+        return CWrapper.union(self.children)
 
 
 class Unspecified(Node):
@@ -240,7 +240,7 @@ class Subprogram(Node):
             return CWrapper.fail(self.name, "bind(C) suffix missing")
 
         # arg decls
-        args = CWrapper.union(*self.args, sep=", ")
+        args = CWrapper.union(self.args, sep=", ")
         if self.retval is not None:
             # pylint: disable=no-member
             ret = self.retval.type_.cdecl()
@@ -343,7 +343,7 @@ class EntityDecl:
         return "".join(map(fcode, self.entities))
 
     def cdecl(self):
-        return CWrapper.union(*self.entities)
+        return CWrapper.union(self.entities)
 
 
 class Entity(Node):
@@ -523,7 +523,7 @@ class DerivedType(Node):
     def cdecl(self):
         if self.cname is None:
             return CWrapper.fail(self.name, "bind(C) prefix missing")
-        fields = CWrapper.union(*self.fields)
+        fields = CWrapper.union(self.fields)
         if fields.fails:
             return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
         return CWrapper("struct {name} {{\n{fields}}};\n".format(
@@ -565,7 +565,7 @@ class Module(Node):
                         )
 
     def cdecl(self):
-        return CWrapper.union(*(self.decls + self.contained))
+        return CWrapper.union(self.decls + self.contained)
 
 
 
@@ -868,7 +868,7 @@ class Shape(Node):
         return "({})".format(",".join(map(fcode, self.dims)))
 
     def cdecl(self):
-        return CWrapper.union(*self.dims)
+        return CWrapper.union(self.dims)
 
 
 class DerivedTypeRef(Node):
