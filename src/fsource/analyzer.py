@@ -963,14 +963,3 @@ HANDLERS = {
     }
 
 TRANSFORMER = sexpr_transformer(HANDLERS, Ignored)
-
-
-if __name__ == '__main__':
-    fname = sys.argv[1]
-    slexer = lexer.lex_buffer(open(fname))
-    ast = parser.compilation_unit(parser.TokenStream(slexer, fname=fname))
-    asr = TRANSFORMER(ast)
-    asr.imbue()
-    asr.resolve(Context())
-    #print (asr.fcode(), end="", file=sys.stderr)
-    print (asr.cdecl().get())

@@ -19,11 +19,15 @@ The following values are allowed for `COMMAND`:
      the tokens against the grammatical rules of Fortran, generating a
      hierarchical structure of items called an *abstract syntax tree* (AST).
      See [parser].
-     
+
+  4. `wrap`: reads a Fortran file, creates an abstract syntax tree. Then
+     generate a C header file from Fortran declarations that use `BIND(C)`.
+     See [wrapper].
+
 [splicer]: splicer.md
 [lexer]: lexer.md
 [parser]: parser.md
-
+[wrapper]: wrapper.md
 
 Fortran source form
 -------------------
@@ -36,7 +40,7 @@ By default, `fsource` will try to guess free or fixed form files from the
 file name extension, but you may override this by specifying a command line
 flag.  The following table summarizes the behaviour:
 
-  | source file  | flag            | extensions                      | 
+  | source file  | flag            | extensions                      |
   |--------------|-----------------|---------------------------------|
   | fixed form   | `--fixed-form`  | `.f`, `.f77`, `.for`            |
   | free form    | `--free-form`   | `.f90`, `.f95`, `.f03`, `.f08`  |
