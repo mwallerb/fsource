@@ -242,6 +242,7 @@ class Subprogram(Node):
         # arg decls
         args = CWrapper.union(*self.args, sep=", ")
         if self.retval is not None:
+            # pylint: disable=no-member
             ret = self.retval.type_.cdecl()
         else:
             ret = CWrapper("void")
@@ -524,7 +525,7 @@ class DerivedType(Node):
             return CWrapper.fail(self.name, "bind(C) prefix missing")
         fields = CWrapper.union(*self.fields)
         if fields.fails:
-            return CWrapper.fail(self.name, "failed to wrap fields", field.fails)
+            return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
         return CWrapper("struct {name} {{\n{fields}}};\n".format(
                             name=self.cname, fields=fields.decl),
                         fields.headers)
@@ -847,7 +848,7 @@ class DeferredDim(Dim):
     def cdecl(self):
         # Deferred dims cause variables to carry its dimension parameters with
         # them in a non-bind(C) way
-        return CWrapper.fail("unable to wrap deferred dimension")
+        return CWrapper.fail(self.fcode(), "unable to wrap deferred dimension")
 
 
 class Shape(Node):
