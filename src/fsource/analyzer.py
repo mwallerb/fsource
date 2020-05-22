@@ -61,35 +61,27 @@ def sexpr_transformer(branch_map, fallback=None):
     return transformer
 
 
-class NotWrappable(Exception):
-    """Indicates that the construct cannot be wrapped"""
-    def __init__(self, fmt, *args, **kwargs):
-        Exception.__init__(self, fmt.format(*args, **kwargs))
-
-
 class CWrapper:
     @classmethod
-    def iter_decls(cls, *elems, forward_errors=True):
-        for elem in elems:
-            try:
-                yield elem.cdecl()
-            except NotWrappable as e:
-                if forward_errors:
-                    raise
-                print("Cannot wrap :" + e.msg)
-
-    @classmethod
     def union(cls, *elems, sep="", ignore_errors=False):
-        wraps = tuple(cls.iter_decls(*elems, forward_errors=not ignore_errors))
+        wraps = tuple(elem.cdecl() for elem in elems)
         return cls(sep.join(w.decl for w in wraps),
-                   set().union(*(w.headers for w in wraps))
+                   set().union(*(w.headers for w in wraps)),
+                   sum((w.fails for w in wraps), start=())
                    )
 
-    def __init__(self, decl="", headers=set()):
+    @classmethod
+    def fail(cls, name, msg, subfails=()):
+        return cls(fails=(name, msg, subfails))
+
+    def __init__(self, decl="", headers=set(), fails=()):
         self.decl = decl
         self.headers = headers
+        self.fails = fails
 
     def get(self):
+        if self.fails:
+            warnings.warn("FAIL:" + str(self.fails))
         return "".join("#include %s\n" % h for h in self.headers) + self.decl
 
 
@@ -161,10 +153,10 @@ class Ignored(Node):
         self.ast = ast
 
     def imbue(self, parent):
-        print("CANNOT IMBUE %s WITH %s" % (parent, self.ast[0]))
+        warnings.warn("CANNOT IMBUE %s WITH %s" % (parent, self.ast[0]))
 
     def resolve(self, context):
-        print("CANNOT RESOLVE %s" % self.ast[0])
+        warnings.warn("CANNOT RESOLVE %s" % self.ast[0])
 
     def fcode(self):
         return "$%s$" % self.ast[0]
@@ -245,8 +237,7 @@ class Subprogram(Node):
 
     def cdecl(self):
         if self.cname is None:
-            print("Unable to wrap", self.cname)
-            return CWrapper()
+            return CWrapper.fail(self.name, "bind(C) suffix missing")
 
         # arg decls
         args = CWrapper.union(*self.args, sep=", ")
@@ -254,6 +245,9 @@ class Subprogram(Node):
             ret = self.retval.type_.cdecl()
         else:
             ret = CWrapper("void")
+        if args.fails or ret.fails:
+            return CWrapper.fail(self.name, "failed to wrap arguments",
+                                 args.fails + ret.fails)
         return CWrapper(
             "{ret} {name}({args});\n".format(ret=ret.decl, name=self.cname,
                                              args=args.decl),
@@ -405,9 +399,8 @@ class Entity(Node):
     def cdecl(self):
         if self.entity_type == 'modulevar':
             if self.cname is None:
-                raise NotWrappable(
-                    "cannot wrap module variable '{}': no BIND(C) attribute",
-                    self.name)
+                return CWrapper.fail(self.name,
+                                     "bind(C) missing on module variable")
             decl = "extern {const}{type_}{ptr}{name}{shape};\n"
         elif self.entity_type == 'field':
             decl = "  {const}{type_}{ptr}{name}{shape};\n"
@@ -415,6 +408,10 @@ class Entity(Node):
             decl = "{const}{type_}{ptr}{name}{shape}"
 
         type_ = self.type_.cdecl()
+        if type_.fails:
+            return CWrapper.fail(self.name, "cannot wrap entity type",
+                                 type_.fails)
+
         type_.decl += "" if type_.decl.endswith("*") else " "
         pointer = (self.len_ is not None or
                    self.passby == 'reference' and self.shape is None)
@@ -524,9 +521,10 @@ class DerivedType(Node):
 
     def cdecl(self):
         if self.cname is None:
-            raise NotWrappable("cannot wrap 'type({})' - BIND(C) missing",
-                               self.name)
+            return CWrapper.fail(self.name, "bind(C) prefix missing")
         fields = CWrapper.union(*self.fields)
+        if fields.fails:
+            return CWrapper.fail(self.name, "failed to wrap fields", field.fails)
         return CWrapper("struct {name} {{\n{fields}}};\n".format(
                             name=self.cname, fields=fields.decl),
                         fields.headers)
@@ -588,7 +586,7 @@ class Use(Node):
         try:
             self.ref = context.get_module(self.modulename)
         except KeyError:
-            print("Cannot find module")
+            warnings.warn("Cannot find module " + self.modulename)
             self.ref = None
             return
 
@@ -615,7 +613,7 @@ class Ref(Node):
         try:
             self.ref = context.entities[self.name]
         except KeyError:
-            print("DID NOT FIND %s" % self.name)
+            warnings.warn("DID NOT FIND %s" % self.name)
 
     def fcode(self):
         if self.ref is None:
@@ -648,8 +646,7 @@ class PrimitiveType(Node):
 
     def cdecl(self):
         if self.kind is None:
-            raise NotWrappable("Cannot wrap '{}' - no iso_c_binding kind",
-                               self.fcode())
+            return CWrapper.fail(self.fcode(), "kind has no iso_c_binding")
         ctype, cheaders = self.KIND_MAPS[self.kind.fcode()][:2]
         return CWrapper(ctype, cheaders)
 
@@ -821,7 +818,7 @@ class ExplicitDim(Dim):
         try:
             size = self.upper.value - self.lower.value
         except AttributeError:
-            raise NotWrappable("Cannot wrap, dimension is not constant")
+            return CWrapper.fail(self.fcode(), "Shape is not constant")
         return CWrapper("[{}]".format(size))
 
 
@@ -850,7 +847,7 @@ class DeferredDim(Dim):
     def cdecl(self):
         # Deferred dims cause variables to carry its dimension parameters with
         # them in a non-bind(C) way
-        raise ValueError("not wrappable")
+        return CWrapper.fail("unable to wrap deferred dimension")
 
 
 class Shape(Node):
@@ -888,7 +885,7 @@ class DerivedTypeRef(Node):
         try:
             self.ref = context.derived_types[self.name]
         except KeyError:
-            print("DID NOT FIND %s" % self.name)
+            warnings.warn("DID NOT FIND %s" % self.name)
             self.ref = None
 
     def fcode(self):
@@ -898,8 +895,7 @@ class DerivedTypeRef(Node):
 
     def cdecl(self):
         if self.ref is None:
-            raise NotWrappable("cannot wrap '{}': declaration not found",
-                               self.fcode())
+            return CWrapper.fail(self.name, "type declaration not found")
         return self.ref.cdecl()
 
 
@@ -976,6 +972,5 @@ if __name__ == '__main__':
     asr = TRANSFORMER(ast)
     asr.imbue()
     asr.resolve(Context())
-    print (asr.fcode(), end="", file=sys.stderr)
-    print ()
+    #print (asr.fcode(), end="", file=sys.stderr)
     print (asr.cdecl().get())
