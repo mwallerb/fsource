@@ -75,7 +75,7 @@ setup(
     packages=find_packages(where='src'),
     entry_points={
         'console_scripts': [
-            'fsource=fsource.__main__:main',
+            'fsource=fsource._cli:main',
             ],
         },
     zip_safe=True,      # reconsider when adding data files
