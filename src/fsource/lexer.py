@@ -76,8 +76,9 @@ def get_lexer_regex():
     postq = r"""(?!['"\w])"""
     dq_string = r""""(?:""|[^"\r\n])*"{postq}""".format(postq=postq)
     sq_string = r"""'(?:''|[^'\r\n])*'{postq}""".format(postq=postq)
-    postnum = r"""(?= [^.'"&0-9A-Za-z]
+    postnum = r"""(?= [^.'"0-9A-Za-z]
                     | \.\s*[a-zA-Z]+\s*\.
+                    | $
                     )"""
     integer = r"""\d+{postnum}""".format(postnum=postnum)
     decimal = r"""(?:\d+\.\d*|\.\d+)"""
@@ -91,7 +92,7 @@ def get_lexer_regex():
     operator = r"""\(/?|\)|[-+,:_%\[\]]|=[=>]?|\*\*?|\/[\/=)]?|[<>]=?"""
     builtin_dot = r"""(?:eq|ne|l[te]|g[te]|n?eqv|not|and|or)"""
     dotop = r"""[A-Za-z]+"""
-    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_&'"])"""
+    word = r"""[A-Za-z][A-Za-z0-9_]*(?![A-Za-z0-9_'"])"""
     formattok = r"""\d*(?: [IBOZ] \d+ (?: \.\d+)?
                          | [FD]   \d+     \.\d+
                          | E[NS]? \d+     \.\d+  (?: E\d+)?
@@ -169,7 +170,7 @@ STRING_LEXER_ACTIONS = _string_lexer_actions()
 def parse_string(tok):
     """Translates a Fortran string literal to a Python string"""
     actions = STRING_LEXER_ACTIONS
-    return "".join(actions[cat](token) for (cat, token)
+    return "".join(actions[cat](token) for (_, _, cat, token)
                    in tokenize_regex(STRING_LEXER_REGEX[tok[0]], tok[1:-1]))
 
 
@@ -225,4 +226,4 @@ def lex_buffer(mybuffer, form=None):
 def lex_snippet(fstring):
     """Perform lexical analysis of parts of a line"""
     return tuple(tokenize_regex(get_lexer_regex(), fstring)) \
-           + ((CAT_DOLLAR, ''),)
+           + ((None, len(fstring), CAT_DOLLAR, ''),)

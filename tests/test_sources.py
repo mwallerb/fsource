@@ -24,7 +24,7 @@ def parsefile(fname):
 
     # then check that parser works
     tokenstr = parser.TokenStream(tokens, fname=fname)
-    ast = parser.compilation_unit(tokenstr, fname)
+    ast = parser.compilation_unit(tokenstr)
 
 def test_nastylex():
     parsefile("nastylex.F90")

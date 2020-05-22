@@ -651,7 +651,6 @@ def char_selector(tokens):
 
             if marker(tokens, ','):
                 sel = _optional_len_kind_kwd(tokens)
-                print(sel)
                 if sel is None:
                     sel = 'kind' if kind is None else 'len'
                 if sel == 'len':
@@ -669,7 +668,7 @@ def _typename_handler(tokens):
     with LockedIn(tokens, "invalid derived type specifier"):
         typename = identifier(tokens)
         expect(tokens, ')')
-        return ('type', typename)
+        return ('derived_type', typename)
 
 def _class_handler(tokens):
     expect(tokens, 'class')
@@ -731,7 +730,7 @@ def dim_spec(tokens):
     lower = optional_lower_bound(tokens)
     if marker(tokens, '*'):
         # Implied dimension
-        return tokens.produce('implicit_dim', lower, '*')
+        return tokens.produce('implied_dim', lower, '*')
     try:
         # Explicit dimension
         upper = expr(tokens)
@@ -765,10 +764,25 @@ def intent(tokens):
         expect(tokens, ')')
         return tokens.produce('intent', in_, out)
 
+@rule
+def bind_c(tokens):
+    expect(tokens, 'bind')
+    expect(tokens, '(')
+    expect(tokens, 'c')
+    if marker(tokens, ','):
+        expect(tokens, 'name')
+        expect(tokens, '=')
+        name = expr(tokens)
+    else:
+        name = None
+    expect(tokens, ')')
+    return tokens.produce('bind_c', name)
+
 _ENTITY_ATTR_HANDLERS = {
     'parameter':   tag('parameter', 'parameter'),
     'public':      tag('public', 'public'),
     'private':     tag('private', 'private'),
+    'bind':        bind_c,
     'allocatable': tag('allocatable', 'allocatable'),
     'dimension':   prefix('dimension', shape, 'dimension'),
     'external':    tag('external', 'external'),
@@ -851,20 +865,6 @@ def entity_decl(tokens):
     entities = entity_sequence(tokens)
     eos(tokens)
     return tokens.produce('entity_decl', type_, attrs_, entities)
-
-@rule
-def bind_c(tokens):
-    expect(tokens, 'bind')
-    expect(tokens, '(')
-    expect(tokens, 'c')
-    if marker(tokens, ','):
-        expect(tokens, 'name')
-        expect(tokens, '=')
-        name = expr(tokens)
-    else:
-        name = None
-    expect(tokens, ')')
-    return tokens.produce('bind_c', name)
 
 def extends(tokens):
     expect(tokens, 'extends')
@@ -2078,11 +2078,12 @@ def program_unit(tokens):
 
 program_unit_sequence = block(program_unit, 'program_unit_list')
 
-def compilation_unit(tokens, filename=None):
+
+def compilation_unit(tokens):
     with LockedIn(tokens, "expecting module or (sub-)program"):
         units = program_unit_sequence(tokens)
         expect_cat(tokens, lexer.CAT_DOLLAR)
 
     version = tokens.produce('ast_version', *map(str, __version_tuple__))
-    fname = tokens.produce('filename', filename)
+    fname = tokens.produce('filename', tokens.fname)
     return tokens.produce('compilation_unit', version, fname, *units[1:])

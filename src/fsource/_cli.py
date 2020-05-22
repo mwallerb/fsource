@@ -17,6 +17,7 @@ from . import __version__, __version_tuple__
 from . import splicer
 from . import lexer
 from . import parser
+from . import analyzer
 from . import common
 
 
@@ -48,6 +49,7 @@ def get_parser():
           parse         construct abstract syntax tree for declarations
           lex           split source into tokens
           splice        split source into sequence of logical lines
+          wrap          generate C wrappers for Fortran declarations
         """)
 
     p = argparse.ArgumentParser(
@@ -57,7 +59,7 @@ def get_parser():
             usage="fsource COMMAND FILE [FILE ...]"
             )
     p.add_argument('command', metavar='COMMAND',
-                   choices=('splice', 'lex', 'parse'),
+                   choices=('splice', 'lex', 'parse', 'wrap'),
                    help=argparse.SUPPRESS)
     p.add_argument('files', metavar='FILE', type=str, nargs='+',
                    help="Fortran file(s) to process")
@@ -187,13 +189,33 @@ def cmd_parse(args):
             form = get_form(fname, args.form)
             slexer = lexer.lex_buffer(open(fname), form)
             tokens = parser.TokenStream(slexer, fname=fname)
-            ast = parser.compilation_unit(tokens, fname)
+            ast = parser.compilation_unit(tokens)
             if args.output == 'json':
                 pprint_parser(ast, sys.stdout)
                 print()
     except common.ParsingError as e:
         sys.stdout.flush()
         sys.stderr.write("\n\n" + e.errmsg())
+
+
+def cmd_wrap(args):
+    """wrapping subcommand handler"""
+    try:
+        for fname in args.files:
+            form = get_form(fname, args.form)
+            slexer = lexer.lex_buffer(open(fname), form)
+            tokens = parser.TokenStream(slexer, fname=fname)
+            ast = parser.compilation_unit(tokens)
+            asr = analyzer.TRANSFORMER(ast)
+            asr.imbue()
+
+            # TODO: order contexts by module dependencies
+            asr.resolve(analyzer.Context())
+            print (asr.cdecl().get())
+    except common.ParsingError as e:
+        sys.stdout.flush()
+        sys.stderr.write("\n\n" + e.errmsg())
+        sys.exit(1)
 
 
 def main():
@@ -208,6 +230,8 @@ def main():
             cmd_lex(args)
         elif args.command == 'parse':
             cmd_parse(args)
+        elif args.command == 'wrap':
+            cmd_wrap(args)
         if args.output == 'time':
             sys.stderr.write("Elapsed: %g sec\n" % rabbit.total())
     except IOError as e:
