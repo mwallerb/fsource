@@ -165,7 +165,6 @@ class Ignored(Node):
 class CompilationUnit(Node):
     """Top node representing one file"""
     def __init__(self, ast_version, fname, *children):
-        super().__init__()
         self.ast_version = ast_version
         self.filename = fname
         self.children = children
@@ -533,7 +532,6 @@ class DerivedType(Node):
 
 class Module(Node):
     def __init__(self, name, decls, contained):
-        super().__init__()
         self.name = name
         self.decls = decls
         self.contained = contained
@@ -571,7 +569,6 @@ class Module(Node):
 
 class Use(Node):
     def __init__(self, modulename, attrs, only, *symbollist):
-        super().__init__()
         self.modulename = modulename
         self.attrs = attrs
         self.only = only is not None
