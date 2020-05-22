@@ -72,16 +72,27 @@ class CWrapper:
 
     @classmethod
     def fail(cls, name, msg, subfails=()):
-        return cls(fails=(name, msg, subfails))
+        return cls(fails=((name, msg, subfails),))
 
     def __init__(self, decl="", headers=set(), fails=()):
         self.decl = decl
         self.headers = headers
         self.fails = fails
 
-    def get(self):
+    @classmethod
+    def _print_fail(cls, out, name, msg, children, prefix):
+        out("{prefix}{name}: {msg}\n", prefix=prefix, name=name, msg=msg)
+        cprefix = "  " + prefix
+        for child in children:
+            cls._print_fail(out, *child, cprefix)
+
+    def get(self, out=None):
+        if out is None:
+            out = lambda fmt, *args, **kwds: sys.stderr.write(fmt.format(*args, **kwds))
         if self.fails:
-            warnings.warn("FAIL:" + str(self.fails))
+            out("WRAPPING FAILURES:\n")
+            for fail in self.fails:
+                self._print_fail(out, *fail, " - ")
         return "".join("#include %s\n" % h for h in self.headers) + self.decl
 
 
@@ -149,17 +160,21 @@ class Node(object):
 
 class Ignored(Node):
     """Ignored node of the AST"""
-    def __init__(self, *ast):
-        self.ast = ast
+    def __init__(self, node_type, *children):
+        self.node_type = node_type
+        self.children = children
 
     def imbue(self, parent):
-        warnings.warn("CANNOT IMBUE %s WITH %s" % (parent, self.ast[0]))
+        warnings.warn("CANNOT IMBUE %s WITH %s" % (parent, self.node_type))
 
     def resolve(self, context):
-        warnings.warn("CANNOT RESOLVE %s" % self.ast[0])
+        warnings.warn("CANNOT RESOLVE %s" % self.node_type)
 
     def fcode(self):
-        return "$%s$" % self.ast[0]
+        return "$%s$" % self.node_type
+
+    def cdecl(self):
+        return CWrapper.fail(self.node_type, "unable to wrap (ignored)")
 
 
 class CompilationUnit(Node):
@@ -170,6 +185,7 @@ class CompilationUnit(Node):
         self.children = children
 
     def imbue(self):
+        self.fqname = ""
         for child in self.children: child.imbue(self)
 
     def resolve(self, context):
@@ -206,6 +222,7 @@ class Subprogram(Node):
 
     def imbue(self, parent):
         self.cname = None
+        self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.args = [Unspecified(name) for name in self.argnames]
         self.retval = Unspecified(self.name) if self.FTYPE == 'function' else None
         for obj in self.prefixes + self.suffixes + self.decls:
@@ -358,15 +375,20 @@ class Entity(Node):
         # Add self to arguments
         self.entity_type = 'variable'
         self.intent = None
+        self.storage = None
+        self.required = None
         self.passby = None
         self.cname = None
 
+        self.fqname = "{}%%{}".format(parent.fqname, self.name)
         if isinstance(parent, DerivedType):
             parent.fields.append(self)
             self.entity_type = 'field'
+            self.storage = 'fixed'
         elif isinstance(parent, Module):
             parent.modulevars.append(self)
             self.entity_type = 'modulevar'
+            self.storage = 'fixed'
         elif isinstance(parent, Subprogram):
             # Add self to arguments if applicable
             if self.name in parent.argnames:
@@ -374,6 +396,7 @@ class Entity(Node):
                 self.entity_type = 'argument'
                 self.intent = True, True
                 self.passby = 'reference'
+                self.required = True
             elif parent.retval is not None and self.name == parent.retval.name:
                 parent.retval = self
                 self.entity_type = 'return'
@@ -424,14 +447,45 @@ class Entity(Node):
                             ),
                         type_.headers | shape.headers)
 
-class PassByValue(Node):
-    def __init__(self): pass
 
+class PassByValue(Node):
     def imbue(self, parent): parent.passby = 'value'
 
     def resolve(self): pass
 
     def fcode(self): return "value"
+
+
+class ParameterAttr(Node):
+    def imbue(self, parent): parent.entity_type = 'parameter'
+
+    def resolve(self): pass
+
+    def fcode(self): return "parameter"
+
+
+class OptionalAttr(Node):
+    def imbue(self, parent): parent.required = False
+
+    def resolve(self): pass
+
+    def fcode(self): return "optional"
+
+
+class PointerAttr(Node):
+    def imbue(self, parent): parent.storage = 'pointer'
+
+    def resolve(self): pass
+
+    def fcode(self): return "pointer"
+
+
+class AllocatableAttr(Node):
+    def imbue(self, parent): parent.storage = 'allocatable'
+
+    def resolve(self): pass
+
+    def fcode(self): return "allocatable"
 
 
 class Opaque:
@@ -490,6 +544,7 @@ class DerivedType(Node):
         self.procs = [] if proc is None else proc
 
     def imbue(self, parent):
+        self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.cname = None
         for attr in self.attrs:
             attr.imbue(self)
@@ -536,8 +591,9 @@ class Module(Node):
         self.decls = decls
         self.contained = contained
 
-    def imbue(self, _):
+    def imbue(self, parent):
         self.modulevars = []
+        self.fqname = "{}%%{}".format(parent.fqname, self.name)
         for obj in self.decls + self.contained:
             obj.imbue(self)
 
@@ -604,7 +660,7 @@ class Use(Node):
 
 class Ref(Node):
     def __init__(self, name):
-        self.name = name
+        self.name = name.lower()
         self.ref = None
 
     def resolve(self, context):
@@ -614,9 +670,10 @@ class Ref(Node):
             warnings.warn("DID NOT FIND %s" % self.name)
 
     def fcode(self):
+        # We return the *name*, not the object.
         if self.ref is None:
-            return self.name
-        return self.ref.fcode()
+            return self.ref.fqname
+        return self.name
 
 
 class PrimitiveType(Node):
@@ -644,8 +701,12 @@ class PrimitiveType(Node):
 
     def cdecl(self):
         if self.kind is None:
+            return CWrapper.fail(self.fcode(), "no kind associated")
+        try:
+            ctype, cheaders = self.KIND_MAPS[self.kind.fcode()][:2]
+        except KeyError:
             return CWrapper.fail(self.fcode(), "kind has no iso_c_binding")
-        ctype, cheaders = self.KIND_MAPS[self.kind.fcode()][:2]
+
         return CWrapper(ctype, cheaders)
 
 
@@ -739,7 +800,7 @@ class CharacterType:
         pass
 
     def resolve(self, context):
-        if self.len_ is not None:
+        if self.len_ is not None and self.len_ not in ('*', ':'):
             self.len_.resolve(context)
         if self.kind is not None:
             self.kind.resolve(context)
@@ -883,7 +944,7 @@ class DerivedTypeRef(Node):
         try:
             self.ref = context.derived_types[self.name]
         except KeyError:
-            warnings.warn("DID NOT FIND %s" % self.name)
+            warnings.warn("DID NOT FIND TYPE %s" % self.name)
             self.ref = None
 
     def fcode(self):
@@ -938,7 +999,11 @@ HANDLERS = {
 
     'intent':            Intent,
     'value':             PassByValue,
+    'parameter':         ParameterAttr,
+    'optional':          OptionalAttr,
     'dimension':         DimensionAttr,
+    'pointer':           PointerAttr,
+    'allocatable':       AllocatableAttr,
 
     'shape':             Shape,
     'explicit_dim':      ExplicitDim,
