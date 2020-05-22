@@ -7,5 +7,5 @@ See LICENSE.txt for permissions on usage, modification and distribution
 """
 from __future__ import print_function
 
-__version__ = "0.4.1"
-__version_tuple__ = 0, 4, 1
+__version__ = "0.5"
+__version_tuple__ = 0, 5

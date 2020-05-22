@@ -22,6 +22,12 @@ fsource currently features a [command line interface]:
 
        $ fsource parse FILE.f90
 
+ - a [wrapper], which builds on the Fortran parser to extract module variables,
+   types and subroutines which can be interfaced with C and generates header
+   files for them:
+
+       $ fsource wrap FILE.f90
+
  - a [line splicer] and a [lexer], low-level tools which split a Fortran file
    into a set of logical lines and tokens, respectively.  This allows you to
    set up your parsing infrastructure on top of fsource:
@@ -34,6 +40,7 @@ fsource currently features a [command line interface]:
 [line splicer]: doc/splicer.md
 [lexer]: doc/lexer.md
 [parser]: doc/parser.md
+[wrapper]: doc/wrapper.md
 
 [Tests]: https://travis-ci.org/mwallerb/fsource.svg?branch=master
 [PyPI]: https://img.shields.io/pypi/v/fsource.svg?style=flat
