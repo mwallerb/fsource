@@ -211,10 +211,10 @@ def cmd_wrap(args):
 
     try:
         asr_list = [get_asr(fname) for fname in args.files]
-        context = analyzer.Context.union(*(asr.context for asr in asr_list))
+        ns = analyzer.Namespace.union(*(asr.namespace for asr in asr_list))
         # Next, generate wrappers
         for asr in asr_list:
-            asr.resolve(context)
+            asr.resolve(ns)
             print (asr.cdecl().get())
     except common.ParsingError as e:
         sys.stdout.flush()

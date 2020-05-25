@@ -107,8 +107,8 @@ def _disjoint_union(dicts):
     return result
 
 
-class Context:
-    """Current context"""
+class Namespace:
+    """Current namespace"""
     @classmethod
     def union(cls, *contexts):
         return cls(_disjoint_union(c.names for c in contexts))
@@ -127,11 +127,11 @@ class Context:
     def add(self, name, value):
         if name in self.names:
             # TODO: error or at least disable wrapping...?
-            warnings.warn("duplicate in context: {}".format(name))
+            warnings.warn("duplicate in namespace: {}".format(name))
         self.names[name] = value
 
     def subcontext(self, other_context):
-        return Context(dict(self.names, **other_context.names))
+        return Namespace(dict(self.names, **other_context.names))
 
     def update(self, other, filter=None):
         if filter is None:
@@ -168,14 +168,14 @@ class Node(object):
         """
         raise NotImplementedError("imbue is not implemented")
 
-    def resolve(self, context):
+    def resolve(self, namespace):
         """
-        Resolves names in `self` given a current name `context`.
+        Resolves names in `self` given a current name `namespace`.
 
         This function is called after `imbue()` on each node in the order of
         appearence in the tree.  Shall do the following two-step procedure:
 
-         1. add all the names in its scope to context
+         1. add all the names in its scope to namespace
          2. call resolve on all children
         """
         raise NotImplementedError("resolve is not implemented")
@@ -194,7 +194,7 @@ class Ignored(Node):
     def imbue(self, parent):
         warnings.warn("CANNOT IMBUE %s WITH %s" % (parent, self.node_type))
 
-    def resolve(self, context):
+    def resolve(self, namespace):
         warnings.warn("CANNOT RESOLVE %s" % self.node_type)
 
     def fcode(self):
@@ -213,11 +213,11 @@ class CompilationUnit(Node):
 
     def imbue(self):
         self.fqname = ""
-        self.context = Context()
+        self.namespace = Namespace()
         for child in self.children: child.imbue(self)
 
-    def resolve(self, context):
-        for child in self.children: child.resolve(context)
+    def resolve(self, namespace):
+        for child in self.children: child.resolve(namespace)
 
     def fcode(self):
         return textwrap.dedent("""\
@@ -249,8 +249,8 @@ class Subprogram(Node):
         self.decls = decls
 
     def imbue(self, parent):
-        parent.context.add(self.name, self)
-        self.context = Context()
+        parent.namespace.add(self.name, self)
+        self.namespace = Namespace()
         self.cname = None
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.args = [Unspecified(name) for name in self.argnames]
@@ -258,8 +258,8 @@ class Subprogram(Node):
         for obj in self.prefixes + self.suffixes + self.decls:
             obj.imbue(self)
 
-    def resolve(self, context):
-        subcontext = context.subcontext(self.context)
+    def resolve(self, namespace):
+        subcontext = namespace.subcontext(self.namespace)
         for obj in self.prefixes + self.suffixes + self.decls:
             obj.resolve(subcontext)
 
@@ -338,7 +338,7 @@ class BindC(Node):
             self.cname = parent.name
         parent.cname = self.cname
 
-    def resolve(self, context): pass
+    def resolve(self, namespace): pass
 
     def fcode(self):
         if self.cname is None:
@@ -365,7 +365,7 @@ class ResultName(Node):
     def imbue(self, parent):
         parent.retval.name = self.name
 
-    def resolve(self, context): pass
+    def resolve(self, namespace): pass
 
     def fcode(self):
         return "result({})".format(self.name)
@@ -381,9 +381,9 @@ class EntityDecl:
         for entity in self.entities:
             entity.imbue(parent)
 
-    def resolve(self, context):
+    def resolve(self, namespace):
         for entity in self.entities:
-            entity.resolve(context)
+            entity.resolve(namespace)
 
     def fcode(self):
         return "".join(map(fcode, self.entities))
@@ -403,7 +403,7 @@ class Entity(Node):
 
     def imbue(self, parent):
         # Add self to arguments
-        parent.context.add(self.name, self)
+        parent.namespace.add(self.name, self)
         self.entity_type = 'variable'
         self.intent = None
         self.storage = None
@@ -442,8 +442,8 @@ class Entity(Node):
         for attr in self.attrs:
             attr.imbue(self)
 
-    def resolve(self, context):
-        self.type_.resolve(context)
+    def resolve(self, namespace):
+        self.type_.resolve(namespace)
 
     def fcode(self):
         return "{type}{attrs} :: {name}{shape}{len} {init}\n".format(
@@ -566,7 +566,7 @@ class IsoCBindingModule(IntrinsicModule):
     def __init__(self):
         values = {tag: Opaque(self, tag) for tag in self.TAGS}
         values.update({name: CPtrType(self, name) for name in self.TYPES})
-        self.context = Context(values)
+        self.namespace = Namespace(values)
 
     @property
     def name(self): return self.NAME
@@ -589,8 +589,8 @@ class DerivedType(Node):
         self.procs = procs
 
     def imbue(self, parent):
-        parent.context.add(self.name, self)
-        self.context = Context()
+        parent.namespace.add(self.name, self)
+        self.namespace = Namespace()
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.cname = None
         for attr in self.attrs:
@@ -607,8 +607,8 @@ class DerivedType(Node):
 
         self.procs.imbue(self)
 
-    def resolve(self, context):
-        subcontext = context.subcontext(self.context)
+    def resolve(self, namespace):
+        subcontext = namespace.subcontext(self.namespace)
         for decl in self.decls:
             decl.resolve(subcontext)
         self.procs.resolve(subcontext)
@@ -641,9 +641,9 @@ class TypeBoundProcedureList:
         for proc in self.procs:
             proc.imbue(parent)
 
-    def resolve(self, context):
+    def resolve(self, namespace):
         for proc in self.procs:
-            proc.resolve(context)
+            proc.resolve(namespace)
 
     def fcode(self):
         return "".join(map(fcode, self.procs))
@@ -660,15 +660,15 @@ class Module(Node):
         self.contained = contained
 
     def imbue(self, parent):
-        parent.context.add(self.name, self)
-        self.context = Context()
+        parent.namespace.add(self.name, self)
+        self.namespace = Namespace()
         self.modulevars = []
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         for obj in self.decls + self.contained:
             obj.imbue(self)
 
-    def resolve(self, context):
-        subcontext = context.subcontext(self.context)
+    def resolve(self, namespace):
+        subcontext = namespace.subcontext(self.namespace)
         for decl in self.decls + self.contained:
             decl.resolve(subcontext)
 
@@ -702,15 +702,15 @@ class Use(Node):
         # TODO: handle renames and only
         return names
 
-    def resolve(self, context):
+    def resolve(self, namespace):
         try:
-            self.ref = context.get(self.modulename)
+            self.ref = namespace.get(self.modulename)
         except KeyError:
             warnings.warn("Cannot find module " + self.modulename)
             self.ref = None
             return
 
-        context.update(self.ref.context, self.filter_names)
+        namespace.update(self.ref.namespace, self.filter_names)
 
     def fcode(self):
         return "use {name}{sep}{only}{symlist}\n".format(
@@ -729,9 +729,9 @@ class Ref(Node):
         self.name = name.lower()
         self.ref = None
 
-    def resolve(self, context):
+    def resolve(self, namespace):
         try:
-            self.ref = context.get(self.name)
+            self.ref = namespace.get(self.name)
         except KeyError:
             warnings.warn("DID NOT FIND %s" % self.name)
 
@@ -755,9 +755,9 @@ class PrimitiveType(Node):
             retval = Entity(self, (), parent.name, None, None, None)
             retval.imbue(parent)
 
-    def resolve(self, context):
+    def resolve(self, namespace):
         if self.kind is not None:
-            self.kind.resolve(context)
+            self.kind.resolve(namespace)
 
     def fcode(self):
         if self.kind is None:
@@ -867,11 +867,11 @@ class CharacterType:
             retval = Entity(self, (), parent.name, None, None, None)
             retval.imbue(parent)
 
-    def resolve(self, context):
+    def resolve(self, namespace):
         if self.len_ is not None and self.len_ not in ('*', ':'):
-            self.len_.resolve(context)
+            self.len_.resolve(namespace)
         if self.kind is not None:
-            self.kind.resolve(context)
+            self.kind.resolve(namespace)
 
     def fcode(self):
         if self.kind is None and self.len_ is None:
@@ -899,7 +899,7 @@ class Literal(Node):
 
     def imbue(self, parent): pass
 
-    def resolve(self, context): pass
+    def resolve(self, namespace): pass
 
     def fcode(self): return self.token
 
@@ -925,14 +925,14 @@ class Dim(Node):
 
     def imbue(self, parent): pass
 
-    def resolve(self, context):
-        self.lower.resolve(context)
+    def resolve(self, namespace):
+        self.lower.resolve(namespace)
 
 
 class ExplicitDim(Dim):
-    def resolve(self, context):
-        self.lower.resolve(context)
-        self.upper.resolve(context)
+    def resolve(self, namespace):
+        self.lower.resolve(namespace)
+        self.upper.resolve(namespace)
 
     def imbue(self, parent):
         if parent.shape_type == 'implied':
@@ -986,9 +986,9 @@ class Shape(Node):
         for dim in self.dims:
             dim.imbue(self)
 
-    def resolve(self, context):
+    def resolve(self, namespace):
         for dim in self.dims:
-            dim.resolve(context)
+            dim.resolve(namespace)
 
     def fcode(self):
         return "({})".format(",".join(map(fcode, self.dims)))
@@ -1008,9 +1008,9 @@ class DerivedTypeRef(Node):
             retval = Entity(self, (), parent.name, None, None, None)
             retval.imbue(parent)
 
-    def resolve(self, context):
+    def resolve(self, namespace):
         try:
-            self.ref = context.get(self.name)
+            self.ref = namespace.get(self.name)
         except KeyError:
             warnings.warn("DID NOT FIND TYPE %s" % self.name)
             self.ref = None
@@ -1032,7 +1032,7 @@ class PreprocStmt(Node):
 
     def imbue(self, parent): pass
 
-    def resolve(self, context): pass
+    def resolve(self, namespace): pass
 
     def fcode(self): return self.stmt
 
