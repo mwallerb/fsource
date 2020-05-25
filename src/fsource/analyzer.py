@@ -62,7 +62,7 @@ class CWrapper:
         wraps = tuple(elem.cdecl() for elem in elems)
         return cls(sep.join(w.decl for w in wraps),
                    set().union(*(w.headers for w in wraps)),
-                   sum((w.fails for w in wraps), start=())
+                   sum((w.fails for w in wraps), ())
                    )
 
     @classmethod
