@@ -92,7 +92,7 @@ class CWrapper:
         if self.fails:
             out("WRAPPING FAILURES:\n")
             for fail in self.fails:
-                self._print_fail(out, *fail, " - ")
+                self._print_fail(out, *fail, prefix=" - ")
         return "".join("#include %s\n" % h for h in self.headers) + self.decl
 
 
@@ -609,7 +609,7 @@ class TypeBoundProcedureList:
 
     def cdecl(self):
         # TODO fill this in
-        return CWrapper.fail("type-bound procedures currently unsupported")
+        return CWrapper.fail(None, "type-bound procedures currently unsupported")
 
 
 class Module(Node):
