@@ -127,8 +127,10 @@ class Namespace:
             warnings.warn("duplicate in namespace: {}".format(name))
         self.names[name] = node
 
-    def subcontext(self, other_context):
-        return Namespace(dict(self.names, **other_context.names))
+    def inherit(self, context):
+        newnames = dict(context.names)
+        newnames.update(self.names)
+        self.names = newnames
 
     def update(self, other, filter=None):
         if filter is None:
@@ -143,6 +145,7 @@ class Namespace:
         except AttributeError:
             cls._intrinsics = {
                 'iso_c_binding': IsoCBindingModule(),
+                'iflport':       OpaqueModule('iflport'),
                 }
             intrinsics = cls._intrinsics
         return intrinsics[name]
@@ -165,7 +168,7 @@ class Node(object):
         """
         raise NotImplementedError("imbue is not implemented")
 
-    def resolve(self, namespace):
+    def resolve(self):
         """
         Resolves names in `self` given a current name `namespace`.
 
@@ -187,12 +190,13 @@ class Ignored(Node):
     def __init__(self, node_type, *children):
         self.node_type = node_type
         self.children = children
+        warnings.warn("IGNORED NODE %s" % self.node_type)
 
     def imbue(self, parent):
-        warnings.warn("CANNOT IMBUE %s WITH %s" % (parent, self.node_type))
+        pass
 
-    def resolve(self, namespace):
-        warnings.warn("CANNOT RESOLVE %s" % self.node_type)
+    def resolve(self):
+        pass
 
     def fcode(self):
         return "$%s$" % self.node_type
@@ -213,8 +217,8 @@ class CompilationUnit(Node):
         self.namespace = Namespace()
         for child in self.children: child.imbue(self)
 
-    def resolve(self, namespace):
-        for child in self.children: child.resolve(namespace)
+    def resolve(self):
+        for child in self.children: child.resolve()
 
     def fcode(self):
         return textwrap.dedent("""\
@@ -246,7 +250,8 @@ class Subprogram(Node):
         self.decls = decls
 
     def imbue(self, parent):
-        parent.namespace.add(self)
+        self.parent = parent
+        self.parent.namespace.add(self)
         self.namespace = Namespace()
         self.cname = None
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
@@ -255,10 +260,10 @@ class Subprogram(Node):
         for obj in self.prefixes + self.suffixes + self.decls:
             obj.imbue(self)
 
-    def resolve(self, namespace):
-        subcontext = namespace.subcontext(self.namespace)
+    def resolve(self):
+        self.namespace.inherit(self.parent.namespace)
         for obj in self.prefixes + self.suffixes + self.decls:
-            obj.resolve(subcontext)
+            obj.resolve()
 
     def fcode_header(self):
         return "{prefixes}{sep}{tag} {name}({args}) {suffixes}".format(
@@ -335,7 +340,7 @@ class BindC(Node):
             self.cname = parent.name
         parent.cname = self.cname
 
-    def resolve(self, namespace): pass
+    def resolve(self): pass
 
     def fcode(self):
         if self.cname is None:
@@ -362,7 +367,7 @@ class ResultName(Node):
     def imbue(self, parent):
         parent.retval.name = self.name
 
-    def resolve(self, namespace): pass
+    def resolve(self): pass
 
     def fcode(self):
         return "result({})".format(self.name)
@@ -375,12 +380,14 @@ class EntityDecl:
                               for entity in entity_list)
 
     def imbue(self, parent):
+        # Transparent layer
+        self.parent = parent.parent
         for entity in self.entities:
             entity.imbue(parent)
 
-    def resolve(self, namespace):
+    def resolve(self):
         for entity in self.entities:
-            entity.resolve(namespace)
+            entity.resolve()
 
     def fcode(self):
         return "".join(map(fcode, self.entities))
@@ -400,7 +407,10 @@ class Entity(Node):
 
     def imbue(self, parent):
         # Add self to arguments
-        parent.namespace.add(self)
+        self.parent = parent
+        self.parent.namespace.add(self)
+        self.namespace = parent.namespace
+
         self.entity_type = 'variable'
         self.intent = None
         self.storage = None
@@ -417,7 +427,6 @@ class Entity(Node):
             self.scope = 'derived_type'
             self.storage = 'fixed'
         elif isinstance(parent, Module):
-            parent.modulevars.append(self)
             self.scope = 'module'
             self.storage = 'fixed'
         elif isinstance(parent, Subprogram):
@@ -438,9 +447,10 @@ class Entity(Node):
 
         for attr in self.attrs:
             attr.imbue(self)
+        self.type_.imbue(self)
 
-    def resolve(self, namespace):
-        self.type_.resolve(namespace)
+    def resolve(self):
+        self.type_.resolve()
 
     def fcode(self):
         return "{type}{attrs} :: {name}{shape}{len} {init}\n".format(
@@ -544,10 +554,7 @@ class CPtrType:
         return CWrapper("void *")
 
 
-class IntrinsicModule: pass
-
-
-class IsoCBindingModule(IntrinsicModule):
+class IsoCBindingModule:
     NAME = "iso_c_binding"
     TAGS = (
         'c_int', 'c_short', 'c_long', 'c_long_long', 'c_signed_char',
@@ -565,12 +572,18 @@ class IsoCBindingModule(IntrinsicModule):
         values.update({name: CPtrType(self, name) for name in self.TYPES})
         self.namespace = Namespace(values)
 
+    def resolve(self): pass
+
     @property
     def name(self): return self.NAME
 
-    @property
-    def modtype(self): return "intrinsic"
 
+class OpaqueModule:
+    def __init__(self, name):
+        self.name = name
+        self.namespace = Namespace()
+
+    def resolve(self): pass
 
 
 class DerivedType(Node):
@@ -586,8 +599,10 @@ class DerivedType(Node):
         self.procs = procs
 
     def imbue(self, parent):
-        parent.namespace.add(self)
+        self.parent = parent
+        self.parent.namespace.add(self)
         self.namespace = Namespace()
+
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.cname = None
         for attr in self.attrs:
@@ -604,11 +619,11 @@ class DerivedType(Node):
 
         self.procs.imbue(self)
 
-    def resolve(self, namespace):
-        subcontext = namespace.subcontext(self.namespace)
+    def resolve(self):
+        self.namespace.inherit(self.parent.namespace)
         for decl in self.decls:
-            decl.resolve(subcontext)
-        self.procs.resolve(subcontext)
+            decl.resolve()
+        self.procs.resolve()
 
     def fcode(self):
         return "type{attrs} :: {name}\n{tags}{decls}end type {name}\n".format(
@@ -635,12 +650,13 @@ class TypeBoundProcedureList:
         self.procs = procs
 
     def imbue(self, parent):
+        self.parent = parent.parent
         for proc in self.procs:
             proc.imbue(parent)
 
-    def resolve(self, namespace):
+    def resolve(self):
         for proc in self.procs:
-            proc.resolve(namespace)
+            proc.resolve()
 
     def fcode(self):
         return "".join(map(fcode, self.procs))
@@ -657,17 +673,26 @@ class Module(Node):
         self.contained = contained
 
     def imbue(self, parent):
-        parent.namespace.add(self)
+        self.parent = parent
+        self.parent.namespace.add(self)
         self.namespace = Namespace()
-        self.modulevars = []
+
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         for obj in self.decls + self.contained:
             obj.imbue(self)
 
-    def resolve(self, namespace):
-        subcontext = namespace.subcontext(self.namespace)
+        self.resolve_guard = False
+
+    def resolve(self):
+        # Resolve can be "forced" from a USE statement, so we do not know
+        # when it is going to be called.
+        if self.resolve_guard:
+            raise RuntimeError("cyclic module dependency detected")
+        self.resolve_guard = True
+        self.namespace.inherit(self.parent.namespace)
         for decl in self.decls + self.contained:
-            decl.resolve(subcontext)
+            decl.resolve()
+        self.resolve_guard = False
 
     def fcode(self):
         return textwrap.dedent("""\
@@ -693,13 +718,15 @@ class Use(Node):
         self.only = only is not None
         self.symbollist = symbollist
 
-    def imbue(self, parent): pass
+    def imbue(self, parent):
+        self.parent = parent
 
     def filter_names(self, names):
         # TODO: handle renames and only
         return names
 
-    def resolve(self, namespace):
+    def resolve(self):
+        namespace = self.parent.namespace
         try:
             self.ref = namespace.get(self.modulename)
         except KeyError:
@@ -707,7 +734,12 @@ class Use(Node):
             self.ref = None
             return
 
-        namespace.update(self.ref.namespace, self.filter_names)
+        # Force recursive import
+        # TODO: here we technically need to disambiguate
+        #  - module A using module B, C, both which using D
+        #  - module A using module B, C, both of which define same symbol
+        self.ref.resolve()
+        namespace.inherit(self.ref.namespace)
 
     def fcode(self):
         return "use {name}{sep}{only}{symlist}\n".format(
@@ -726,9 +758,13 @@ class Ref(Node):
         self.name = name.lower()
         self.ref = None
 
-    def resolve(self, namespace):
+    def imbue(self, parent):
+        self.parent = parent
+        self.namespace = parent.namespace
+
+    def resolve(self):
         try:
-            self.ref = namespace.get(self.name)
+            self.ref = self.namespace.get(self.name)
         except KeyError:
             warnings.warn("DID NOT FIND %s" % self.name)
 
@@ -747,14 +783,18 @@ class PrimitiveType(Node):
         self.kind = kind
 
     def imbue(self, parent):
+        self.parent = parent
+        self.namespace = parent.namespace
         # A type may imbue a function as its return type.
         if isinstance(parent, Function):
             retval = Entity(self, (), parent.name, None, None, None)
             retval.imbue(parent)
-
-    def resolve(self, namespace):
         if self.kind is not None:
-            self.kind.resolve(namespace)
+            self.kind.imbue(self)
+
+    def resolve(self):
+        if self.kind is not None:
+            self.kind.resolve()
 
     def fcode(self):
         if self.kind is None:
@@ -859,16 +899,22 @@ class CharacterType:
         self.kind = kind
 
     def imbue(self, parent):
+        self.parent = parent
+        self.namespace = parent.namespace
         # TODO: imbue length onto entities
         if isinstance(parent, Function):
             retval = Entity(self, (), parent.name, None, None, None)
             retval.imbue(parent)
+        if isinstance(self.len_, Node):
+            self.len_.imbue(self)
+        if isinstance(self.kind, Node):
+            self.kind.imbue(self)
 
-    def resolve(self, namespace):
-        if self.len_ is not None and self.len_ not in ('*', ':'):
-            self.len_.resolve(namespace)
-        if self.kind is not None:
-            self.kind.resolve(namespace)
+    def resolve(self):
+        if isinstance(self.len_, Node):
+            self.len_.resolve()
+        if isinstance(self.kind, Node):
+            self.kind.resolve()
 
     def fcode(self):
         if self.kind is None and self.len_ is None:
@@ -896,7 +942,7 @@ class Literal(Node):
 
     def imbue(self, parent): pass
 
-    def resolve(self, namespace): pass
+    def resolve(self): pass
 
     def fcode(self): return self.token
 
@@ -920,18 +966,24 @@ class Dim(Node):
         self.lower = lower
         self.upper = upper
 
-    def imbue(self, parent): pass
+    def imbue(self, parent):
+        self.parent = parent
+        self.namespace = parent.namespace
+        if isinstance(self.lower, Node):
+            self.lower.imbue(self)
+        if isinstance(self.upper, Node):
+            self.lower.imbue(self)
 
-    def resolve(self, namespace):
-        self.lower.resolve(namespace)
+    def resolve(self):
+        if isinstance(self.lower, Node):
+            self.lower.resolve()
+        if isinstance(self.upper, Node):
+            self.lower.resolve()
 
 
 class ExplicitDim(Dim):
-    def resolve(self, namespace):
-        self.lower.resolve(namespace)
-        self.upper.resolve(namespace)
-
     def imbue(self, parent):
+        Dim.imbue(self, parent)
         if parent.shape_type == 'implied':
             raise RuntimeError("Cannot follow implied with explicit dim")
 
@@ -948,6 +1000,7 @@ class ExplicitDim(Dim):
 
 class ImpliedDim(Dim):
     def imbue(self, parent):
+        Dim.imbue(self, parent)
         if parent.shape_type != 'explicit':
             raise RuntimeError("Cannot follow non-explicit with implied dim")
         parent.shape_type = 'implied'
@@ -961,6 +1014,7 @@ class ImpliedDim(Dim):
 
 class DeferredDim(Dim):
     def imbue(self, parent):
+        Dim.imbue(self, parent)
         if parent.shape_type == 'implied':
             raise RuntimeError("Cannot follow implied with explicit dim")
         parent.shape_type = 'deferred'
@@ -978,14 +1032,16 @@ class Shape(Node):
     def __init__(self, *dims):
         self.dims = dims
 
-    def imbue(self):
+    def imbue(self, parent):
+        self.parent = parent
+        self.namespace = parent.namespace
         self.shape_type = 'explicit'
         for dim in self.dims:
             dim.imbue(self)
 
-    def resolve(self, namespace):
+    def resolve(self):
         for dim in self.dims:
-            dim.resolve(namespace)
+            dim.resolve()
 
     def fcode(self):
         return "({})".format(",".join(map(fcode, self.dims)))
@@ -999,15 +1055,18 @@ class DerivedTypeRef(Node):
         self.name = name
 
     def imbue(self, parent):
+        self.parent = parent
+        self.namespace = parent.namespace
+
         # A type may imbue a function as its return type.
         # TODO: duplication with PrimitiveType, merge? Also, somewhat hacky
         if isinstance(parent, Function):
             retval = Entity(self, (), parent.name, None, None, None)
             retval.imbue(parent)
 
-    def resolve(self, namespace):
+    def resolve(self):
         try:
-            self.ref = namespace.get(self.name)
+            self.ref = self.namespace.get(self.name)
         except KeyError:
             warnings.warn("DID NOT FIND TYPE %s" % self.name)
             self.ref = None
@@ -1029,7 +1088,7 @@ class PreprocStmt(Node):
 
     def imbue(self, parent): pass
 
-    def resolve(self, namespace): pass
+    def resolve(self): pass
 
     def fcode(self): return self.stmt
 
