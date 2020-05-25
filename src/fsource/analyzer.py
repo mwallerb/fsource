@@ -383,8 +383,10 @@ class Entity(Node):
         self.entity_type = 'variable'
         self.intent = None
         self.storage = None
+        self.target = None
         self.required = None
         self.passby = None
+        self.volatile = None
         self.cname = None
         self.scope = None
 
@@ -410,6 +412,8 @@ class Entity(Node):
                 parent.retval = self
                 self.entity_type = 'return'
                 self.passby = 'value'
+            else:
+                self.storage = 'fixed'
 
         for attr in self.attrs:
             attr.imbue(self)
@@ -480,10 +484,22 @@ class PointerAttr(Node):
     def fcode(self): return "pointer"
 
 
+class TargetAttr(Node):
+    def imbue(self, parent): parent.target = True
+
+    def fcode(self): return "target"
+
+
 class AllocatableAttr(Node):
     def imbue(self, parent): parent.storage = 'allocatable'
 
     def fcode(self): return "allocatable"
+
+
+class VolatileAttr(Node):
+    def imbue(self, parent): parent.volatile = True
+
+    def fcode(self): return "volatile"
 
 
 class Opaque:
@@ -1046,6 +1062,8 @@ HANDLERS = {
     'dimension':         DimensionAttr,
     'pointer':           PointerAttr,
     'allocatable':       AllocatableAttr,
+    'target':            TargetAttr,
+    'volatile':          VolatileAttr,
 
     'shape':             Shape,
     'explicit_dim':      ExplicitDim,
