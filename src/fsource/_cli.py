@@ -200,17 +200,24 @@ def cmd_parse(args):
 
 def cmd_wrap(args):
     """wrapping subcommand handler"""
-    try:
-        for fname in args.files:
-            form = get_form(fname, args.form)
-            slexer = lexer.lex_buffer(open(fname), form)
-            tokens = parser.TokenStream(slexer, fname=fname)
-            ast = parser.compilation_unit(tokens)
-            asr = analyzer.TRANSFORMER(ast)
-            asr.imbue()
+    def get_asr(fname):
+        form = get_form(fname, args.form)
+        slexer = lexer.lex_buffer(open(fname), form)
+        tokens = parser.TokenStream(slexer, fname=fname)
+        ast = parser.compilation_unit(tokens)
+        asr = analyzer.TRANSFORMER(ast)
+        asr.imbue()
+        return asr
 
-            # TODO: order contexts by module dependencies
-            asr.resolve(analyzer.Context())
+    try:
+        asr_list = [get_asr(fname) for fname in args.files]
+        ns = analyzer.Namespace.union(*(asr.namespace for asr in asr_list))
+        # Broadcast the namespace back
+        for asr in asr_list:
+            asr.namespace.inherit(ns)
+        # Next, generate wrappers
+        for asr in asr_list:
+            asr.resolve()
             print (asr.cdecl().get())
     except common.ParsingError as e:
         sys.stdout.flush()
