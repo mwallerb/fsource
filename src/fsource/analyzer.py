@@ -120,10 +120,9 @@ class Context:
 
     def get(self, name):
         try:
-            obj = self.intrinsics[name]
+            return self.names[name]
         except KeyError:
-            obj = self.names[name]
-        return obj
+            return self.get_intrinsic(name)
 
     def add(self, name, value):
         if name in self.names:
@@ -140,9 +139,16 @@ class Context:
 
         self.names.update(filter(other.names))
 
-    @property
-    def intrinsics(self):
-        return {'iso_c_binding': IsoCBindingModule()}
+    @classmethod
+    def get_intrinsic(cls, name):
+        try:
+            intrinsics = cls._intrinsics
+        except AttributeError:
+            cls._intrinsics = {
+                'iso_c_binding': IsoCBindingModule(),
+                }
+            intrinsics = cls._intrinsics
+        return intrinsics[name]
 
 
 
@@ -557,17 +563,17 @@ class IsoCBindingModule(IntrinsicModule):
         )
     TYPES = 'c_ptr', 'c_funptr'
 
+    def __init__(self):
+        values = {tag: Opaque(self, tag) for tag in self.TAGS}
+        values.update({name: CPtrType(self, name) for name in self.TYPES})
+        self.context = Context(values)
+
     @property
     def name(self): return self.NAME
 
     @property
     def modtype(self): return "intrinsic"
 
-    @property
-    def context(self):
-        values = {tag: Opaque(self, tag) for tag in self.TAGS}
-        values.update({name: CPtrType(self, name) for name in self.TYPES})
-        return Context(values)
 
 
 class DerivedType(Node):
