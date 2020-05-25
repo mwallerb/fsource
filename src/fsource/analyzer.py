@@ -386,18 +386,20 @@ class Entity(Node):
         self.required = None
         self.passby = None
         self.cname = None
+        self.scope = None
 
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         if isinstance(parent, DerivedType):
             parent.fields.append(self)
-            self.entity_type = 'field'
+            self.scope = 'derived_type'
             self.storage = 'fixed'
         elif isinstance(parent, Module):
             parent.modulevars.append(self)
-            self.entity_type = 'modulevar'
+            self.scope = 'module'
             self.storage = 'fixed'
         elif isinstance(parent, Subprogram):
             # Add self to arguments if applicable
+            self.scope = 'subprogram'
             if self.name in parent.argnames:
                 parent.args[parent.argnames.index(self.name)] = self
                 self.entity_type = 'argument'
@@ -426,12 +428,12 @@ class Entity(Node):
             )
 
     def cdecl(self):
-        if self.entity_type == 'modulevar':
+        if self.scope == 'module':
             if self.cname is None:
                 return CWrapper.fail(self.name,
                                      "bind(C) missing on module variable")
             decl = "extern {const}{type_}{ptr}{name}{shape};\n"
-        elif self.entity_type == 'field':
+        elif self.scope == 'derived_type':
             decl = "  {const}{type_}{ptr}{name}{shape};\n"
         else:
             decl = "{const}{type_}{ptr}{name}{shape}"
