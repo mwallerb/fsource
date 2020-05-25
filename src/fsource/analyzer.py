@@ -148,8 +148,10 @@ class Node(object):
         Resolves names in `self` given a current name `context`.
 
         This function is called after `imbue()` on each node in the order of
-        appearence in the tree.  The current node takes the current `context`,
-        looking up references in context and augmenting it as necessary.
+        appearence in the tree.  Shall do the following two-step procedure:
+
+         1. add all the names in its scope to context
+         2. call resolve on all children
         """
         raise NotImplementedError("resolve is not implemented")
 
@@ -186,6 +188,7 @@ class CompilationUnit(Node):
 
     def imbue(self):
         self.fqname = ""
+        self.context = Context()
         for child in self.children: child.imbue(self)
 
     def resolve(self, context):
@@ -221,6 +224,8 @@ class Subprogram(Node):
         self.decls = decls
 
     def imbue(self, parent):
+        parent.context.entities[self.name] = self
+        self.context = Context()
         self.cname = None
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.args = [Unspecified(name) for name in self.argnames]
@@ -230,6 +235,7 @@ class Subprogram(Node):
 
     def resolve(self, context):
         subcontext = context.copy()
+        subcontext.update(self.context)
         for obj in self.prefixes + self.suffixes + self.decls:
             obj.resolve(subcontext)
 
@@ -373,6 +379,7 @@ class Entity(Node):
 
     def imbue(self, parent):
         # Add self to arguments
+        parent.context.entities[self.name] = self
         self.entity_type = 'variable'
         self.intent = None
         self.storage = None
@@ -407,7 +414,6 @@ class Entity(Node):
 
     def resolve(self, context):
         self.type_.resolve(context)
-        context.entities[self.name] = self
 
     def fcode(self):
         return "{type}{attrs} :: {name}{shape}{len} {init}\n".format(
@@ -451,15 +457,11 @@ class Entity(Node):
 class PassByValue(Node):
     def imbue(self, parent): parent.passby = 'value'
 
-    def resolve(self): pass
-
     def fcode(self): return "value"
 
 
 class ParameterAttr(Node):
     def imbue(self, parent): parent.entity_type = 'parameter'
-
-    def resolve(self): pass
 
     def fcode(self): return "parameter"
 
@@ -467,23 +469,17 @@ class ParameterAttr(Node):
 class OptionalAttr(Node):
     def imbue(self, parent): parent.required = False
 
-    def resolve(self): pass
-
     def fcode(self): return "optional"
 
 
 class PointerAttr(Node):
     def imbue(self, parent): parent.storage = 'pointer'
 
-    def resolve(self): pass
-
     def fcode(self): return "pointer"
 
 
 class AllocatableAttr(Node):
     def imbue(self, parent): parent.storage = 'allocatable'
-
-    def resolve(self): pass
 
     def fcode(self): return "allocatable"
 
@@ -549,6 +545,8 @@ class DerivedType(Node):
         self.procs = procs
 
     def imbue(self, parent):
+        parent.context.derived_types[self.name] = self
+        self.context = Context()
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.cname = None
         for attr in self.attrs:
@@ -566,11 +564,11 @@ class DerivedType(Node):
         self.procs.imbue(self)
 
     def resolve(self, context):
-        context.derived_types[self.name] = self
-        context = context.copy()
+        subcontext = context.copy()
+        subcontext.update(self.context)
         for decl in self.decls:
-            decl.resolve(context)
-        self.procs.resolve(context)
+            decl.resolve(subcontext)
+        self.procs.resolve(subcontext)
 
     def fcode(self):
         return "type{attrs} :: {name}\n{tags}{decls}end type {name}\n".format(
@@ -619,6 +617,8 @@ class Module(Node):
         self.contained = contained
 
     def imbue(self, parent):
+        parent.context.modules[self.name] = self
+        self.context = Context()
         self.modulevars = []
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         for obj in self.decls + self.contained:
@@ -626,12 +626,9 @@ class Module(Node):
 
     def resolve(self, context):
         subcontext = context.copy()
+        subcontext.update(self.context)
         for decl in self.decls + self.contained:
             decl.resolve(subcontext)
-        self.context = subcontext
-
-        # Module only becomes available after it's declared.
-        context.modules[self.name] = self
 
     def fcode(self):
         return textwrap.dedent("""\
@@ -987,6 +984,18 @@ class DerivedTypeRef(Node):
         return self.ref.cdecl()
 
 
+class PreprocStmt(Node):
+    def __init__(self, stmt):
+        self.stmt = stmt
+
+    def imbue(self, parent): pass
+
+    def resolve(self, context): pass
+
+    def fcode(self): return self.stmt
+
+    def cdecl(self): return CWrapper(self.stmt)
+
 
 def unpack(arg):
     """Unpack a single argument as-is"""
@@ -1054,6 +1063,8 @@ HANDLERS = {
     'ref':               Ref,
     'int':               IntLiteral,
     'string':            StringLiteral,
+
+    'preproc_stmt':      PreprocStmt,
     }
 
 TRANSFORMER = sexpr_transformer(HANDLERS, Ignored)
