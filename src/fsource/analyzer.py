@@ -15,11 +15,6 @@ from . import parser
 from . import lexer
 from . import common
 
-if sys.version_info >= (3, 7):
-    OrderedDict = dict
-else:
-    from collections import OrderedDict
-
 
 def sexpr_transformer(branch_map, fallback=None):
     """
@@ -124,11 +119,13 @@ class Namespace:
         except KeyError:
             return self.get_intrinsic(name)
 
-    def add(self, name, value):
+    def add(self, node, name=None):
+        if name is None:
+            name = node.name
         if name in self.names:
             # TODO: error or at least disable wrapping...?
             warnings.warn("duplicate in namespace: {}".format(name))
-        self.names[name] = value
+        self.names[name] = node
 
     def subcontext(self, other_context):
         return Namespace(dict(self.names, **other_context.names))
@@ -249,7 +246,7 @@ class Subprogram(Node):
         self.decls = decls
 
     def imbue(self, parent):
-        parent.namespace.add(self.name, self)
+        parent.namespace.add(self)
         self.namespace = Namespace()
         self.cname = None
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
@@ -403,7 +400,7 @@ class Entity(Node):
 
     def imbue(self, parent):
         # Add self to arguments
-        parent.namespace.add(self.name, self)
+        parent.namespace.add(self)
         self.entity_type = 'variable'
         self.intent = None
         self.storage = None
@@ -589,7 +586,7 @@ class DerivedType(Node):
         self.procs = procs
 
     def imbue(self, parent):
-        parent.namespace.add(self.name, self)
+        parent.namespace.add(self)
         self.namespace = Namespace()
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.cname = None
@@ -660,7 +657,7 @@ class Module(Node):
         self.contained = contained
 
     def imbue(self, parent):
-        parent.namespace.add(self.name, self)
+        parent.namespace.add(self)
         self.namespace = Namespace()
         self.modulevars = []
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
