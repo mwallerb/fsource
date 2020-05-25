@@ -84,7 +84,7 @@ class CWrapper:
         out("{prefix}{name}: {msg}\n", prefix=prefix, name=name, msg=msg)
         cprefix = "  " + prefix
         for child in children:
-            cls._print_fail(out, *child, cprefix)
+            cls._print_fail(out, *child, prefix=cprefix)
 
     def get(self, out=None):
         if out is None:
