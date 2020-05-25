@@ -96,35 +96,54 @@ class CWrapper:
         return "".join("#include %s\n" % h for h in self.headers) + self.decl
 
 
+def _disjoint_union(dicts):
+    """Union of disjoint dictionaries"""
+    result = {}
+    for curr in dicts:
+        oldlen = len(result)
+        result.update(curr)
+        if len(result) != oldlen + len(curr):
+            raise ValueError("duplicate items")
+    return result
+
+
 class Context:
     """Current context"""
-    def __init__(self, entities={}, derived_types={}, modules={}):
-        self.entities = entities
-        self.derived_types = derived_types
-        self.modules = modules
+    @classmethod
+    def union(cls, *contexts):
+        return cls(_disjoint_union(c.names for c in contexts))
 
-    def copy(self):
-        return Context(dict(self.entities),
-                       dict(self.derived_types),
-                       dict(self.modules))
+    def __init__(self, names=None):
+        if names is None:
+            names = {}
+        self.names = names
+
+    def get(self, name):
+        try:
+            obj = self.intrinsics[name]
+        except KeyError:
+            obj = self.names[name]
+        return obj
+
+    def add(self, name, value):
+        if name in self.names:
+            # TODO: error or at least disable wrapping...?
+            warnings.warn("duplicate in context: {}".format(name))
+        self.names[name] = value
+
+    def subcontext(self, other_context):
+        return Context(dict(self.names, **other_context.names))
 
     def update(self, other, filter=None):
         if filter is None:
             filter = lambda other_dict: other_dict
 
-        self.entities.update(filter(other.entities))
-        self.derived_types.update(filter(other.derived_types))
-        self.modules.update(filter(other.modules))
-
-    def get_module(self, name):
-        try:
-            return self.intrinsic_modules[name]
-        except KeyError:
-            return self.modules[name]
+        self.names.update(filter(other.names))
 
     @property
-    def intrinsic_modules(self):
+    def intrinsics(self):
         return {'iso_c_binding': IsoCBindingModule()}
+
 
 
 def fcode(obj):
@@ -224,7 +243,7 @@ class Subprogram(Node):
         self.decls = decls
 
     def imbue(self, parent):
-        parent.context.entities[self.name] = self
+        parent.context.add(self.name, self)
         self.context = Context()
         self.cname = None
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
@@ -234,8 +253,7 @@ class Subprogram(Node):
             obj.imbue(self)
 
     def resolve(self, context):
-        subcontext = context.copy()
-        subcontext.update(self.context)
+        subcontext = context.subcontext(self.context)
         for obj in self.prefixes + self.suffixes + self.decls:
             obj.resolve(subcontext)
 
@@ -379,7 +397,7 @@ class Entity(Node):
 
     def imbue(self, parent):
         # Add self to arguments
-        parent.context.entities[self.name] = self
+        parent.context.add(self.name, self)
         self.entity_type = 'variable'
         self.intent = None
         self.storage = None
@@ -523,7 +541,10 @@ class CPtrType:
         return CWrapper("void *")
 
 
-class IsoCBindingModule:
+class IntrinsicModule: pass
+
+
+class IsoCBindingModule(IntrinsicModule):
     NAME = "iso_c_binding"
     TAGS = (
         'c_int', 'c_short', 'c_long', 'c_long_long', 'c_signed_char',
@@ -544,10 +565,9 @@ class IsoCBindingModule:
 
     @property
     def context(self):
-        return Context(
-            entities={tag: Opaque(self, tag) for tag in self.TAGS},
-            derived_types={name: CPtrType(self, name) for name in self.TYPES}
-            )
+        values = {tag: Opaque(self, tag) for tag in self.TAGS}
+        values.update({name: CPtrType(self, name) for name in self.TYPES})
+        return Context(values)
 
 
 class DerivedType(Node):
@@ -563,7 +583,7 @@ class DerivedType(Node):
         self.procs = procs
 
     def imbue(self, parent):
-        parent.context.derived_types[self.name] = self
+        parent.context.add(self.name, self)
         self.context = Context()
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.cname = None
@@ -582,8 +602,7 @@ class DerivedType(Node):
         self.procs.imbue(self)
 
     def resolve(self, context):
-        subcontext = context.copy()
-        subcontext.update(self.context)
+        subcontext = context.subcontext(self.context)
         for decl in self.decls:
             decl.resolve(subcontext)
         self.procs.resolve(subcontext)
@@ -635,7 +654,7 @@ class Module(Node):
         self.contained = contained
 
     def imbue(self, parent):
-        parent.context.modules[self.name] = self
+        parent.context.add(self.name, self)
         self.context = Context()
         self.modulevars = []
         self.fqname = "{}%%{}".format(parent.fqname, self.name)
@@ -643,8 +662,7 @@ class Module(Node):
             obj.imbue(self)
 
     def resolve(self, context):
-        subcontext = context.copy()
-        subcontext.update(self.context)
+        subcontext = context.subcontext(self.context)
         for decl in self.decls + self.contained:
             decl.resolve(subcontext)
 
@@ -680,7 +698,7 @@ class Use(Node):
 
     def resolve(self, context):
         try:
-            self.ref = context.get_module(self.modulename)
+            self.ref = context.get(self.modulename)
         except KeyError:
             warnings.warn("Cannot find module " + self.modulename)
             self.ref = None
@@ -707,7 +725,7 @@ class Ref(Node):
 
     def resolve(self, context):
         try:
-            self.ref = context.entities[self.name]
+            self.ref = context.get(self.name)
         except KeyError:
             warnings.warn("DID NOT FIND %s" % self.name)
 
@@ -986,7 +1004,7 @@ class DerivedTypeRef(Node):
 
     def resolve(self, context):
         try:
-            self.ref = context.derived_types[self.name]
+            self.ref = context.get(self.name)
         except KeyError:
             warnings.warn("DID NOT FIND TYPE %s" % self.name)
             self.ref = None

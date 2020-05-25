@@ -211,12 +211,7 @@ def cmd_wrap(args):
 
     try:
         asr_list = [get_asr(fname) for fname in args.files]
-
-        # First, resolve all names
-        context = analyzer.Context()
-        for asr in asr_list:
-            context.update(asr.context)
-
+        context = analyzer.Context.union(*(asr.context for asr in asr_list))
         # Next, generate wrappers
         for asr in asr_list:
             asr.resolve(context)
