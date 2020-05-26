@@ -88,20 +88,23 @@ class CWrapper:
         self.fails = fails
 
     @classmethod
-    def _print_fail(cls, out, name, msg, children, prefix):
-        out("{prefix}{name}: {msg}\n", prefix=prefix, name=name, msg=msg)
-        cprefix = "  " + prefix
-        for child in children:
-            cls._print_fail(out, *child, prefix=cprefix)
+    def _format_fail(cls, name, msg, children, prefix):
+        cprefix = prefix + "  "
+        failstr = "{}- {}: {}\n".format(prefix, name, msg)
+        failstr += "".join(cls._format_fail(*child, prefix=cprefix)
+                           for child in children)
+        return failstr
 
-    def get(self, out=None):
-        if out is None:
-            out = lambda fmt, *args, **kwds: sys.stderr.write(fmt.format(*args, **kwds))
-        if self.fails:
-            out("WRAPPING FAILURES:\n")
-            for fail in self.fails:
-                self._print_fail(out, *fail, prefix=" - ")
-        return "".join("#include %s\n" % h for h in self.headers) + self.decl
+    def get(self, add_fails=True):
+        failstr = ""
+        if self.fails and add_fails:
+            failstr = "/*\n * Wrapping failures:\n"
+            failstr += "".join(self._format_fail(*fail, prefix=" *   ")
+                               for fail in self.fails)
+            failstr += " */\n"
+        return (failstr
+                + "".join("#include %s\n" % h for h in self.headers)
+                + self.decl)
 
 
 def _disjoint_union(dicts):
@@ -241,6 +244,9 @@ class NamespaceNode:
             return self.name
         return "{}%%{}".format(self.parent.fqname, self.name)
 
+    def cdecl(self):
+        return CWrapper.union(self.children)
+
 
 class TransparentNode:
     def __init__(self, children):
@@ -284,9 +290,6 @@ class CompilationUnit(NamespaceNode):
                         decls="\n".join(map(fcode, self.children))
                         )
 
-    def cdecl(self):
-        return CWrapper.union(self.children)
-
 
 @ast_handler("module_decl")
 class Module(NamespaceNode):
@@ -322,9 +325,6 @@ class Module(NamespaceNode):
                         decls="".join(map(fcode, self.decls)),
                         contained="\n".join(map(fcode, self.contained))
                         )
-
-    def cdecl(self):
-        return CWrapper.union(self.decls + self.contained)
 
 
 @ast_handler("use_stmt")
