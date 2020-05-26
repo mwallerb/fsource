@@ -132,12 +132,6 @@ class Namespace:
         newnames.update(self.names)
         self.names = newnames
 
-    def update(self, other, filter=None):
-        if filter is None:
-            filter = lambda other_dict: other_dict
-
-        self.names.update(filter(other.names))
-
     @classmethod
     def get_intrinsic(cls, name):
         try:
@@ -205,20 +199,66 @@ class Ignored(Node):
         return CWrapper.fail(self.node_type, "unable to wrap (ignored)")
 
 
-class CompilationUnit(Node):
-    """Top node representing one file"""
-    def __init__(self, ast_version, fname, *children):
-        self.ast_version = ast_version
-        self.filename = fname
-        self.children = children
+class NamespaceNode:
+    @property
+    def children(self):
+        raise NotImplementedError("children must be implemented")
 
-    def imbue(self):
-        self.fqname = ""
+    def __init__(self, name):
+        self.name = name
+
+    def imbue(self, parent=None):
+        self.parent = parent
+        if parent is not None:
+            self.parent.namespace.add(self)
         self.namespace = Namespace()
-        for child in self.children: child.imbue(self)
+
+        for child in self.children:
+            child.imbue(self)
 
     def resolve(self):
-        for child in self.children: child.resolve()
+        if self.parent is not None:
+            self.namespace.inherit(self.parent.namespace)
+        for child in self.children:
+            child.resolve()
+
+    @property
+    def fqname(self):
+        if self.parent is None:
+            return self.name
+        return "{}%%{}".format(self.parent.fqname, self.name)
+
+
+class TransparentNode:
+    def __init__(self, children):
+        self.children = children
+
+    def imbue(self, parent):
+        self.namespace = parent.namespace
+        for child in self.children:
+            child.imbue(parent)
+
+    def resolve(self):
+        for child in self.children:
+            child.resolve()
+
+    def fcode(self):
+        return "".join(map(fcode, self.children))
+
+    def cdecl(self):
+        return CWrapper.union(self.children)
+
+
+class CompilationUnit(NamespaceNode):
+    """Top node representing one file"""
+    def __init__(self, ast_version, fname, *decls):
+        NamespaceNode.__init__(self, "")
+        self.ast_version = ast_version
+        self.filename = fname
+        self.decls = decls
+
+    @property
+    def children(self): return self.decls
 
     def fcode(self):
         return textwrap.dedent("""\
@@ -234,36 +274,159 @@ class CompilationUnit(Node):
         return CWrapper.union(self.children)
 
 
+class Module(NamespaceNode):
+    def __init__(self, name, decls, contained):
+        NamespaceNode.__init__(self, name)
+        self.decls = decls
+        self.contained = contained
+
+    @property
+    def children(self): return self.decls + self.contained
+
+    def imbue(self, parent):
+        NamespaceNode.imbue(self, parent)
+        self.resolve_guard = False
+
+    def resolve(self):
+        # Resolve can be "forced" from a USE statement, so we do not know
+        # when it is going to be called.
+        if self.resolve_guard:
+            raise RuntimeError("cyclic module dependency detected")
+        self.resolve_guard = True
+        NamespaceNode.resolve(self)
+        self.resolve_guard = False
+
+    def fcode(self):
+        return textwrap.dedent("""\
+            module {name}
+            {decls}
+            contains
+            {contained}
+            end module {name}
+            """).format(name=self.name,
+                        decls="".join(map(fcode, self.decls)),
+                        contained="\n".join(map(fcode, self.contained))
+                        )
+
+    def cdecl(self):
+        return CWrapper.union(self.decls + self.contained)
+
+
+class Use(Node):
+    def __init__(self, modulename, attrs, only, *symbollist):
+        self.modulename = modulename
+        self.attrs = attrs
+        self.only = only is not None
+        self.symbollist = symbollist
+
+    def imbue(self, parent):
+        self.parent = parent
+
+    def resolve(self):
+        namespace = self.parent.namespace
+        try:
+            self.ref = namespace.get(self.modulename)
+        except KeyError:
+            warnings.warn("Cannot find module " + self.modulename)
+            self.ref = None
+            return
+
+        # Force recursive import
+        # TODO: here we technically need to disambiguate
+        #  - module A using module B, C, both which using D
+        #  - module A using module B, C, both of which define same symbol
+        # TODO: filter names with only and renames
+        self.ref.resolve()
+        namespace.inherit(self.ref.namespace)
+
+    def fcode(self):
+        return "use {name}{sep}{only}{symlist}\n".format(
+            name=self.modulename,
+            sep=", " if self.only or self.symbollist else "",
+            only="only: " if self.only else "",
+            symlist=", ".join(map(fcode, self.symbollist)))
+
+    def cdecl(self):
+        # TODO: Maybe uses pull in dependencies?
+        return CWrapper()
+
+
+class DerivedType(NamespaceNode):
+    def __init__(self, name, attrs, tags, decls, procs):
+        NamespaceNode.__init__(self, name)
+        self.attrs = attrs
+        self.tags = tags
+        self.decls = decls
+        # TODO: use some better type here
+        if procs is None:
+            procs = TypeBoundProcedureList(False)
+        self.procs = procs
+
+    @property
+    def children(self): return self.attrs + self.tags + self.decls + (self.procs,)
+
+    def imbue(self, parent):
+        self.cname = None
+        self.is_private = False
+        self.is_sequence = False
+        # TODO: remove this?
+        self.fields = []
+        NamespaceNode.imbue(self, parent)
+
+    def fcode(self):
+        return "type{attrs} :: {name}\n{tags}{decls}end type {name}\n".format(
+                    name=self.name,
+                    attrs="".join(", " + a.fcode() for a in self.attrs),
+                    tags="".join(map(fcode, self.tags)),
+                    decls="".join(map(fcode, self.decls))
+                    )
+
+    def cdecl(self):
+        if self.cname is None:
+            return CWrapper.fail(self.name, "bind(C) prefix missing")
+        fields = CWrapper.union(self.fields)
+        if fields.fails:
+            return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
+        return CWrapper("struct {name} {{\n{fields}}};\n".format(
+                            name=self.cname, fields=fields.decl),
+                        fields.headers)
+
+
+class TypeBoundProcedureList(TransparentNode):
+    def __init__(self, are_private, *procs):
+        TransparentNode.__init__(self, procs)
+        self.are_private = are_private
+
+    def cdecl(self):
+        # TODO fill this in
+        return CWrapper.fail(None,
+                             "type-bound procedures currently unsupported")
+
+
 class Unspecified(Node):
     def __init__(self, name):
         self.name = name
 
 
-class Subprogram(Node):
+class Subprogram(NamespaceNode):
     FTYPE = '@@@'
 
     def __init__(self, name, prefixes, argnames, suffixes, decls):
-        self.name = name
+        NamespaceNode.__init__(self, name)
         self.prefixes = prefixes
         self.suffixes = suffixes
         self.argnames = argnames
         self.decls = decls
 
+    @property
+    def children(self):
+        return self.prefixes + self.suffixes + self.decls
+
     def imbue(self, parent):
-        self.parent = parent
-        self.parent.namespace.add(self)
-        self.namespace = Namespace()
         self.cname = None
-        self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.args = [Unspecified(name) for name in self.argnames]
         self.retval = Unspecified(self.name) if self.FTYPE == 'function' else None
-        for obj in self.prefixes + self.suffixes + self.decls:
-            obj.imbue(self)
-
-    def resolve(self):
-        self.namespace.inherit(self.parent.namespace)
-        for obj in self.prefixes + self.suffixes + self.decls:
-            obj.resolve()
+        NamespaceNode.imbue(self, parent)
 
     def fcode_header(self):
         return "{prefixes}{sep}{tag} {name}({args}) {suffixes}".format(
@@ -319,81 +482,10 @@ class Function(Subprogram):
         Subprogram.__init__(self, name, prefixes, argnames, suffixes, decls)
 
 
-class Intent(Node):
-    def __init__(self, in_, out):
-        self.in_ = bool(in_)
-        self.out = bool(out)
-
-    def imbue(self, parent):
-        parent.intent = self.in_, self.out
-
-    def fcode(self):
-        return "intent({}{})".format("in" * self.in_, "out" * self.out)
-
-
-class BindC(Node):
-    def __init__(self, cname):
-        self.cname = None if cname is None else cname.value
-
-    def imbue(self, parent):
-        if self.cname is None:
-            self.cname = parent.name
-        parent.cname = self.cname
-
-    def resolve(self): pass
-
-    def fcode(self):
-        if self.cname is None:
-            return "bind(C)"
-        else:
-            return "bind(C, name='{}')".format(self.cname)
-
-
-class DimensionAttr(Node):
-    def __init__(self, shape):
-        self.shape = shape
-
-    def imbue(self, parent):
-        if parent.shape is not None:
-            raise RuntimeError("duplicate shape")
-        parent.shape = self.shape
-        parent.attrs = tuple(a for a in parent.attrs if a is not self)
-
-
-class ResultName(Node):
-    def __init__(self, name):
-        self.name = name
-
-    def imbue(self, parent):
-        parent.retval.name = self.name
-
-    def resolve(self): pass
-
-    def fcode(self):
-        return "result({})".format(self.name)
-
-
-
-class EntityDecl:
+class EntityDecl(TransparentNode):
     def __init__(self, type_, attrs, entity_list):
-        self.entities = tuple(Entity(type_, attrs, *entity)
-                              for entity in entity_list)
-
-    def imbue(self, parent):
-        # Transparent layer
-        self.parent = parent.parent
-        for entity in self.entities:
-            entity.imbue(parent)
-
-    def resolve(self):
-        for entity in self.entities:
-            entity.resolve()
-
-    def fcode(self):
-        return "".join(map(fcode, self.entities))
-
-    def cdecl(self):
-        return CWrapper.union(self.entities)
+        entities = tuple(Entity(type_, attrs, *e) for e in entity_list)
+        TransparentNode.__init__(self, entities)
 
 
 class Entity(Node):
@@ -491,45 +583,92 @@ class Entity(Node):
                         type_.headers | shape.headers)
 
 
-class PassByValue(Node):
-    def imbue(self, parent): parent.passby = 'value'
+class Attribute(Node):
+    def resolve(self): pass
 
+
+class Intent(Attribute):
+    def __init__(self, in_, out):
+        self.in_ = bool(in_)
+        self.out = bool(out)
+
+    def imbue(self, parent):
+        parent.intent = self.in_, self.out
+
+    def fcode(self):
+        return "intent({}{})".format("in" * self.in_, "out" * self.out)
+
+
+class BindC(Attribute):
+    def __init__(self, cname):
+        self.cname = None if cname is None else cname.value
+
+    def imbue(self, parent):
+        if self.cname is None:
+            self.cname = parent.name
+        parent.cname = self.cname
+
+    def fcode(self):
+        if self.cname is None:
+            return "bind(C)"
+        else:
+            return "bind(C, name='{}')".format(self.cname)
+
+
+class DimensionAttr(Attribute):
+    def __init__(self, shape):
+        self.shape = shape
+
+    def imbue(self, parent):
+        if parent.shape is not None:
+            raise RuntimeError("duplicate shape")
+        parent.shape = self.shape
+        parent.attrs = tuple(a for a in parent.attrs if a is not self)
+
+
+class ResultName(Attribute):
+    def __init__(self, name):
+        self.name = name
+
+    def imbue(self, parent):
+        parent.retval.name = self.name
+
+    def fcode(self):
+        return "result({})".format(self.name)
+
+
+class PassByValue(Attribute):
+    def imbue(self, parent): parent.passby = 'value'
     def fcode(self): return "value"
 
 
-class ParameterAttr(Node):
+class ParameterAttr(Attribute):
     def imbue(self, parent): parent.entity_type = 'parameter'
-
     def fcode(self): return "parameter"
 
 
-class OptionalAttr(Node):
+class OptionalAttr(Attribute):
     def imbue(self, parent): parent.required = False
-
     def fcode(self): return "optional"
 
 
-class PointerAttr(Node):
+class PointerAttr(Attribute):
     def imbue(self, parent): parent.storage = 'pointer'
-
     def fcode(self): return "pointer"
 
 
-class TargetAttr(Node):
+class TargetAttr(Attribute):
     def imbue(self, parent): parent.target = True
-
     def fcode(self): return "target"
 
 
-class AllocatableAttr(Node):
+class AllocatableAttr(Attribute):
     def imbue(self, parent): parent.storage = 'allocatable'
-
     def fcode(self): return "allocatable"
 
 
-class VolatileAttr(Node):
+class VolatileAttr(Attribute):
     def imbue(self, parent): parent.volatile = True
-
     def fcode(self): return "volatile"
 
 
@@ -584,173 +723,6 @@ class OpaqueModule:
         self.namespace = Namespace()
 
     def resolve(self): pass
-
-
-class DerivedType(Node):
-    def __init__(self, name, attrs, tags, decls, procs):
-        self.name = name
-        self.attrs = attrs
-        self.tags = tags
-        self.decls = decls
-
-        # TODO: use some better type here
-        if procs is None:
-            procs = TypeBoundProcedureList(False)
-        self.procs = procs
-
-    def imbue(self, parent):
-        self.parent = parent
-        self.parent.namespace.add(self)
-        self.namespace = Namespace()
-
-        self.fqname = "{}%%{}".format(parent.fqname, self.name)
-        self.cname = None
-        for attr in self.attrs:
-            attr.imbue(self)
-
-        self.is_private = False
-        self.is_sequence = False
-        for tag in self.tags:
-            tag.imbue(self)
-
-        self.fields = []
-        for decl in self.decls:
-            decl.imbue(self)
-
-        self.procs.imbue(self)
-
-    def resolve(self):
-        self.namespace.inherit(self.parent.namespace)
-        for decl in self.decls:
-            decl.resolve()
-        self.procs.resolve()
-
-    def fcode(self):
-        return "type{attrs} :: {name}\n{tags}{decls}end type {name}\n".format(
-                    name=self.name,
-                    attrs="".join(", " + a.fcode() for a in self.attrs),
-                    tags="".join(map(fcode, self.tags)),
-                    decls="".join(map(fcode, self.decls))
-                    )
-
-    def cdecl(self):
-        if self.cname is None:
-            return CWrapper.fail(self.name, "bind(C) prefix missing")
-        fields = CWrapper.union(self.fields)
-        if fields.fails:
-            return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
-        return CWrapper("struct {name} {{\n{fields}}};\n".format(
-                            name=self.cname, fields=fields.decl),
-                        fields.headers)
-
-
-class TypeBoundProcedureList:
-    def __init__(self, are_private, *procs):
-        self.are_private = are_private
-        self.procs = procs
-
-    def imbue(self, parent):
-        self.parent = parent.parent
-        for proc in self.procs:
-            proc.imbue(parent)
-
-    def resolve(self):
-        for proc in self.procs:
-            proc.resolve()
-
-    def fcode(self):
-        return "".join(map(fcode, self.procs))
-
-    def cdecl(self):
-        # TODO fill this in
-        return CWrapper.fail(None, "type-bound procedures currently unsupported")
-
-
-class Module(Node):
-    def __init__(self, name, decls, contained):
-        self.name = name
-        self.decls = decls
-        self.contained = contained
-
-    def imbue(self, parent):
-        self.parent = parent
-        self.parent.namespace.add(self)
-        self.namespace = Namespace()
-
-        self.fqname = "{}%%{}".format(parent.fqname, self.name)
-        for obj in self.decls + self.contained:
-            obj.imbue(self)
-
-        self.resolve_guard = False
-
-    def resolve(self):
-        # Resolve can be "forced" from a USE statement, so we do not know
-        # when it is going to be called.
-        if self.resolve_guard:
-            raise RuntimeError("cyclic module dependency detected")
-        self.resolve_guard = True
-        self.namespace.inherit(self.parent.namespace)
-        for decl in self.decls + self.contained:
-            decl.resolve()
-        self.resolve_guard = False
-
-    def fcode(self):
-        return textwrap.dedent("""\
-            module {name}
-            {decls}
-            contains
-            {contained}
-            end module {name}
-            """).format(name=self.name,
-                        decls="".join(map(fcode, self.decls)),
-                        contained="\n".join(map(fcode, self.contained))
-                        )
-
-    def cdecl(self):
-        return CWrapper.union(self.decls + self.contained)
-
-
-
-class Use(Node):
-    def __init__(self, modulename, attrs, only, *symbollist):
-        self.modulename = modulename
-        self.attrs = attrs
-        self.only = only is not None
-        self.symbollist = symbollist
-
-    def imbue(self, parent):
-        self.parent = parent
-
-    def filter_names(self, names):
-        # TODO: handle renames and only
-        return names
-
-    def resolve(self):
-        namespace = self.parent.namespace
-        try:
-            self.ref = namespace.get(self.modulename)
-        except KeyError:
-            warnings.warn("Cannot find module " + self.modulename)
-            self.ref = None
-            return
-
-        # Force recursive import
-        # TODO: here we technically need to disambiguate
-        #  - module A using module B, C, both which using D
-        #  - module A using module B, C, both of which define same symbol
-        self.ref.resolve()
-        namespace.inherit(self.ref.namespace)
-
-    def fcode(self):
-        return "use {name}{sep}{only}{symlist}\n".format(
-            name=self.modulename,
-            sep=", " if self.only or self.symbollist else "",
-            only="only: " if self.only else "",
-            symlist=", ".join(map(fcode, self.symbollist)))
-
-    def cdecl(self):
-        # TODO: Maybe uses pull in dependencies?
-        return CWrapper()
 
 
 class Ref(Node):
