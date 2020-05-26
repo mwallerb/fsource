@@ -56,6 +56,19 @@ def sexpr_transformer(branch_map, fallback=None):
     return transformer
 
 
+_HANDLER_REGISTRY = {}
+
+
+def ast_handler(ast_tag):
+    """Class which handles AST node of certain type"""
+    def ast_handler_property(class_):
+        global _HANDLER_REGISTRY
+        _HANDLER_REGISTRY[ast_tag] = class_
+        return class_
+
+    return ast_handler_property
+
+
 class CWrapper:
     @classmethod
     def union(cls, elems, sep="", ignore_errors=False):
@@ -249,6 +262,7 @@ class TransparentNode:
         return CWrapper.union(self.children)
 
 
+@ast_handler("compilation_unit")
 class CompilationUnit(NamespaceNode):
     """Top node representing one file"""
     def __init__(self, ast_version, fname, *decls):
@@ -274,6 +288,7 @@ class CompilationUnit(NamespaceNode):
         return CWrapper.union(self.children)
 
 
+@ast_handler("module_decl")
 class Module(NamespaceNode):
     def __init__(self, name, decls, contained):
         NamespaceNode.__init__(self, name)
@@ -312,6 +327,7 @@ class Module(NamespaceNode):
         return CWrapper.union(self.decls + self.contained)
 
 
+@ast_handler("use_stmt")
 class Use(Node):
     def __init__(self, modulename, attrs, only, *symbollist):
         self.modulename = modulename
@@ -351,6 +367,7 @@ class Use(Node):
         return CWrapper()
 
 
+@ast_handler("type_decl")
 class DerivedType(NamespaceNode):
     def __init__(self, name, attrs, tags, decls, procs):
         NamespaceNode.__init__(self, name)
@@ -392,6 +409,7 @@ class DerivedType(NamespaceNode):
                         fields.headers)
 
 
+@ast_handler("type_bound_procedures")
 class TypeBoundProcedureList(TransparentNode):
     def __init__(self, are_private, *procs):
         TransparentNode.__init__(self, procs)
@@ -467,6 +485,7 @@ class Subprogram(NamespaceNode):
             )
 
 
+@ast_handler("subroutine_decl")
 class Subroutine(Subprogram):
     FTYPE = 'subroutine'
 
@@ -475,6 +494,7 @@ class Subroutine(Subprogram):
                             (bindc,) if bindc is not None else (), decls)
 
 
+@ast_handler("function_decl")
 class Function(Subprogram):
     FTYPE = 'function'
 
@@ -482,6 +502,7 @@ class Function(Subprogram):
         Subprogram.__init__(self, name, prefixes, argnames, suffixes, decls)
 
 
+@ast_handler("entity_decl")
 class EntityDecl(TransparentNode):
     def __init__(self, type_, attrs, entity_list):
         entities = tuple(Entity(type_, attrs, *e) for e in entity_list)
@@ -587,6 +608,7 @@ class Attribute(Node):
     def resolve(self): pass
 
 
+@ast_handler("intent")
 class Intent(Attribute):
     def __init__(self, in_, out):
         self.in_ = bool(in_)
@@ -599,6 +621,7 @@ class Intent(Attribute):
         return "intent({}{})".format("in" * self.in_, "out" * self.out)
 
 
+@ast_handler("bind_c")
 class BindC(Attribute):
     def __init__(self, cname):
         self.cname = None if cname is None else cname.value
@@ -615,6 +638,7 @@ class BindC(Attribute):
             return "bind(C, name='{}')".format(self.cname)
 
 
+@ast_handler("dimension")
 class DimensionAttr(Attribute):
     def __init__(self, shape):
         self.shape = shape
@@ -626,6 +650,7 @@ class DimensionAttr(Attribute):
         parent.attrs = tuple(a for a in parent.attrs if a is not self)
 
 
+@ast_handler("result")
 class ResultName(Attribute):
     def __init__(self, name):
         self.name = name
@@ -637,36 +662,43 @@ class ResultName(Attribute):
         return "result({})".format(self.name)
 
 
+@ast_handler("value")
 class PassByValue(Attribute):
     def imbue(self, parent): parent.passby = 'value'
     def fcode(self): return "value"
 
 
+@ast_handler("parameter")
 class ParameterAttr(Attribute):
     def imbue(self, parent): parent.entity_type = 'parameter'
     def fcode(self): return "parameter"
 
 
+@ast_handler("optional")
 class OptionalAttr(Attribute):
     def imbue(self, parent): parent.required = False
     def fcode(self): return "optional"
 
 
+@ast_handler("pointer")
 class PointerAttr(Attribute):
     def imbue(self, parent): parent.storage = 'pointer'
     def fcode(self): return "pointer"
 
 
+@ast_handler("target")
 class TargetAttr(Attribute):
     def imbue(self, parent): parent.target = True
     def fcode(self): return "target"
 
 
+@ast_handler("allocatable")
 class AllocatableAttr(Attribute):
     def imbue(self, parent): parent.storage = 'allocatable'
     def fcode(self): return "allocatable"
 
 
+@ast_handler("volatile")
 class VolatileAttr(Attribute):
     def imbue(self, parent): parent.volatile = True
     def fcode(self): return "volatile"
@@ -725,6 +757,7 @@ class OpaqueModule:
     def resolve(self): pass
 
 
+@ast_handler("ref")
 class Ref(Node):
     def __init__(self, name):
         self.name = name.lower()
@@ -785,6 +818,7 @@ class PrimitiveType(Node):
         return CWrapper(ctype, cheaders)
 
 
+@ast_handler("integer_type")
 class IntegerType(PrimitiveType):
     FTYPE = 'integer'
 
@@ -813,6 +847,7 @@ class IntegerType(PrimitiveType):
         })
 
 
+@ast_handler("real_type")
 class RealType(PrimitiveType):
     FTYPE = 'real'
 
@@ -828,6 +863,7 @@ class RealType(PrimitiveType):
         })
 
 
+@ast_handler("complex_type")
 class ComplexType(PrimitiveType):
     FTYPE = 'complex'
 
@@ -844,6 +880,7 @@ class ComplexType(PrimitiveType):
         })
 
 
+@ast_handler("logical_type")
 class LogicalType(PrimitiveType):
     FTYPE = 'logical'
     KIND_MAPS = {
@@ -857,6 +894,7 @@ class LogicalType(PrimitiveType):
         return PrimitiveType.cdecl(self)
 
 
+@ast_handler("character_type")
 class CharacterType:
     KIND_MAPS = {
         '%%c_char': ('char', set(), 'char', 'c_char'),
@@ -919,12 +957,14 @@ class Literal(Node):
     def fcode(self): return self.token
 
 
+@ast_handler("int")
 class IntLiteral(Literal):
     @classmethod
     def parse(cls, token):
         return int(token)
 
 
+@ast_handler("string")
 class StringLiteral(Literal):
     @classmethod
     def parse(cls, token):
@@ -953,6 +993,7 @@ class Dim(Node):
             self.lower.resolve()
 
 
+@ast_handler("explicit_dim")
 class ExplicitDim(Dim):
     def imbue(self, parent):
         Dim.imbue(self, parent)
@@ -970,6 +1011,7 @@ class ExplicitDim(Dim):
         return CWrapper("[{}]".format(size))
 
 
+@ast_handler("implied_dim")
 class ImpliedDim(Dim):
     def imbue(self, parent):
         Dim.imbue(self, parent)
@@ -984,6 +1026,7 @@ class ImpliedDim(Dim):
         return CWrapper("[]")
 
 
+@ast_handler("deferred_dim")
 class DeferredDim(Dim):
     def imbue(self, parent):
         Dim.imbue(self, parent)
@@ -1000,6 +1043,7 @@ class DeferredDim(Dim):
         return CWrapper.fail(self.fcode(), "unable to wrap deferred dimension")
 
 
+@ast_handler("shape")
 class Shape(Node):
     def __init__(self, *dims):
         self.dims = dims
@@ -1022,6 +1066,7 @@ class Shape(Node):
         return CWrapper.union(self.dims)
 
 
+@ast_handler("derived_type")
 class DerivedTypeRef(Node):
     def __init__(self, name):
         self.name = name
@@ -1054,6 +1099,7 @@ class DerivedTypeRef(Node):
         return self.ref.cdecl()
 
 
+@ast_handler("preproc_stmt")
 class PreprocStmt(Node):
     def __init__(self, stmt):
         self.stmt = stmt
@@ -1077,66 +1123,23 @@ def unpack_sequence(*items):
     return items
 
 
-HANDLERS = {
-    'compilation_unit':  CompilationUnit,
+_HANDLER_REGISTRY.update({
     'filename':          unpack,
     'ast_version':       unpack_sequence,
-
-    'module_decl':       Module,
     'declaration_block': unpack_sequence,
     'contained_block':   unpack_sequence,
-    'use_stmt':          Use,
-
-    'type_decl':         DerivedType,
     'type_attrs':        unpack_sequence,
     'type_tags':         unpack_sequence,
     'component_block':   unpack_sequence,
-    'type_bound_procedures': TypeBoundProcedureList,
-
-    'subroutine_decl':   Subroutine,
     'arg_list':          unpack_sequence,
     'sub_prefix_list':   unpack_sequence,
-    'function_decl':     Function,
     'func_prefix_list':  unpack_sequence,
     'func_suffix_list':  unpack_sequence,
-    'bind_c':            BindC,
-    'result':            ResultName,
-
-    'entity_decl':       EntityDecl,
     'entity_attrs':      unpack_sequence,
     'entity_list':       unpack_sequence,
     'entity':            unpack_sequence,
-
-    'intent':            Intent,
-    'value':             PassByValue,
-    'parameter':         ParameterAttr,
-    'optional':          OptionalAttr,
-    'dimension':         DimensionAttr,
-    'pointer':           PointerAttr,
-    'allocatable':       AllocatableAttr,
-    'target':            TargetAttr,
-    'volatile':          VolatileAttr,
-
-    'shape':             Shape,
-    'explicit_dim':      ExplicitDim,
-    'implied_dim':       ImpliedDim,
-    'deferred_dim':      DeferredDim,
-
-    'integer_type':      IntegerType,
-    'real_type':         RealType,
-    'complex_type':      ComplexType,
-    'character_type':    CharacterType,
-    'logical_type':      LogicalType,
-    'derived_type':      DerivedTypeRef,
     'kind_sel':          unpack,
     'char_sel':          unpack_sequence,
-
     'id':                lambda name: name.lower(),
-    'ref':               Ref,
-    'int':               IntLiteral,
-    'string':            StringLiteral,
-
-    'preproc_stmt':      PreprocStmt,
-    }
-
-TRANSFORMER = sexpr_transformer(HANDLERS, Ignored)
+    })
+TRANSFORMER = sexpr_transformer(_HANDLER_REGISTRY, Ignored)
