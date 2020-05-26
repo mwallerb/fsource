@@ -16,46 +16,6 @@ from . import lexer
 from . import common
 
 
-def sexpr_transformer(branch_map, fallback=None):
-    """
-    Return depth-first transformation of an AST as S-expression.
-
-    An S-expression is either a branch or a leaf.  A leaf is an arbitrary
-    string or `None`.  A branch is a tuple `(tag, *tail)`, where the `tag` is
-    a string and each item of `tail` is again an S-expression.
-
-    Construct and return a transformer which does the following: for a
-    branch, we look up the tag in `branch_map`.  If it is found, the
-    corresponding entry is called with tag and tail as its arguments, but we
-    first run the tail through the transformer.  Any leaf is simply returned
-    as-is.
-
-    If the tag is not found in branch_map, we instead call `fallback`. In this
-    case, the arguments are not processed, which allows pruning subtrees not
-    interesting to the consumer.
-    """
-    def default_fallback(tag, *tail):
-        raise ValueError("unexpected tag: {}".format(tag))
-    if fallback is None:
-        fallback = default_fallback
-
-    def transformer(ast):
-        if isinstance(ast, tuple):
-            # Branch node
-            node_type = ast[0]
-            try:
-                handler = branch_map[node_type]
-            except KeyError:
-                return fallback(*ast)
-            else:
-                return handler(*map(transformer, ast[1:]))
-        else:
-            # Leaf node
-            return ast
-
-    return transformer
-
-
 _HANDLER_REGISTRY = {}
 
 
@@ -107,35 +67,44 @@ class CWrapper:
                 + self.decl)
 
 
-def _disjoint_union(dicts):
-    """Union of disjoint dictionaries"""
-    result = {}
-    for curr in dicts:
-        oldlen = len(result)
-        result.update(curr)
-        if len(result) != oldlen + len(curr):
-            raise ValueError("duplicate items")
-    return result
-
-
 class Namespace:
-    """Current namespace"""
+    """A set of defined (or known) names in a certain node.
+
+    A namespace is a map of intrinsic (system-defined) names plus a map of
+    user-defined names to their respective objects.  A `Node` declares its
+    namespace in its `imbue()` method and populates it with the objects
+    defined in its scope.  In the `resolve()` method, it will augment its
+    namespace with all names known at that point (e.g., through import).
+    """
     @classmethod
     def union(cls, *contexts):
-        return cls(_disjoint_union(c.names for c in contexts))
+        """Union of namespaces, which must be pairwise disjoint"""
+        def disjoint_union(dicts):
+            result = {}
+            for curr in dicts:
+                oldlen = len(result)
+                result.update(curr)
+                if len(result) != oldlen + len(curr):
+                    raise ValueError("duplicate items")
+            return result
+
+        return cls(disjoint_union(c.names for c in contexts))
 
     def __init__(self, names=None):
+        """Initialize new namespace, which by default is empty."""
         if names is None:
             names = {}
         self.names = names
 
     def get(self, name):
+        """Get node identified by `name` in this namespace"""
         try:
             return self.names[name]
         except KeyError:
             return self.get_intrinsic(name)
 
     def add(self, node, name=None):
+        """Publish `node` in this namespace"""
         if name is None:
             name = node.name
         if name in self.names:
@@ -144,12 +113,14 @@ class Namespace:
         self.names[name] = node
 
     def inherit(self, context):
+        """Import names names from `context` (own names take precedence)"""
         newnames = dict(context.names)
         newnames.update(self.names)
         self.names = newnames
 
     @classmethod
     def get_intrinsic(cls, name):
+        """Get name of intrinsic (system-defined) object"""
         try:
             intrinsics = cls._intrinsics
         except AttributeError:
@@ -161,32 +132,43 @@ class Namespace:
         return intrinsics[name]
 
 
-
 def fcode(obj):
+    """Method form of `Node.fcode()` for use in `map`."""
     return obj.fcode()
 
 
 class Node(object):
+    """Base class of objects in the abstract syntax representation (ASR)"""
     def imbue(self, parent):
-        """
-        Imbues `parent` with information from `self`.
+        """Imbue `parent` with information from `self`.
 
-        When the objects are created, they only have information about their
+        When objects are created, they only have information about their
         children.  `imbue` is called *after* the complete hierarchy is
-        established to make children aware of their parents, allowing, e.g.,
-        child nodes to change attributes of the parents.
+        established.  The node `self` is expected to:
+
+         1. publish itself in the parent's namespace, if applicable, and set
+            up its own namespace, either by linking to the parents or creating
+            a new one.
+
+         2. augment or change the nature of the parent based on the information
+            or presence of the current node and its children.
         """
         raise NotImplementedError("imbue is not implemented")
 
     def resolve(self):
-        """
-        Resolves names in `self` given a current name `namespace`.
+        """Complete namespace and resolve all names in `self`.
 
-        This function is called after `imbue()` on each node in the order of
-        appearence in the tree.  Shall do the following two-step procedure:
+        Name resolution in Fortran is slightly tricky: declarations can appear
+        before or after its first use.  Also, modules from multiple files can
+        reference each other.  Therefore, we need a separate `resolve()` stage.
 
-         1. add all the names in its scope to namespace
-         2. call resolve on all children
+        This method must be called *after* `imbue()`.  `self` is expected to:
+
+         1. complete its namespace, if present, with all imported names from
+            modules and such and with the parent's namespace
+
+         2. resolve name references of itself within the complete namespace
+            and recursively descend to its children, if any.
         """
         raise NotImplementedError("resolve is not implemented")
 
@@ -1142,4 +1124,45 @@ _HANDLER_REGISTRY.update({
     'char_sel':          unpack_sequence,
     'id':                lambda name: name.lower(),
     })
+
+
+def sexpr_transformer(branch_map, fallback=None):
+    """Return depth-first transformation of an AST as S-expression.
+
+    An S-expression is either a branch or a leaf.  A leaf is an arbitrary
+    string or `None`.  A branch is a tuple `(tag, *tail)`, where the `tag` is
+    a string and each item of `tail` is again an S-expression.
+
+    Construct and return a transformer which does the following: for a
+    branch, we look up the tag in `branch_map`.  If it is found, the
+    corresponding entry is called with tag and tail as its arguments, but we
+    first run the tail through the transformer.  Any leaf is simply returned
+    as-is.
+
+    If the tag is not found in branch_map, we instead call `fallback`. In this
+    case, the arguments are not processed, which allows pruning subtrees not
+    interesting to the consumer.
+    """
+    def default_fallback(tag, *tail):
+        raise ValueError("unexpected tag: {}".format(tag))
+    if fallback is None:
+        fallback = default_fallback
+
+    def transformer(ast):
+        if isinstance(ast, tuple):
+            # Branch node
+            node_type = ast[0]
+            try:
+                handler = branch_map[node_type]
+            except KeyError:
+                return fallback(*ast)
+            else:
+                return handler(*map(transformer, ast[1:]))
+        else:
+            # Leaf node
+            return ast
+
+    return transformer
+
+
 TRANSFORMER = sexpr_transformer(_HANDLER_REGISTRY, Ignored)

@@ -218,7 +218,9 @@ def cmd_wrap(args):
         # Next, generate wrappers
         for asr in asr_list:
             asr.resolve()
-            print (asr.cdecl().get())
+            decls = asr.cdecl().get()
+            if args.output != 'time':
+                print (decls)
     except common.ParsingError as e:
         sys.stdout.flush()
         sys.stderr.write("\n\n" + e.errmsg())
