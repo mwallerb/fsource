@@ -16,44 +16,17 @@ from . import lexer
 from . import common
 
 
-def sexpr_transformer(branch_map, fallback=None):
-    """
-    Return depth-first transformation of an AST as S-expression.
+_HANDLER_REGISTRY = {}
 
-    An S-expression is either a branch or a leaf.  A leaf is an arbitrary
-    string or `None`.  A branch is a tuple `(tag, *tail)`, where the `tag` is
-    a string and each item of `tail` is again an S-expression.
 
-    Construct and return a transformer which does the following: for a
-    branch, we look up the tag in `branch_map`.  If it is found, the
-    corresponding entry is called with tag and tail as its arguments, but we
-    first run the tail through the transformer.  Any leaf is simply returned
-    as-is.
+def ast_handler(ast_tag):
+    """Class which handles AST node of certain type"""
+    def ast_handler_property(class_):
+        global _HANDLER_REGISTRY
+        _HANDLER_REGISTRY[ast_tag] = class_
+        return class_
 
-    If the tag is not found in branch_map, we instead call `fallback`. In this
-    case, the arguments are not processed, which allows pruning subtrees not
-    interesting to the consumer.
-    """
-    def default_fallback(tag, *tail):
-        raise ValueError("unexpected tag: {}".format(tag))
-    if fallback is None:
-        fallback = default_fallback
-
-    def transformer(ast):
-        if isinstance(ast, tuple):
-            # Branch node
-            node_type = ast[0]
-            try:
-                handler = branch_map[node_type]
-            except KeyError:
-                return fallback(*ast)
-            else:
-                return handler(*map(transformer, ast[1:]))
-        else:
-            # Leaf node
-            return ast
-
-    return transformer
+    return ast_handler_property
 
 
 class CWrapper:
@@ -75,51 +48,63 @@ class CWrapper:
         self.fails = fails
 
     @classmethod
-    def _print_fail(cls, out, name, msg, children, prefix):
-        out("{prefix}{name}: {msg}\n", prefix=prefix, name=name, msg=msg)
-        cprefix = "  " + prefix
-        for child in children:
-            cls._print_fail(out, *child, prefix=cprefix)
+    def _format_fail(cls, name, msg, children, prefix):
+        cprefix = prefix + "  "
+        failstr = "{}- {}: {}\n".format(prefix, name, msg)
+        failstr += "".join(cls._format_fail(*child, prefix=cprefix)
+                           for child in children)
+        return failstr
 
-    def get(self, out=None):
-        if out is None:
-            out = lambda fmt, *args, **kwds: sys.stderr.write(fmt.format(*args, **kwds))
-        if self.fails:
-            out("WRAPPING FAILURES:\n")
-            for fail in self.fails:
-                self._print_fail(out, *fail, prefix=" - ")
-        return "".join("#include %s\n" % h for h in self.headers) + self.decl
-
-
-def _disjoint_union(dicts):
-    """Union of disjoint dictionaries"""
-    result = {}
-    for curr in dicts:
-        oldlen = len(result)
-        result.update(curr)
-        if len(result) != oldlen + len(curr):
-            raise ValueError("duplicate items")
-    return result
+    def get(self, add_fails=True):
+        failstr = ""
+        if self.fails and add_fails:
+            failstr = "/*\n * Wrapping failures:\n"
+            failstr += "".join(self._format_fail(*fail, prefix=" *   ")
+                               for fail in self.fails)
+            failstr += " */\n"
+        return (failstr
+                + "".join("#include %s\n" % h for h in self.headers)
+                + self.decl)
 
 
 class Namespace:
-    """Current namespace"""
+    """A set of defined (or known) names in a certain node.
+
+    A namespace is a map of intrinsic (system-defined) names plus a map of
+    user-defined names to their respective objects.  A `Node` declares its
+    namespace in its `imbue()` method and populates it with the objects
+    defined in its scope.  In the `resolve()` method, it will augment its
+    namespace with all names known at that point (e.g., through import).
+    """
     @classmethod
     def union(cls, *contexts):
-        return cls(_disjoint_union(c.names for c in contexts))
+        """Union of namespaces, which must be pairwise disjoint"""
+        def disjoint_union(dicts):
+            result = {}
+            for curr in dicts:
+                oldlen = len(result)
+                result.update(curr)
+                if len(result) != oldlen + len(curr):
+                    raise ValueError("duplicate items")
+            return result
+
+        return cls(disjoint_union(c.names for c in contexts))
 
     def __init__(self, names=None):
+        """Initialize new namespace, which by default is empty."""
         if names is None:
             names = {}
         self.names = names
 
     def get(self, name):
+        """Get node identified by `name` in this namespace"""
         try:
             return self.names[name]
         except KeyError:
             return self.get_intrinsic(name)
 
     def add(self, node, name=None):
+        """Publish `node` in this namespace"""
         if name is None:
             name = node.name
         if name in self.names:
@@ -128,18 +113,14 @@ class Namespace:
         self.names[name] = node
 
     def inherit(self, context):
+        """Import names names from `context` (own names take precedence)"""
         newnames = dict(context.names)
         newnames.update(self.names)
         self.names = newnames
 
-    def update(self, other, filter=None):
-        if filter is None:
-            filter = lambda other_dict: other_dict
-
-        self.names.update(filter(other.names))
-
     @classmethod
     def get_intrinsic(cls, name):
+        """Get name of intrinsic (system-defined) object"""
         try:
             intrinsics = cls._intrinsics
         except AttributeError:
@@ -151,32 +132,43 @@ class Namespace:
         return intrinsics[name]
 
 
-
 def fcode(obj):
+    """Method form of `Node.fcode()` for use in `map`."""
     return obj.fcode()
 
 
 class Node(object):
+    """Base class of objects in the abstract syntax representation (ASR)"""
     def imbue(self, parent):
-        """
-        Imbues `parent` with information from `self`.
+        """Imbue `parent` with information from `self`.
 
-        When the objects are created, they only have information about their
+        When objects are created, they only have information about their
         children.  `imbue` is called *after* the complete hierarchy is
-        established to make children aware of their parents, allowing, e.g.,
-        child nodes to change attributes of the parents.
+        established.  The node `self` is expected to:
+
+         1. publish itself in the parent's namespace, if applicable, and set
+            up its own namespace, either by linking to the parents or creating
+            a new one.
+
+         2. augment or change the nature of the parent based on the information
+            or presence of the current node and its children.
         """
         raise NotImplementedError("imbue is not implemented")
 
     def resolve(self):
-        """
-        Resolves names in `self` given a current name `namespace`.
+        """Complete namespace and resolve all names in `self`.
 
-        This function is called after `imbue()` on each node in the order of
-        appearence in the tree.  Shall do the following two-step procedure:
+        Name resolution in Fortran is slightly tricky: declarations can appear
+        before or after its first use.  Also, modules from multiple files can
+        reference each other.  Therefore, we need a separate `resolve()` stage.
 
-         1. add all the names in its scope to namespace
-         2. call resolve on all children
+        This method must be called *after* `imbue()`.  `self` is expected to:
+
+         1. complete its namespace, if present, with all imported names from
+            modules and such and with the parent's namespace
+
+         2. resolve name references of itself within the complete namespace
+            and recursively descend to its children, if any.
         """
         raise NotImplementedError("resolve is not implemented")
 
@@ -205,20 +197,70 @@ class Ignored(Node):
         return CWrapper.fail(self.node_type, "unable to wrap (ignored)")
 
 
-class CompilationUnit(Node):
-    """Top node representing one file"""
-    def __init__(self, ast_version, fname, *children):
-        self.ast_version = ast_version
-        self.filename = fname
-        self.children = children
+class NamespaceNode:
+    @property
+    def children(self):
+        raise NotImplementedError("children must be implemented")
 
-    def imbue(self):
-        self.fqname = ""
+    def __init__(self, name):
+        self.name = name
+
+    def imbue(self, parent=None):
+        self.parent = parent
+        if parent is not None:
+            self.parent.namespace.add(self)
         self.namespace = Namespace()
-        for child in self.children: child.imbue(self)
+
+        for child in self.children:
+            child.imbue(self)
 
     def resolve(self):
-        for child in self.children: child.resolve()
+        if self.parent is not None:
+            self.namespace.inherit(self.parent.namespace)
+        for child in self.children:
+            child.resolve()
+
+    @property
+    def fqname(self):
+        if self.parent is None:
+            return self.name
+        return "{}%%{}".format(self.parent.fqname, self.name)
+
+    def cdecl(self):
+        return CWrapper.union(self.children)
+
+
+class TransparentNode:
+    def __init__(self, children):
+        self.children = children
+
+    def imbue(self, parent):
+        self.namespace = parent.namespace
+        for child in self.children:
+            child.imbue(parent)
+
+    def resolve(self):
+        for child in self.children:
+            child.resolve()
+
+    def fcode(self):
+        return "".join(map(fcode, self.children))
+
+    def cdecl(self):
+        return CWrapper.union(self.children)
+
+
+@ast_handler("compilation_unit")
+class CompilationUnit(NamespaceNode):
+    """Top node representing one file"""
+    def __init__(self, ast_version, fname, *decls):
+        NamespaceNode.__init__(self, "")
+        self.ast_version = ast_version
+        self.filename = fname
+        self.decls = decls
+
+    @property
+    def children(self): return self.decls
 
     def fcode(self):
         return textwrap.dedent("""\
@@ -230,8 +272,135 @@ class CompilationUnit(Node):
                         decls="\n".join(map(fcode, self.children))
                         )
 
+
+@ast_handler("module_decl")
+class Module(NamespaceNode):
+    def __init__(self, name, decls, contained):
+        NamespaceNode.__init__(self, name)
+        self.decls = decls
+        self.contained = contained
+
+    @property
+    def children(self): return self.decls + self.contained
+
+    def imbue(self, parent):
+        NamespaceNode.imbue(self, parent)
+        self.resolve_guard = False
+
+    def resolve(self):
+        # Resolve can be "forced" from a USE statement, so we do not know
+        # when it is going to be called.
+        if self.resolve_guard:
+            raise RuntimeError("cyclic module dependency detected")
+        self.resolve_guard = True
+        NamespaceNode.resolve(self)
+        self.resolve_guard = False
+
+    def fcode(self):
+        return textwrap.dedent("""\
+            module {name}
+            {decls}
+            contains
+            {contained}
+            end module {name}
+            """).format(name=self.name,
+                        decls="".join(map(fcode, self.decls)),
+                        contained="\n".join(map(fcode, self.contained))
+                        )
+
+
+@ast_handler("use_stmt")
+class Use(Node):
+    def __init__(self, modulename, attrs, only, *symbollist):
+        self.modulename = modulename
+        self.attrs = attrs
+        self.only = only is not None
+        self.symbollist = symbollist
+
+    def imbue(self, parent):
+        self.parent = parent
+
+    def resolve(self):
+        namespace = self.parent.namespace
+        try:
+            self.ref = namespace.get(self.modulename)
+        except KeyError:
+            warnings.warn("Cannot find module " + self.modulename)
+            self.ref = None
+            return
+
+        # Force recursive import
+        # TODO: here we technically need to disambiguate
+        #  - module A using module B, C, both which using D
+        #  - module A using module B, C, both of which define same symbol
+        # TODO: filter names with only and renames
+        self.ref.resolve()
+        namespace.inherit(self.ref.namespace)
+
+    def fcode(self):
+        return "use {name}{sep}{only}{symlist}\n".format(
+            name=self.modulename,
+            sep=", " if self.only or self.symbollist else "",
+            only="only: " if self.only else "",
+            symlist=", ".join(map(fcode, self.symbollist)))
+
     def cdecl(self):
-        return CWrapper.union(self.children)
+        # TODO: Maybe uses pull in dependencies?
+        return CWrapper()
+
+
+@ast_handler("type_decl")
+class DerivedType(NamespaceNode):
+    def __init__(self, name, attrs, tags, decls, procs):
+        NamespaceNode.__init__(self, name)
+        self.attrs = attrs
+        self.tags = tags
+        self.decls = decls
+        # TODO: use some better type here
+        if procs is None:
+            procs = TypeBoundProcedureList(False)
+        self.procs = procs
+
+    @property
+    def children(self): return self.attrs + self.tags + self.decls + (self.procs,)
+
+    def imbue(self, parent):
+        self.cname = None
+        self.is_private = False
+        self.is_sequence = False
+        # TODO: remove this?
+        self.fields = []
+        NamespaceNode.imbue(self, parent)
+
+    def fcode(self):
+        return "type{attrs} :: {name}\n{tags}{decls}end type {name}\n".format(
+                    name=self.name,
+                    attrs="".join(", " + a.fcode() for a in self.attrs),
+                    tags="".join(map(fcode, self.tags)),
+                    decls="".join(map(fcode, self.decls))
+                    )
+
+    def cdecl(self):
+        if self.cname is None:
+            return CWrapper.fail(self.name, "bind(C) prefix missing")
+        fields = CWrapper.union(self.fields)
+        if fields.fails:
+            return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
+        return CWrapper("struct {name} {{\n{fields}}};\n".format(
+                            name=self.cname, fields=fields.decl),
+                        fields.headers)
+
+
+@ast_handler("type_bound_procedures")
+class TypeBoundProcedureList(TransparentNode):
+    def __init__(self, are_private, *procs):
+        TransparentNode.__init__(self, procs)
+        self.are_private = are_private
+
+    def cdecl(self):
+        # TODO fill this in
+        return CWrapper.fail(None,
+                             "type-bound procedures currently unsupported")
 
 
 class Unspecified(Node):
@@ -239,31 +408,25 @@ class Unspecified(Node):
         self.name = name
 
 
-class Subprogram(Node):
+class Subprogram(NamespaceNode):
     FTYPE = '@@@'
 
     def __init__(self, name, prefixes, argnames, suffixes, decls):
-        self.name = name
+        NamespaceNode.__init__(self, name)
         self.prefixes = prefixes
         self.suffixes = suffixes
         self.argnames = argnames
         self.decls = decls
 
+    @property
+    def children(self):
+        return self.prefixes + self.suffixes + self.decls
+
     def imbue(self, parent):
-        self.parent = parent
-        self.parent.namespace.add(self)
-        self.namespace = Namespace()
         self.cname = None
-        self.fqname = "{}%%{}".format(parent.fqname, self.name)
         self.args = [Unspecified(name) for name in self.argnames]
         self.retval = Unspecified(self.name) if self.FTYPE == 'function' else None
-        for obj in self.prefixes + self.suffixes + self.decls:
-            obj.imbue(self)
-
-    def resolve(self):
-        self.namespace.inherit(self.parent.namespace)
-        for obj in self.prefixes + self.suffixes + self.decls:
-            obj.resolve()
+        NamespaceNode.imbue(self, parent)
 
     def fcode_header(self):
         return "{prefixes}{sep}{tag} {name}({args}) {suffixes}".format(
@@ -304,6 +467,7 @@ class Subprogram(Node):
             )
 
 
+@ast_handler("subroutine_decl")
 class Subroutine(Subprogram):
     FTYPE = 'subroutine'
 
@@ -312,6 +476,7 @@ class Subroutine(Subprogram):
                             (bindc,) if bindc is not None else (), decls)
 
 
+@ast_handler("function_decl")
 class Function(Subprogram):
     FTYPE = 'function'
 
@@ -319,81 +484,11 @@ class Function(Subprogram):
         Subprogram.__init__(self, name, prefixes, argnames, suffixes, decls)
 
 
-class Intent(Node):
-    def __init__(self, in_, out):
-        self.in_ = bool(in_)
-        self.out = bool(out)
-
-    def imbue(self, parent):
-        parent.intent = self.in_, self.out
-
-    def fcode(self):
-        return "intent({}{})".format("in" * self.in_, "out" * self.out)
-
-
-class BindC(Node):
-    def __init__(self, cname):
-        self.cname = None if cname is None else cname.value
-
-    def imbue(self, parent):
-        if self.cname is None:
-            self.cname = parent.name
-        parent.cname = self.cname
-
-    def resolve(self): pass
-
-    def fcode(self):
-        if self.cname is None:
-            return "bind(C)"
-        else:
-            return "bind(C, name='{}')".format(self.cname)
-
-
-class DimensionAttr(Node):
-    def __init__(self, shape):
-        self.shape = shape
-
-    def imbue(self, parent):
-        if parent.shape is not None:
-            raise RuntimeError("duplicate shape")
-        parent.shape = self.shape
-        parent.attrs = tuple(a for a in parent.attrs if a is not self)
-
-
-class ResultName(Node):
-    def __init__(self, name):
-        self.name = name
-
-    def imbue(self, parent):
-        parent.retval.name = self.name
-
-    def resolve(self): pass
-
-    def fcode(self):
-        return "result({})".format(self.name)
-
-
-
-class EntityDecl:
+@ast_handler("entity_decl")
+class EntityDecl(TransparentNode):
     def __init__(self, type_, attrs, entity_list):
-        self.entities = tuple(Entity(type_, attrs, *entity)
-                              for entity in entity_list)
-
-    def imbue(self, parent):
-        # Transparent layer
-        self.parent = parent.parent
-        for entity in self.entities:
-            entity.imbue(parent)
-
-    def resolve(self):
-        for entity in self.entities:
-            entity.resolve()
-
-    def fcode(self):
-        return "".join(map(fcode, self.entities))
-
-    def cdecl(self):
-        return CWrapper.union(self.entities)
+        entities = tuple(Entity(type_, attrs, *e) for e in entity_list)
+        TransparentNode.__init__(self, entities)
 
 
 class Entity(Node):
@@ -491,45 +586,103 @@ class Entity(Node):
                         type_.headers | shape.headers)
 
 
-class PassByValue(Node):
-    def imbue(self, parent): parent.passby = 'value'
+class Attribute(Node):
+    def resolve(self): pass
 
+
+@ast_handler("intent")
+class Intent(Attribute):
+    def __init__(self, in_, out):
+        self.in_ = bool(in_)
+        self.out = bool(out)
+
+    def imbue(self, parent):
+        parent.intent = self.in_, self.out
+
+    def fcode(self):
+        return "intent({}{})".format("in" * self.in_, "out" * self.out)
+
+
+@ast_handler("bind_c")
+class BindC(Attribute):
+    def __init__(self, cname):
+        self.cname = None if cname is None else cname.value
+
+    def imbue(self, parent):
+        if self.cname is None:
+            self.cname = parent.name
+        parent.cname = self.cname
+
+    def fcode(self):
+        if self.cname is None:
+            return "bind(C)"
+        else:
+            return "bind(C, name='{}')".format(self.cname)
+
+
+@ast_handler("dimension")
+class DimensionAttr(Attribute):
+    def __init__(self, shape):
+        self.shape = shape
+
+    def imbue(self, parent):
+        if parent.shape is not None:
+            raise RuntimeError("duplicate shape")
+        parent.shape = self.shape
+        parent.attrs = tuple(a for a in parent.attrs if a is not self)
+
+
+@ast_handler("result")
+class ResultName(Attribute):
+    def __init__(self, name):
+        self.name = name
+
+    def imbue(self, parent):
+        parent.retval.name = self.name
+
+    def fcode(self):
+        return "result({})".format(self.name)
+
+
+@ast_handler("value")
+class PassByValue(Attribute):
+    def imbue(self, parent): parent.passby = 'value'
     def fcode(self): return "value"
 
 
-class ParameterAttr(Node):
+@ast_handler("parameter")
+class ParameterAttr(Attribute):
     def imbue(self, parent): parent.entity_type = 'parameter'
-
     def fcode(self): return "parameter"
 
 
-class OptionalAttr(Node):
+@ast_handler("optional")
+class OptionalAttr(Attribute):
     def imbue(self, parent): parent.required = False
-
     def fcode(self): return "optional"
 
 
-class PointerAttr(Node):
+@ast_handler("pointer")
+class PointerAttr(Attribute):
     def imbue(self, parent): parent.storage = 'pointer'
-
     def fcode(self): return "pointer"
 
 
-class TargetAttr(Node):
+@ast_handler("target")
+class TargetAttr(Attribute):
     def imbue(self, parent): parent.target = True
-
     def fcode(self): return "target"
 
 
-class AllocatableAttr(Node):
+@ast_handler("allocatable")
+class AllocatableAttr(Attribute):
     def imbue(self, parent): parent.storage = 'allocatable'
-
     def fcode(self): return "allocatable"
 
 
-class VolatileAttr(Node):
+@ast_handler("volatile")
+class VolatileAttr(Attribute):
     def imbue(self, parent): parent.volatile = True
-
     def fcode(self): return "volatile"
 
 
@@ -586,173 +739,7 @@ class OpaqueModule:
     def resolve(self): pass
 
 
-class DerivedType(Node):
-    def __init__(self, name, attrs, tags, decls, procs):
-        self.name = name
-        self.attrs = attrs
-        self.tags = tags
-        self.decls = decls
-
-        # TODO: use some better type here
-        if procs is None:
-            procs = TypeBoundProcedureList(False)
-        self.procs = procs
-
-    def imbue(self, parent):
-        self.parent = parent
-        self.parent.namespace.add(self)
-        self.namespace = Namespace()
-
-        self.fqname = "{}%%{}".format(parent.fqname, self.name)
-        self.cname = None
-        for attr in self.attrs:
-            attr.imbue(self)
-
-        self.is_private = False
-        self.is_sequence = False
-        for tag in self.tags:
-            tag.imbue(self)
-
-        self.fields = []
-        for decl in self.decls:
-            decl.imbue(self)
-
-        self.procs.imbue(self)
-
-    def resolve(self):
-        self.namespace.inherit(self.parent.namespace)
-        for decl in self.decls:
-            decl.resolve()
-        self.procs.resolve()
-
-    def fcode(self):
-        return "type{attrs} :: {name}\n{tags}{decls}end type {name}\n".format(
-                    name=self.name,
-                    attrs="".join(", " + a.fcode() for a in self.attrs),
-                    tags="".join(map(fcode, self.tags)),
-                    decls="".join(map(fcode, self.decls))
-                    )
-
-    def cdecl(self):
-        if self.cname is None:
-            return CWrapper.fail(self.name, "bind(C) prefix missing")
-        fields = CWrapper.union(self.fields)
-        if fields.fails:
-            return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
-        return CWrapper("struct {name} {{\n{fields}}};\n".format(
-                            name=self.cname, fields=fields.decl),
-                        fields.headers)
-
-
-class TypeBoundProcedureList:
-    def __init__(self, are_private, *procs):
-        self.are_private = are_private
-        self.procs = procs
-
-    def imbue(self, parent):
-        self.parent = parent.parent
-        for proc in self.procs:
-            proc.imbue(parent)
-
-    def resolve(self):
-        for proc in self.procs:
-            proc.resolve()
-
-    def fcode(self):
-        return "".join(map(fcode, self.procs))
-
-    def cdecl(self):
-        # TODO fill this in
-        return CWrapper.fail(None, "type-bound procedures currently unsupported")
-
-
-class Module(Node):
-    def __init__(self, name, decls, contained):
-        self.name = name
-        self.decls = decls
-        self.contained = contained
-
-    def imbue(self, parent):
-        self.parent = parent
-        self.parent.namespace.add(self)
-        self.namespace = Namespace()
-
-        self.fqname = "{}%%{}".format(parent.fqname, self.name)
-        for obj in self.decls + self.contained:
-            obj.imbue(self)
-
-        self.resolve_guard = False
-
-    def resolve(self):
-        # Resolve can be "forced" from a USE statement, so we do not know
-        # when it is going to be called.
-        if self.resolve_guard:
-            raise RuntimeError("cyclic module dependency detected")
-        self.resolve_guard = True
-        self.namespace.inherit(self.parent.namespace)
-        for decl in self.decls + self.contained:
-            decl.resolve()
-        self.resolve_guard = False
-
-    def fcode(self):
-        return textwrap.dedent("""\
-            module {name}
-            {decls}
-            contains
-            {contained}
-            end module {name}
-            """).format(name=self.name,
-                        decls="".join(map(fcode, self.decls)),
-                        contained="\n".join(map(fcode, self.contained))
-                        )
-
-    def cdecl(self):
-        return CWrapper.union(self.decls + self.contained)
-
-
-
-class Use(Node):
-    def __init__(self, modulename, attrs, only, *symbollist):
-        self.modulename = modulename
-        self.attrs = attrs
-        self.only = only is not None
-        self.symbollist = symbollist
-
-    def imbue(self, parent):
-        self.parent = parent
-
-    def filter_names(self, names):
-        # TODO: handle renames and only
-        return names
-
-    def resolve(self):
-        namespace = self.parent.namespace
-        try:
-            self.ref = namespace.get(self.modulename)
-        except KeyError:
-            warnings.warn("Cannot find module " + self.modulename)
-            self.ref = None
-            return
-
-        # Force recursive import
-        # TODO: here we technically need to disambiguate
-        #  - module A using module B, C, both which using D
-        #  - module A using module B, C, both of which define same symbol
-        self.ref.resolve()
-        namespace.inherit(self.ref.namespace)
-
-    def fcode(self):
-        return "use {name}{sep}{only}{symlist}\n".format(
-            name=self.modulename,
-            sep=", " if self.only or self.symbollist else "",
-            only="only: " if self.only else "",
-            symlist=", ".join(map(fcode, self.symbollist)))
-
-    def cdecl(self):
-        # TODO: Maybe uses pull in dependencies?
-        return CWrapper()
-
-
+@ast_handler("ref")
 class Ref(Node):
     def __init__(self, name):
         self.name = name.lower()
@@ -813,6 +800,7 @@ class PrimitiveType(Node):
         return CWrapper(ctype, cheaders)
 
 
+@ast_handler("integer_type")
 class IntegerType(PrimitiveType):
     FTYPE = 'integer'
 
@@ -841,6 +829,7 @@ class IntegerType(PrimitiveType):
         })
 
 
+@ast_handler("real_type")
 class RealType(PrimitiveType):
     FTYPE = 'real'
 
@@ -856,6 +845,7 @@ class RealType(PrimitiveType):
         })
 
 
+@ast_handler("complex_type")
 class ComplexType(PrimitiveType):
     FTYPE = 'complex'
 
@@ -872,6 +862,7 @@ class ComplexType(PrimitiveType):
         })
 
 
+@ast_handler("logical_type")
 class LogicalType(PrimitiveType):
     FTYPE = 'logical'
     KIND_MAPS = {
@@ -885,6 +876,7 @@ class LogicalType(PrimitiveType):
         return PrimitiveType.cdecl(self)
 
 
+@ast_handler("character_type")
 class CharacterType:
     KIND_MAPS = {
         '%%c_char': ('char', set(), 'char', 'c_char'),
@@ -947,12 +939,14 @@ class Literal(Node):
     def fcode(self): return self.token
 
 
+@ast_handler("int")
 class IntLiteral(Literal):
     @classmethod
     def parse(cls, token):
         return int(token)
 
 
+@ast_handler("string")
 class StringLiteral(Literal):
     @classmethod
     def parse(cls, token):
@@ -981,6 +975,7 @@ class Dim(Node):
             self.lower.resolve()
 
 
+@ast_handler("explicit_dim")
 class ExplicitDim(Dim):
     def imbue(self, parent):
         Dim.imbue(self, parent)
@@ -998,6 +993,7 @@ class ExplicitDim(Dim):
         return CWrapper("[{}]".format(size))
 
 
+@ast_handler("implied_dim")
 class ImpliedDim(Dim):
     def imbue(self, parent):
         Dim.imbue(self, parent)
@@ -1012,6 +1008,7 @@ class ImpliedDim(Dim):
         return CWrapper("[]")
 
 
+@ast_handler("deferred_dim")
 class DeferredDim(Dim):
     def imbue(self, parent):
         Dim.imbue(self, parent)
@@ -1028,6 +1025,7 @@ class DeferredDim(Dim):
         return CWrapper.fail(self.fcode(), "unable to wrap deferred dimension")
 
 
+@ast_handler("shape")
 class Shape(Node):
     def __init__(self, *dims):
         self.dims = dims
@@ -1050,6 +1048,7 @@ class Shape(Node):
         return CWrapper.union(self.dims)
 
 
+@ast_handler("derived_type")
 class DerivedTypeRef(Node):
     def __init__(self, name):
         self.name = name
@@ -1082,6 +1081,7 @@ class DerivedTypeRef(Node):
         return self.ref.cdecl()
 
 
+@ast_handler("preproc_stmt")
 class PreprocStmt(Node):
     def __init__(self, stmt):
         self.stmt = stmt
@@ -1105,66 +1105,64 @@ def unpack_sequence(*items):
     return items
 
 
-HANDLERS = {
-    'compilation_unit':  CompilationUnit,
+_HANDLER_REGISTRY.update({
     'filename':          unpack,
     'ast_version':       unpack_sequence,
-
-    'module_decl':       Module,
     'declaration_block': unpack_sequence,
     'contained_block':   unpack_sequence,
-    'use_stmt':          Use,
-
-    'type_decl':         DerivedType,
     'type_attrs':        unpack_sequence,
     'type_tags':         unpack_sequence,
     'component_block':   unpack_sequence,
-    'type_bound_procedures': TypeBoundProcedureList,
-
-    'subroutine_decl':   Subroutine,
     'arg_list':          unpack_sequence,
     'sub_prefix_list':   unpack_sequence,
-    'function_decl':     Function,
     'func_prefix_list':  unpack_sequence,
     'func_suffix_list':  unpack_sequence,
-    'bind_c':            BindC,
-    'result':            ResultName,
-
-    'entity_decl':       EntityDecl,
     'entity_attrs':      unpack_sequence,
     'entity_list':       unpack_sequence,
     'entity':            unpack_sequence,
-
-    'intent':            Intent,
-    'value':             PassByValue,
-    'parameter':         ParameterAttr,
-    'optional':          OptionalAttr,
-    'dimension':         DimensionAttr,
-    'pointer':           PointerAttr,
-    'allocatable':       AllocatableAttr,
-    'target':            TargetAttr,
-    'volatile':          VolatileAttr,
-
-    'shape':             Shape,
-    'explicit_dim':      ExplicitDim,
-    'implied_dim':       ImpliedDim,
-    'deferred_dim':      DeferredDim,
-
-    'integer_type':      IntegerType,
-    'real_type':         RealType,
-    'complex_type':      ComplexType,
-    'character_type':    CharacterType,
-    'logical_type':      LogicalType,
-    'derived_type':      DerivedTypeRef,
     'kind_sel':          unpack,
     'char_sel':          unpack_sequence,
-
     'id':                lambda name: name.lower(),
-    'ref':               Ref,
-    'int':               IntLiteral,
-    'string':            StringLiteral,
+    })
 
-    'preproc_stmt':      PreprocStmt,
-    }
 
-TRANSFORMER = sexpr_transformer(HANDLERS, Ignored)
+def sexpr_transformer(branch_map, fallback=None):
+    """Return depth-first transformation of an AST as S-expression.
+
+    An S-expression is either a branch or a leaf.  A leaf is an arbitrary
+    string or `None`.  A branch is a tuple `(tag, *tail)`, where the `tag` is
+    a string and each item of `tail` is again an S-expression.
+
+    Construct and return a transformer which does the following: for a
+    branch, we look up the tag in `branch_map`.  If it is found, the
+    corresponding entry is called with tag and tail as its arguments, but we
+    first run the tail through the transformer.  Any leaf is simply returned
+    as-is.
+
+    If the tag is not found in branch_map, we instead call `fallback`. In this
+    case, the arguments are not processed, which allows pruning subtrees not
+    interesting to the consumer.
+    """
+    def default_fallback(tag, *tail):
+        raise ValueError("unexpected tag: {}".format(tag))
+    if fallback is None:
+        fallback = default_fallback
+
+    def transformer(ast):
+        if isinstance(ast, tuple):
+            # Branch node
+            node_type = ast[0]
+            try:
+                handler = branch_map[node_type]
+            except KeyError:
+                return fallback(*ast)
+            else:
+                return handler(*map(transformer, ast[1:]))
+        else:
+            # Leaf node
+            return ast
+
+    return transformer
+
+
+TRANSFORMER = sexpr_transformer(_HANDLER_REGISTRY, Ignored)
