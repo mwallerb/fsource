@@ -215,10 +215,12 @@ def cmd_wrap(args):
         # Broadcast the namespace back
         for asr in asr_list:
             asr.namespace.inherit(ns)
+        # wrapping configuration
+        config = analyzer.Config()
         # Next, generate wrappers
         for asr in asr_list:
             asr.resolve()
-            decls = asr.cdecl().get()
+            decls = asr.cdecl(config).get()
             if args.output != 'time':
                 print (decls)
     except common.ParsingError as e:

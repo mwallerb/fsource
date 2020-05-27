@@ -139,24 +139,35 @@ class Namespace:
         return intrinsics[name]
 
 
+class Config:
+    def __init__(self, strict=True, prefix="", implicit_none=True):
+        self.strict = strict
+        self.prefix = prefix
+        self.implicit_none = implicit_none
+
+    def cname(self, fqname):
+        return self.prefix + "_".join(fqname.split("%%"))
+
+
 class CWrapper:
     @classmethod
-    def union(cls, elems, sep=""):
-        wraps = tuple(elem.cdecl() for elem in elems)
+    def union(cls, elems, config, sep=""):
+        wraps = tuple(elem.cdecl(config) for elem in elems)
         return cls(sep.join(w.decl for w in wraps),
                    set().union(*(w.headers for w in wraps)),
+                   set().union(*(w.opaques for w in wraps)),
                    sum((w.fails for w in wraps), ())
                    )
+
+    def __init__(self, decl="", headers=set(), opaques=set(), fails=()):
+        self.decl = decl
+        self.headers = headers
+        self.opaques = opaques
+        self.fails = fails
 
     @classmethod
     def fail(cls, name, msg, subfails=()):
         return cls(fails=((name, msg, subfails),))
-
-    def __init__(self, decl="", headers=set(), fails=()):
-        self.decl = decl
-        self.fdecl = pydecl
-        self.headers = headers
-        self.fails = fails
 
     @classmethod
     def _format_fail(cls, name, msg, children, prefix):
@@ -194,7 +205,7 @@ class Ignored(Node):
     def fcode(self):
         return "$%s$" % self.node_type
 
-    def cdecl(self):
+    def cdecl(self, config):
         return CWrapper.fail(self.node_type, "unable to wrap (ignored)")
 
 
@@ -228,8 +239,8 @@ class NamespaceNode:
             return self.name
         return "{}%%{}".format(self.parent.fqname, self.name)
 
-    def cdecl(self):
-        return CWrapper.union(self.children)
+    def cdecl(self, config):
+        return CWrapper.union(self.children, config)
 
 
 class TransparentNode:
@@ -248,8 +259,8 @@ class TransparentNode:
     def fcode(self):
         return "".join(map(fcode, self.children))
 
-    def cdecl(self):
-        return CWrapper.union(self.children)
+    def cdecl(self, config):
+        return CWrapper.union(self.children, config)
 
 
 @ast_handler("compilation_unit")
@@ -346,7 +357,7 @@ class Use(Node):
             only="only: " if self.only else "",
             symlist=", ".join(map(fcode, self.symbollist)))
 
-    def cdecl(self):
+    def cdecl(self, config):
         # TODO: Maybe uses pull in dependencies?
         return CWrapper()
 
@@ -382,10 +393,10 @@ class DerivedType(NamespaceNode):
                     decls="".join(map(fcode, self.decls))
                     )
 
-    def cdecl(self):
+    def cdecl(self, config):
         if self.cname is None:
             return CWrapper.fail(self.name, "bind(C) prefix missing")
-        fields = CWrapper.union(self.fields)
+        fields = CWrapper.union(self.fields, config)
         if fields.fails:
             return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
         return CWrapper("struct {name} {{\n{fields}}};\n".format(
@@ -399,7 +410,7 @@ class TypeBoundProcedureList(TransparentNode):
         TransparentNode.__init__(self, procs)
         self.are_private = are_private
 
-    def cdecl(self):
+    def cdecl(self, config):
         # TODO fill this in
         return CWrapper.fail(None,
                              "type-bound procedures currently unsupported")
@@ -448,15 +459,15 @@ class Subprogram(NamespaceNode):
             name=self.name
             )
 
-    def cdecl(self):
+    def cdecl(self, config):
         if self.cname is None:
             return CWrapper.fail(self.name, "bind(C) suffix missing")
 
         # arg decls
-        args = CWrapper.union(self.args, sep=", ")
+        args = CWrapper.union(self.args, config, sep=", ")
         if self.retval is not None:
             # pylint: disable=no-member
-            ret = self.retval.type_.cdecl()
+            ret = self.retval.type_.cdecl(config)
         else:
             ret = CWrapper("void")
         if args.fails or ret.fails:
@@ -559,7 +570,7 @@ class Entity(Node):
             init=fcode(self.init) if self.len_ is not None else ""
             )
 
-    def cdecl(self):
+    def cdecl(self, config):
         if self.scope == 'module':
             if self.cname is None:
                 return CWrapper.fail(self.name,
@@ -570,7 +581,7 @@ class Entity(Node):
         else:
             decl = "{const}{type_}{ptr}{name}{shape}"
 
-        type_ = self.type_.cdecl()
+        type_ = self.type_.cdecl(config)
         if type_.fails:
             return CWrapper.fail(self.name, "cannot wrap entity type",
                                  type_.fails)
@@ -580,7 +591,7 @@ class Entity(Node):
                    self.passby == 'reference' and self.shape is None)
         const = (self.entity_type == 'parameter' or
                  self.entity_type == 'argument' and not self.intent[1])
-        shape = self.shape.cdecl() if self.shape is not None else CWrapper("")
+        shape = self.shape.cdecl(config) if self.shape is not None else CWrapper("")
         return CWrapper(decl.format(
                             const="const " * const, type_=type_.decl,
                             ptr="*" * pointer, name=self.name, shape=shape.decl
@@ -705,7 +716,7 @@ class CPtrType:
     def fcode(self):
         return "type(%%{})".format(self.name)
 
-    def cdecl(self):
+    def cdecl(self, config):
         return CWrapper("void *")
 
 
@@ -791,7 +802,7 @@ class PrimitiveType(Node):
         return "{ftype}(kind={kind})".format(ftype=self.FTYPE,
                                              kind=fcode(self.kind))
 
-    def cdecl(self):
+    def cdecl(self, config):
         if self.kind is None:
             return CWrapper.fail(self.fcode(), "no kind associated")
         try:
@@ -872,10 +883,10 @@ class LogicalType(PrimitiveType):
         }
     KIND_MAPS['1'] = KIND_MAPS['%%c_bool']
 
-    def cdecl(self):
+    def cdecl(self, config):
         if self.kind is None:
             return CWrapper("_Bool")
-        return PrimitiveType.cdecl(self)
+        return PrimitiveType.cdecl(self, config)
 
 
 @ast_handler("character_type")
@@ -918,7 +929,7 @@ class CharacterType:
                       for k, v in {'len':self.len_, 'kind':self.kind}.items()
                       if v is not None))
 
-    def cdecl(self):
+    def cdecl(self, config):
         if self.kind is None:
             return CWrapper("char")
         ctype, cheaders = self.KIND_MAPS[self.kind.fcode()][:2]
@@ -987,7 +998,7 @@ class ExplicitDim(Dim):
     def fcode(self):
         return "{}:{}".format(self.lower.fcode(), self.upper.fcode())
 
-    def cdecl(self):
+    def cdecl(self, config):
         try:
             size = self.upper.value - self.lower.value
         except AttributeError:
@@ -1006,7 +1017,7 @@ class ImpliedDim(Dim):
     def fcode(self):
         return "{}:*".format(self.lower.fcode())
 
-    def cdecl(self):
+    def cdecl(self, config):
         return CWrapper("[]")
 
 
@@ -1021,7 +1032,7 @@ class DeferredDim(Dim):
     def fcode(self):
         return "{}:".format(self.lower.fcode())
 
-    def cdecl(self):
+    def cdecl(self, config):
         # Deferred dims cause variables to carry its dimension parameters with
         # them in a non-bind(C) way
         return CWrapper.fail(self.fcode(), "unable to wrap deferred dimension")
@@ -1046,8 +1057,8 @@ class Shape(Node):
     def fcode(self):
         return "({})".format(",".join(map(fcode, self.dims)))
 
-    def cdecl(self):
-        return CWrapper.union(self.dims)
+    def cdecl(self, config):
+        return CWrapper.union(self.dims, config)
 
 
 @ast_handler("derived_type")
@@ -1077,10 +1088,10 @@ class DerivedTypeRef(Node):
             return self.ref.fcode()
         return "type({})".format(self.name)
 
-    def cdecl(self):
+    def cdecl(self, config):
         if self.ref is None:
             return CWrapper.fail(self.name, "type declaration not found")
-        return self.ref.cdecl()
+        return self.ref.cdecl(config)
 
 
 @ast_handler("preproc_stmt")
@@ -1094,7 +1105,7 @@ class PreprocStmt(Node):
 
     def fcode(self): return self.stmt
 
-    def cdecl(self): return CWrapper(self.stmt)
+    def cdecl(self, config): return CWrapper(self.stmt)
 
 
 def unpack(arg):
