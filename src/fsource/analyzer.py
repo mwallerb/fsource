@@ -153,20 +153,17 @@ class CWrapper:
     @classmethod
     def union(cls, elems, config, sep=""):
         wraps = tuple(elem.cdecl(config) for elem in elems)
-        return cls(sep.join(w.decl for w in wraps),
-                   sum((w.fails for w in wraps), ()),
-                   set().union(*(w.headers for w in wraps)),
-                   set().union(*(w.opaque_structs for w in wraps)),
-                   set().union(*(w.opaque_scalars for w in wraps)),
-                   )
+        return cls(sep.join(w.decl for w in wraps), inherit=wraps)
 
-    def __init__(self, decl="", fails=(),
-                 headers=set(), opaque_structs=(), opaque_scalars=()):
+    def __init__(self, decl="", fails=(), headers=(), opaque_structs=(),
+                 opaque_scalars=(), inherit=()):
         self.decl = decl
-        self.fails = fails
-        self.headers = headers
-        self.opaque_structs = opaque_structs
-        self.opaque_scalars = opaque_scalars
+        self.fails = sum((w.fails for w in inherit), fails)
+        self.headers = set(headers).union(*(w.headers for w in inherit))
+        self.opaque_structs = set(opaque_structs).union(
+                                    *(w.opaque_structs for w in inherit))
+        self.opaque_scalars = set(opaque_scalars).union(
+                                    *(w.opaque_scalars for w in inherit))
 
     @classmethod
     def fail(cls, name, msg, subfails=()):
@@ -424,9 +421,11 @@ class DerivedType(NamespaceNode):
         fields = CWrapper.union(self.fields, config)
         if fields.fails:
             return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
+
         return CWrapper("struct {name} {{\n{fields}}};\n".format(
                             name=self.cname, fields=fields.decl),
-                        headers=fields.headers)
+                        inherit=(fields,))
+
 
 
 @ast_handler("type_bound_procedures")
@@ -498,10 +497,11 @@ class Subprogram(NamespaceNode):
         if args.fails or ret.fails:
             return CWrapper.fail(self.name, "failed to wrap arguments",
                                  args.fails + ret.fails)
+
         return CWrapper(
             "{ret} {name}({args});\n".format(ret=ret.decl, name=self.cname,
                                              args=args.decl),
-            headers=ret.headers | args.headers
+            inherit=(ret, args)
             )
 
 
@@ -617,11 +617,12 @@ class Entity(Node):
         const = (self.entity_type == 'parameter' or
                  self.entity_type == 'argument' and not self.intent[1])
         shape = self.shape.cdecl(config) if self.shape is not None else CWrapper("")
+
         return CWrapper(decl.format(
                             const="const " * const, type_=type_.decl,
                             ptr="*" * pointer, name=self.name, shape=shape.decl
                             ),
-                        headers=type_.headers | shape.headers)
+                        inherit=(type_, shape))
 
 
 class Attribute(Node):
@@ -829,13 +830,30 @@ class PrimitiveType(Node):
 
     def cdecl(self, config):
         if self.kind is None:
-            return CWrapper.fail(self.fcode(), "no kind associated")
-        try:
-            ctype, cheaders = self.KIND_MAPS[self.kind.fcode()][:2]
-        except KeyError:
-            return CWrapper.fail(self.fcode(), "kind has no iso_c_binding")
+            fail = CWrapper.fail(self.fcode(), "no kind associated")
+        else:
+            try:
+                ctype, cheaders = self.KIND_MAPS[self.kind.fcode()][:2]
+            except KeyError:
+                fail = CWrapper.fail(self.fcode(), "kind has no iso_c_binding")
+            else:
+                return CWrapper(ctype, headers=cheaders)
 
-        return CWrapper(ctype, headers=cheaders)
+        # We have failed to wrap directly
+        if config.opaque_scalars:
+            if self.kind is None:
+                kindstr = ""
+            elif isinstance(self.kind, Literal):
+                kindstr = str(self.kind.value)
+            else:
+                return CWrapper.fail(self.fcode(), "kind cannot be transformed to string")
+
+            # FIXME - opaques do not work on return values/entities
+            opaquename = "f{}{}".format(self.FTYPE, kindstr)
+            return CWrapper(opaquename, opaque_scalars=set([opaquename]))
+        else:
+            return fail
+
 
 
 @ast_handler("integer_type")
