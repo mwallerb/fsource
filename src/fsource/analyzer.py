@@ -20,7 +20,7 @@ _HANDLER_REGISTRY = {}
 
 
 def ast_handler(ast_tag):
-    """Class which handles AST node of certain type"""
+    """Decorate class to handle AST node of certain type"""
     def ast_handler_property(class_):
         global _HANDLER_REGISTRY
         _HANDLER_REGISTRY[ast_tag] = class_
@@ -29,42 +29,49 @@ def ast_handler(ast_tag):
     return ast_handler_property
 
 
-class CWrapper:
-    @classmethod
-    def union(cls, elems, sep="", ignore_errors=False):
-        wraps = tuple(elem.cdecl() for elem in elems)
-        return cls(sep.join(w.decl for w in wraps),
-                   set().union(*(w.headers for w in wraps)),
-                   sum((w.fails for w in wraps), ())
-                   )
+class Node(object):
+    """Base class of objects in the abstract syntax representation (ASR)"""
+    def imbue(self, parent):
+        """Imbue `parent` with information from `self`.
 
-    @classmethod
-    def fail(cls, name, msg, subfails=()):
-        return cls(fails=((name, msg, subfails),))
+        When objects are created, they only have information about their
+        children.  `imbue` is called *after* the complete hierarchy is
+        established.  The node `self` is expected to:
 
-    def __init__(self, decl="", headers=set(), fails=()):
-        self.decl = decl
-        self.headers = headers
-        self.fails = fails
+         1. publish itself in the parent's namespace, if applicable, and set
+            up its own namespace, either by linking to the parents or creating
+            a new one.
 
-    @classmethod
-    def _format_fail(cls, name, msg, children, prefix):
-        cprefix = prefix + "  "
-        failstr = "{}- {}: {}\n".format(prefix, name, msg)
-        failstr += "".join(cls._format_fail(*child, prefix=cprefix)
-                           for child in children)
-        return failstr
+         2. augment or change the nature of the parent based on the information
+            or presence of the current node and its children.
+        """
+        raise NotImplementedError("imbue is not implemented")
 
-    def get(self, add_fails=True):
-        failstr = ""
-        if self.fails and add_fails:
-            failstr = "/*\n * Wrapping failures:\n"
-            failstr += "".join(self._format_fail(*fail, prefix=" *   ")
-                               for fail in self.fails)
-            failstr += " */\n"
-        return (failstr
-                + "".join("#include %s\n" % h for h in self.headers)
-                + self.decl)
+    def resolve(self):
+        """Complete namespace and resolve all names in `self`.
+
+        Name resolution in Fortran is slightly tricky: declarations can appear
+        before or after its first use.  Also, modules from multiple files can
+        reference each other.  Therefore, we need a separate `resolve()` stage.
+
+        This method must be called *after* `imbue()`.  `self` is expected to:
+
+         1. complete its namespace, if present, with all imported names from
+            modules and such and with the parent's namespace
+
+         2. resolve name references of itself within the complete namespace
+            and recursively descend to its children, if any.
+        """
+        raise NotImplementedError("resolve is not implemented")
+
+    def fcode(self):
+        """Get code of self as string"""
+        raise NotImplementedError("want code")
+
+
+def fcode(obj):
+    """Method form of `Node.fcode()` for use in `map`."""
+    return obj.fcode()
 
 
 class Namespace:
@@ -132,49 +139,43 @@ class Namespace:
         return intrinsics[name]
 
 
-def fcode(obj):
-    """Method form of `Node.fcode()` for use in `map`."""
-    return obj.fcode()
+class CWrapper:
+    @classmethod
+    def union(cls, elems, sep=""):
+        wraps = tuple(elem.cdecl() for elem in elems)
+        return cls(sep.join(w.decl for w in wraps),
+                   set().union(*(w.headers for w in wraps)),
+                   sum((w.fails for w in wraps), ())
+                   )
 
+    @classmethod
+    def fail(cls, name, msg, subfails=()):
+        return cls(fails=((name, msg, subfails),))
 
-class Node(object):
-    """Base class of objects in the abstract syntax representation (ASR)"""
-    def imbue(self, parent):
-        """Imbue `parent` with information from `self`.
+    def __init__(self, decl="", headers=set(), fails=()):
+        self.decl = decl
+        self.fdecl = pydecl
+        self.headers = headers
+        self.fails = fails
 
-        When objects are created, they only have information about their
-        children.  `imbue` is called *after* the complete hierarchy is
-        established.  The node `self` is expected to:
+    @classmethod
+    def _format_fail(cls, name, msg, children, prefix):
+        cprefix = prefix + "  "
+        failstr = "{}- {}: {}\n".format(prefix, name, msg)
+        failstr += "".join(cls._format_fail(*child, prefix=cprefix)
+                           for child in children)
+        return failstr
 
-         1. publish itself in the parent's namespace, if applicable, and set
-            up its own namespace, either by linking to the parents or creating
-            a new one.
-
-         2. augment or change the nature of the parent based on the information
-            or presence of the current node and its children.
-        """
-        raise NotImplementedError("imbue is not implemented")
-
-    def resolve(self):
-        """Complete namespace and resolve all names in `self`.
-
-        Name resolution in Fortran is slightly tricky: declarations can appear
-        before or after its first use.  Also, modules from multiple files can
-        reference each other.  Therefore, we need a separate `resolve()` stage.
-
-        This method must be called *after* `imbue()`.  `self` is expected to:
-
-         1. complete its namespace, if present, with all imported names from
-            modules and such and with the parent's namespace
-
-         2. resolve name references of itself within the complete namespace
-            and recursively descend to its children, if any.
-        """
-        raise NotImplementedError("resolve is not implemented")
-
-    def fcode(self):
-        """Get code of self as string"""
-        raise NotImplementedError("want code")
+    def get(self, add_fails=True):
+        failstr = ""
+        if self.fails and add_fails:
+            failstr = "/*\n * Wrapping failures:\n"
+            failstr += "".join(self._format_fail(*fail, prefix=" *   ")
+                               for fail in self.fails)
+            failstr += " */\n"
+        return (failstr
+                + "".join("#include %s\n" % h for h in self.headers)
+                + self.decl)
 
 
 class Ignored(Node):
@@ -198,6 +199,7 @@ class Ignored(Node):
 
 
 class NamespaceNode:
+    """Node which has its own namespace (modules, subroutines, etc.)"""
     @property
     def children(self):
         raise NotImplementedError("children must be implemented")
@@ -388,7 +390,7 @@ class DerivedType(NamespaceNode):
             return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
         return CWrapper("struct {name} {{\n{fields}}};\n".format(
                             name=self.cname, fields=fields.decl),
-                        fields.headers)
+                        headers=fields.headers)
 
 
 @ast_handler("type_bound_procedures")
@@ -463,7 +465,7 @@ class Subprogram(NamespaceNode):
         return CWrapper(
             "{ret} {name}({args});\n".format(ret=ret.decl, name=self.cname,
                                              args=args.decl),
-            ret.headers | args.headers
+            headers=ret.headers | args.headers
             )
 
 
@@ -583,7 +585,7 @@ class Entity(Node):
                             const="const " * const, type_=type_.decl,
                             ptr="*" * pointer, name=self.name, shape=shape.decl
                             ),
-                        type_.headers | shape.headers)
+                        headers=type_.headers | shape.headers)
 
 
 class Attribute(Node):
