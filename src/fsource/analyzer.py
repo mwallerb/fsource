@@ -140,10 +140,10 @@ class Namespace:
 
 
 class Config:
-    def __init__(self, strict=True, prefix="", implicit_none=True):
-        self.strict = strict
+    def __init__(self, prefix="", implicit_none=True, opaque_scalars=True):
         self.prefix = prefix
         self.implicit_none = implicit_none
+        self.opaque_scalars = opaque_scalars
 
     def cname(self, fqname):
         return self.prefix + "_".join(fqname.split("%%"))
@@ -154,16 +154,19 @@ class CWrapper:
     def union(cls, elems, config, sep=""):
         wraps = tuple(elem.cdecl(config) for elem in elems)
         return cls(sep.join(w.decl for w in wraps),
+                   sum((w.fails for w in wraps), ()),
                    set().union(*(w.headers for w in wraps)),
-                   set().union(*(w.opaques for w in wraps)),
-                   sum((w.fails for w in wraps), ())
+                   set().union(*(w.opaque_structs for w in wraps)),
+                   set().union(*(w.opaque_scalars for w in wraps)),
                    )
 
-    def __init__(self, decl="", headers=set(), opaques=set(), fails=()):
+    def __init__(self, decl="", fails=(),
+                 headers=set(), opaque_structs=(), opaque_scalars=()):
         self.decl = decl
-        self.headers = headers
-        self.opaques = opaques
         self.fails = fails
+        self.headers = headers
+        self.opaque_structs = opaque_structs
+        self.opaque_scalars = opaque_scalars
 
     @classmethod
     def fail(cls, name, msg, subfails=()):
@@ -178,15 +181,37 @@ class CWrapper:
         return failstr
 
     def get(self, add_fails=True):
-        failstr = ""
+        output = ""
         if self.fails and add_fails:
-            failstr = "/*\n * Wrapping failures:\n"
-            failstr += "".join(self._format_fail(*fail, prefix=" *   ")
+            output += "/*\n * Wrapping failures:\n"
+            output += "".join(self._format_fail(*fail, prefix=" *   ")
                                for fail in self.fails)
-            failstr += " */\n"
-        return (failstr
-                + "".join("#include %s\n" % h for h in self.headers)
-                + self.decl)
+            output += " */\n\n"
+
+        if self.headers:
+            output += "/* Includes */\n"
+            output += "".join("#include {}\n".format(h) for h in self.headers)
+            output += "\n"
+
+        if self.opaque_structs:
+            output += "/* Opaque structure types */\n"
+            output += "".join("struct {};\n".format(s)
+                              for s in self.opaque_structs)
+            output += "\n"
+
+        if self.opaque_scalars:
+            output += "/* Opaque scalar types */\n"
+            output += "".join("struct _{s};\n".format(s=s)
+                              for s in self.opaque_scalars)
+            output += "\n"
+            output += "".join("typedef struct _{s} {s};\n".format(s=s)
+                              for s in self.opaque_scalars)
+            output += "\n"
+
+        if self.decl:
+            output += "/* Declarations */\n{}\n".format(self.decl)
+
+        return output
 
 
 class Ignored(Node):
@@ -810,7 +835,7 @@ class PrimitiveType(Node):
         except KeyError:
             return CWrapper.fail(self.fcode(), "kind has no iso_c_binding")
 
-        return CWrapper(ctype, cheaders)
+        return CWrapper(ctype, headers=cheaders)
 
 
 @ast_handler("integer_type")
@@ -933,7 +958,7 @@ class CharacterType:
         if self.kind is None:
             return CWrapper("char")
         ctype, cheaders = self.KIND_MAPS[self.kind.fcode()][:2]
-        return CWrapper(ctype, cheaders)
+        return CWrapper(ctype, headers=cheaders)
 
 
 class Literal(Node):
