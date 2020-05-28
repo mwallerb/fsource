@@ -308,8 +308,12 @@ class ReferenceNode(Node):
             self.ref = self.namespace.get(self.name)
             return True
         except KeyError:
+            if hasattr(self.parent, "fqname"):
+                parentname = self.parent.fqname
+            else:
+                parentname = str(self.parent)
             warnings.warn("Failure to resolve {name} within {parent}".format(
-                                name=self.name, parent=self.parent.fqname))
+                                name=self.name, parent=parentname))
             return False
 
     def fcode(self):

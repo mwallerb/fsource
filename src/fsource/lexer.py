@@ -179,7 +179,12 @@ CHANGE_D_TO_E = _maketrans('dD', 'eE')
 
 def parse_float(tok):
     """Translates a Fortran real literal to a Python float"""
-    return float(tok.translate(CHANGE_D_TO_E))
+    try:
+        return float(tok), False
+    except ValueError:
+        # DOUBLE PRECISION have D instead of E for precision
+        tok = tok.translate(CHANGE_D_TO_E)
+        return float(tok), True
 
 
 def parse_bool(tok):
