@@ -140,10 +140,12 @@ class Namespace:
 
 
 class Config:
-    def __init__(self, prefix="", implicit_none=True, opaque_scalars=True):
+    def __init__(self, prefix="", implicit_none=True, opaque_scalars=True,
+                 opaque_structs=True):
         self.prefix = prefix
         self.implicit_none = implicit_none
         self.opaque_scalars = opaque_scalars
+        self.opaque_structs = opaque_structs
 
     def cname(self, fqname):
         return self.prefix + "_".join(fqname.split("%%"))
@@ -266,7 +268,7 @@ class NamespaceNode:
 
 
 class TransparentNode:
-    def __init__(self, children):
+    def __init__(self, *children):
         self.children = children
 
     def imbue(self, parent):
@@ -403,6 +405,7 @@ class DerivedType(NamespaceNode):
         self.cname = None
         self.is_private = False
         self.is_sequence = False
+        self.extends = None
         # TODO: remove this?
         self.fields = []
         NamespaceNode.imbue(self, parent)
@@ -417,21 +420,77 @@ class DerivedType(NamespaceNode):
 
     def cdecl(self, config):
         if self.cname is None:
-            return CWrapper.fail(self.name, "bind(C) prefix missing")
-        fields = CWrapper.union(self.fields, config)
-        if fields.fails:
-            return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
+            fail = CWrapper.fail(self.name, "bind(C) prefix missing")
+        else:
+            fields = CWrapper.union(self.fields, config)
+            if fields.fails:
+                fail = CWrapper.fail(self.name, "failed to wrap fields",
+                                     fields.fails)
+            else:
+                return CWrapper("struct {name} {{\n{fields}}};\n".format(
+                                    name=self.cname, fields=fields.decl),
+                                inherit=(fields,))
 
-        return CWrapper("struct {name} {{\n{fields}}};\n".format(
-                            name=self.cname, fields=fields.decl),
-                        inherit=(fields,))
+        # Using opaque types
+        if not config.opaque_structs:
+            return CWrapper.fail(self.name, "no opaque structs", (fail,))
 
+        opaquename = "{}{}".format(config.prefix, self.name)
+        return CWrapper(opaque_structs=[opaquename])
+
+    def cref(self, config):
+        # TODO duplication - merge this with cdecl
+        if self.cname is None:
+            fail = CWrapper.fail(self.name, "bind(C) prefix missing")
+        else:
+            fields = CWrapper.union(self.fields, config)
+            if fields.fails:
+                fail = CWrapper.fail(self.name, "failed to wrap fields",
+                                     fields.fails)
+            else:
+                return CWrapper("struct {name}".format(name=self.cname),
+                                inherit=(fields,))
+
+        # Using opaque types
+        if not config.opaque_structs:
+            return CWrapper.fail(self.name, "no opaque structs", (fail,))
+
+        opaquename = "{}{}".format(config.prefix, self.name)
+        return CWrapper("struct " + opaquename, opaque_structs=[opaquename])
+
+
+# TODO merge with Ref
+@ast_handler("extends")
+class Extends(Node):
+    def __init__(self, name):
+        self.name = name
+        self.ref = None
+
+    def imbue(self, parent):
+        self.parent = parent
+        self.namespace = parent.namespace
+        parent.extends = self
+
+    def resolve(self):
+        try:
+            self.ref = self.namespace.get(self.name)
+        except KeyError:
+            warnings.warn("Did not find type({})".format(self.name))
+
+    def fcode(self):
+        # We return the *name*, not the object.
+        if self.ref is not None:
+            return self.ref.fqname
+        return self.name
+
+    def cdecl(self, config):
+        return CWrapper.fail(self.parent.name, "no support for extends")
 
 
 @ast_handler("type_bound_procedures")
 class TypeBoundProcedureList(TransparentNode):
     def __init__(self, are_private, *procs):
-        TransparentNode.__init__(self, procs)
+        TransparentNode.__init__(self, *procs)
         self.are_private = are_private
 
     def cdecl(self, config):
@@ -526,7 +585,7 @@ class Function(Subprogram):
 class EntityDecl(TransparentNode):
     def __init__(self, type_, attrs, entity_list):
         entities = tuple(Entity(type_, attrs, *e) for e in entity_list)
-        TransparentNode.__init__(self, entities)
+        TransparentNode.__init__(self, *entities)
 
 
 class Entity(Node):
