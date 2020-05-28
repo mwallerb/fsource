@@ -496,6 +496,9 @@ class Unspecified(Node):
     def __init__(self, name):
         self.name = name
 
+    def cdecl(self, config):
+        return CWrapper.fail(None, "type unknown")
+
 
 class Subprogram(NamespaceNode):
     FTYPE = '@@@'
@@ -536,8 +539,9 @@ class Subprogram(NamespaceNode):
             )
 
     def cdecl(self, config):
+        bindres = CWrapper()
         if self.cname is None:
-            return CWrapper.fail(self.name, "bind(C) suffix missing")
+            bindres = CWrapper.fail(self.name, "bind(C) suffix missing")
 
         # arg decls
         args = CWrapper.union(self.args, config, sep=", ")
@@ -546,9 +550,10 @@ class Subprogram(NamespaceNode):
             ret = self.retval.type_.cdecl(config)
         else:
             ret = CWrapper("void")
-        if args.fails or ret.fails:
-            return CWrapper.fail(self.name, "failed to wrap arguments",
-                                 args.fails + ret.fails)
+
+        if bindres.fails or args.fails or ret.fails:
+            return CWrapper.fail(self.name, "failed to wrap",
+                                 bindres.fails + args.fails + ret.fails)
 
         return CWrapper(
             "{ret} {name}({args});\n".format(ret=ret.decl, name=self.cname,
