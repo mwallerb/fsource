@@ -140,10 +140,12 @@ class Namespace:
 
 
 class Config:
-    def __init__(self, prefix="", implicit_none=True, opaque_scalars=True):
+    def __init__(self, prefix="", implicit_none=True, opaque_scalars=True,
+                 opaque_structs=True):
         self.prefix = prefix
         self.implicit_none = implicit_none
         self.opaque_scalars = opaque_scalars
+        self.opaque_structs = opaque_structs
 
     def cname(self, fqname):
         return self.prefix + "_".join(fqname.split("%%"))
@@ -153,11 +155,14 @@ class CWrapper:
     @classmethod
     def union(cls, elems, config, sep=""):
         wraps = tuple(elem.cdecl(config) for elem in elems)
-        return cls(sep.join(w.decl for w in wraps), inherit=wraps)
+        return cls(sep.join(w.decl for w in wraps),
+                   sep.join(w.fdecl for w in wraps),
+                   inherit=wraps)
 
-    def __init__(self, decl="", fails=(), headers=(), opaque_structs=(),
-                 opaque_scalars=(), inherit=()):
+    def __init__(self, decl="", fdecl="", fails=(), headers=(),
+                 opaque_structs=(), opaque_scalars=(), inherit=()):
         self.decl = decl
+        self.fdecl = fdecl
         self.fails = sum((w.fails for w in inherit), fails)
         self.headers = set(headers).union(*(w.headers for w in inherit))
         self.opaque_structs = set(opaque_structs).union(
@@ -261,12 +266,14 @@ class NamespaceNode:
             return self.name
         return "{}%%{}".format(self.parent.fqname, self.name)
 
-    def cdecl(self, config):
+    def cdecl(self, config, ref=None):
+        if ref is not None:
+            raise RuntimeError("do not know what to do with ref()")
         return CWrapper.union(self.children, config)
 
 
 class TransparentNode:
-    def __init__(self, children):
+    def __init__(self, *children):
         self.children = children
 
     def imbue(self, parent):
@@ -281,8 +288,44 @@ class TransparentNode:
     def fcode(self):
         return "".join(map(fcode, self.children))
 
-    def cdecl(self, config):
+    def cdecl(self, config, ref=None):
+        if ref is not None:
+            raise RuntimeError("do not know what to do with ref()")
         return CWrapper.union(self.children, config)
+
+
+class ReferenceNode(Node):
+    def __init__(self, name):
+        self.name = name
+        self.ref = None
+
+    def imbue(self, parent):
+        self.parent = parent
+        self.namespace = parent.namespace
+
+    def resolve(self):
+        try:
+            self.ref = self.namespace.get(self.name)
+            return True
+        except KeyError:
+            if hasattr(self.parent, "fqname"):
+                parentname = self.parent.fqname
+            else:
+                parentname = str(self.parent)
+            warnings.warn("Failure to resolve {name} within {parent}".format(
+                                name=self.name, parent=parentname))
+            return False
+
+    def fcode(self):
+        # We return the *name*, not the object.
+        if self.ref is not None:
+            return self.ref.fqname
+        return self.name
+
+    def cdecl(self, config):
+        if self.ref is None:
+            return CWrapper.fail(self.name, "unknown reference")
+        return self.ref.cdecl(config, ref=self)
 
 
 @ast_handler("compilation_unit")
@@ -345,23 +388,15 @@ class Module(NamespaceNode):
 
 
 @ast_handler("use_stmt")
-class Use(Node):
+class Use(ReferenceNode):
     def __init__(self, modulename, attrs, only, *symbollist):
-        self.modulename = modulename
+        ReferenceNode.__init__(self, modulename)
         self.attrs = attrs
         self.only = only is not None
         self.symbollist = symbollist
 
-    def imbue(self, parent):
-        self.parent = parent
-
     def resolve(self):
-        namespace = self.parent.namespace
-        try:
-            self.ref = namespace.get(self.modulename)
-        except KeyError:
-            warnings.warn("Cannot find module " + self.modulename)
-            self.ref = None
+        if not ReferenceNode.resolve(self):
             return
 
         # Force recursive import
@@ -370,17 +405,16 @@ class Use(Node):
         #  - module A using module B, C, both of which define same symbol
         # TODO: filter names with only and renames
         self.ref.resolve()
-        namespace.inherit(self.ref.namespace)
+        self.namespace.inherit(self.ref.namespace)
 
     def fcode(self):
         return "use {name}{sep}{only}{symlist}\n".format(
-            name=self.modulename,
+            name=self.name,
             sep=", " if self.only or self.symbollist else "",
             only="only: " if self.only else "",
             symlist=", ".join(map(fcode, self.symbollist)))
 
     def cdecl(self, config):
-        # TODO: Maybe uses pull in dependencies?
         return CWrapper()
 
 
@@ -403,6 +437,7 @@ class DerivedType(NamespaceNode):
         self.cname = None
         self.is_private = False
         self.is_sequence = False
+        self.extends = None
         # TODO: remove this?
         self.fields = []
         NamespaceNode.imbue(self, parent)
@@ -415,34 +450,58 @@ class DerivedType(NamespaceNode):
                     decls="".join(map(fcode, self.decls))
                     )
 
-    def cdecl(self, config):
+    def cdecl(self, config, ref=None):
         if self.cname is None:
-            return CWrapper.fail(self.name, "bind(C) prefix missing")
-        fields = CWrapper.union(self.fields, config)
-        if fields.fails:
-            return CWrapper.fail(self.name, "failed to wrap fields", fields.fails)
+            fail = CWrapper.fail(self.name, "bind(C) prefix missing")
+        else:
+            fields = CWrapper.union(self.fields, config)
+            if fields.fails:
+                fail = CWrapper.fail(self.name, "failed to wrap fields",
+                                     fields.fails)
+            elif ref is None:
+                return CWrapper("struct {name} {{\n{fields}}};\n".format(
+                                    name=self.cname, fields=fields.decl),
+                                inherit=(fields,))
+            else:
+                return CWrapper("struct "+self.cname, inherit=(fields,))
 
-        return CWrapper("struct {name} {{\n{fields}}};\n".format(
-                            name=self.cname, fields=fields.decl),
-                        inherit=(fields,))
+        # Using opaque types
+        if not config.opaque_structs:
+            return CWrapper.fail(self.name, "no opaque structs", (fail,))
 
+        opaquename = "{}{}".format(config.prefix, self.name)
+        if ref is None:
+            return CWrapper(opaque_structs=[opaquename])
+        else:
+            return CWrapper("struct " + opaquename, opaque_structs=[opaquename])
+
+
+@ast_handler("extends")
+class Extends(ReferenceNode):
+    def imbue(self, parent):
+        ReferenceNode.imbue(self, parent)
+        parent.extends = self
+
+    def cdecl(self, config):
+        return CWrapper.fail(self.parent.name, "no support for extends")
 
 
 @ast_handler("type_bound_procedures")
 class TypeBoundProcedureList(TransparentNode):
     def __init__(self, are_private, *procs):
-        TransparentNode.__init__(self, procs)
+        TransparentNode.__init__(self, *procs)
         self.are_private = are_private
 
     def cdecl(self, config):
-        # TODO fill this in
-        return CWrapper.fail(None,
-                             "type-bound procedures currently unsupported")
+        return CWrapper.fail(None, "type-bound procedures unsupported")
 
 
 class Unspecified(Node):
     def __init__(self, name):
         self.name = name
+
+    def cdecl(self, config):
+        return CWrapper.fail(None, "type unknown")
 
 
 class Subprogram(NamespaceNode):
@@ -484,8 +543,9 @@ class Subprogram(NamespaceNode):
             )
 
     def cdecl(self, config):
+        bindres = CWrapper()
         if self.cname is None:
-            return CWrapper.fail(self.name, "bind(C) suffix missing")
+            bindres = CWrapper.fail(self.name, "bind(C) suffix missing")
 
         # arg decls
         args = CWrapper.union(self.args, config, sep=", ")
@@ -494,9 +554,10 @@ class Subprogram(NamespaceNode):
             ret = self.retval.type_.cdecl(config)
         else:
             ret = CWrapper("void")
-        if args.fails or ret.fails:
-            return CWrapper.fail(self.name, "failed to wrap arguments",
-                                 args.fails + ret.fails)
+
+        if bindres.fails or args.fails or ret.fails:
+            return CWrapper.fail(self.name, "failed to wrap",
+                                 bindres.fails + args.fails + ret.fails)
 
         return CWrapper(
             "{ret} {name}({args});\n".format(ret=ret.decl, name=self.cname,
@@ -526,7 +587,7 @@ class Function(Subprogram):
 class EntityDecl(TransparentNode):
     def __init__(self, type_, attrs, entity_list):
         entities = tuple(Entity(type_, attrs, *e) for e in entity_list)
-        TransparentNode.__init__(self, entities)
+        TransparentNode.__init__(self, *entities)
 
 
 class Entity(Node):
@@ -742,7 +803,9 @@ class CPtrType:
     def fcode(self):
         return "type(%%{})".format(self.name)
 
-    def cdecl(self, config):
+    def cdecl(self, config, decl=False):
+        if decl:
+            raise RuntimeError("No C declaration for this type")
         return CWrapper("void *")
 
 
@@ -779,26 +842,9 @@ class OpaqueModule:
 
 
 @ast_handler("ref")
-class Ref(Node):
+class Ref(ReferenceNode):
     def __init__(self, name):
-        self.name = name.lower()
-        self.ref = None
-
-    def imbue(self, parent):
-        self.parent = parent
-        self.namespace = parent.namespace
-
-    def resolve(self):
-        try:
-            self.ref = self.namespace.get(self.name)
-        except KeyError:
-            warnings.warn("DID NOT FIND %s" % self.name)
-
-    def fcode(self):
-        # We return the *name*, not the object.
-        if self.ref is not None:
-            return self.ref.fqname
-        return self.name
+        ReferenceNode.__init__(self, name.lower())
 
 
 class PrimitiveType(Node):
@@ -1134,7 +1180,7 @@ class DerivedTypeRef(Node):
     def cdecl(self, config):
         if self.ref is None:
             return CWrapper.fail(self.name, "type declaration not found")
-        return self.ref.cdecl(config)
+        return self.ref.cdecl(config, False)
 
 
 @ast_handler("preproc_stmt")
