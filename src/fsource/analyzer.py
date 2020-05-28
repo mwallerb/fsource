@@ -155,11 +155,14 @@ class CWrapper:
     @classmethod
     def union(cls, elems, config, sep=""):
         wraps = tuple(elem.cdecl(config) for elem in elems)
-        return cls(sep.join(w.decl for w in wraps), inherit=wraps)
+        return cls(sep.join(w.decl for w in wraps),
+                   sep.join(w.fdecl for w in wraps),
+                   inherit=wraps)
 
-    def __init__(self, decl="", fails=(), headers=(), opaque_structs=(),
-                 opaque_scalars=(), inherit=()):
+    def __init__(self, decl="", fdecl="", fails=(), headers=(),
+                 opaque_structs=(), opaque_scalars=(), inherit=()):
         self.decl = decl
+        self.fdecl = fdecl
         self.fails = sum((w.fails for w in inherit), fails)
         self.headers = set(headers).union(*(w.headers for w in inherit))
         self.opaque_structs = set(opaque_structs).union(
@@ -418,7 +421,7 @@ class DerivedType(NamespaceNode):
                     decls="".join(map(fcode, self.decls))
                     )
 
-    def cdecl(self, config):
+    def cdecl(self, config, decl=True):
         if self.cname is None:
             fail = CWrapper.fail(self.name, "bind(C) prefix missing")
         else:
@@ -426,37 +429,22 @@ class DerivedType(NamespaceNode):
             if fields.fails:
                 fail = CWrapper.fail(self.name, "failed to wrap fields",
                                      fields.fails)
-            else:
+            elif decl:
                 return CWrapper("struct {name} {{\n{fields}}};\n".format(
                                     name=self.cname, fields=fields.decl),
                                 inherit=(fields,))
-
-        # Using opaque types
-        if not config.opaque_structs:
-            return CWrapper.fail(self.name, "no opaque structs", (fail,))
-
-        opaquename = "{}{}".format(config.prefix, self.name)
-        return CWrapper(opaque_structs=[opaquename])
-
-    def cref(self, config):
-        # TODO duplication - merge this with cdecl
-        if self.cname is None:
-            fail = CWrapper.fail(self.name, "bind(C) prefix missing")
-        else:
-            fields = CWrapper.union(self.fields, config)
-            if fields.fails:
-                fail = CWrapper.fail(self.name, "failed to wrap fields",
-                                     fields.fails)
             else:
-                return CWrapper("struct {name}".format(name=self.cname),
-                                inherit=(fields,))
+                return CWrapper("struct "+self.cname, inherit=(fields,))
 
         # Using opaque types
         if not config.opaque_structs:
             return CWrapper.fail(self.name, "no opaque structs", (fail,))
 
         opaquename = "{}{}".format(config.prefix, self.name)
-        return CWrapper("struct " + opaquename, opaque_structs=[opaquename])
+        if decl:
+            return CWrapper(opaque_structs=[opaquename])
+        else:
+            return CWrapper("struct " + opaquename, opaque_structs=[opaquename])
 
 
 # TODO merge with Ref
@@ -801,7 +789,9 @@ class CPtrType:
     def fcode(self):
         return "type(%%{})".format(self.name)
 
-    def cdecl(self, config):
+    def cdecl(self, config, decl=False):
+        if decl:
+            raise RuntimeError("No C declaration for this type")
         return CWrapper("void *")
 
 
@@ -1193,7 +1183,7 @@ class DerivedTypeRef(Node):
     def cdecl(self, config):
         if self.ref is None:
             return CWrapper.fail(self.name, "type declaration not found")
-        return self.ref.cdecl(config)
+        return self.ref.cdecl(config, False)
 
 
 @ast_handler("preproc_stmt")
