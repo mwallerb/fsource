@@ -7,13 +7,21 @@ fsource is a collection of tools allowing you to parse Fortran 77 through
 Fortran 2008 programs.  It is written in pure Python and has no external
 dependencies.
 
-You install fsource via pip:
+You install fsource via pip (you may want to append `--user` flag to install
+it just for you or `--prefix=/install/path` to choose the installation location):
 
     $ pip install fsource
 
-or simply download the [source], since there are no external dependencies
-(note that you should use `bin/fsource` instead of `fsource` in this case).
+You can also simply download the [source], since there are no external dependencies.
 
+    $ git clone github.com/mwallerb/fsource
+    $ cd fsource
+
+In this case you should run `bin/fsource` instead of `fsource`, which augments the
+python path with the downloaded source files.
+
+Command line interface
+----------------------
 fsource currently features a [command line interface]:
 
  - a [parser], which takes a Fortran file and outputs an abstract syntax tree
