@@ -112,7 +112,7 @@ class TokenStream:
         """Return current line"""
         # HACK: this builds up the line from tokens, which is ugly. Also, it
         # does not preserve the type of whitespace (' ' vs '\t')
-        # Get token range for the currrent line
+        # Get token range for the current line
         row = self.peek()[0]
         try:
             offset = next(i for (i, (r, _, _, _)) in
@@ -1052,15 +1052,6 @@ def type_decl(tokens):
         return tokens.produce('type_decl', name, attrs, tags, decls, proc)
 
 @rule
-def rename(tokens):
-    alias = identifier(tokens)
-    expect(tokens, '=>')
-    name = identifier(tokens)
-    return tokens.produce('rename', alias, name)
-
-rename_sequence = comma_sequence(rename, 'rename_list')
-
-@rule
 def bracketed_oper(tokens):
     expect(tokens, '(')
     cat, token = next(tokens)[2:]
@@ -1068,6 +1059,8 @@ def bracketed_oper(tokens):
         oper = tokens.produce('custom_op', token)
     elif cat == lexer.CAT_SYMBOLIC_OP or lexer.CAT_BUILTIN_DOT:
         oper = token
+    else:
+        raise NoMatch()
     expect(tokens, ')')
     return oper
 
