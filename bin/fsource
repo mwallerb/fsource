@@ -7,12 +7,23 @@ Released under the GNU Lesser General Public License, Version 3 only.
 See LICENSE.txt for permissions on usage, modification and distribution
 """
 from __future__ import print_function
+import os.path
+import pkgutil
 import sys
-import os, os.path
+import textwrap
 
-HEREPATH = os.path.dirname(os.path.realpath(__file__))
+INSTALLED_NOTE = textwrap.dedent("""\
+    NOTE: fsource is already installed, but we will use the packages from
+          the current directory.  If this is not what you want, run `fsource`
+          instead of this binary (`bin/fsource`).
+
+    """)
 
 if __name__ == '__main__':
-    sys.path.append(os.path.join(HEREPATH, os.pardir, "src"))
+    if pkgutil.find_loader("fsource"):
+        sys.stderr.write(INSTALLED_NOTE)
+    HEREPATH = os.path.dirname(os.path.realpath(__file__))
+    srcdir = os.path.join(HEREPATH, os.pardir, "src")
+    sys.path.insert(0, srcdir)
     from fsource._cli import main
     main()

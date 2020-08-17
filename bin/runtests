@@ -7,15 +7,25 @@ Released under the GNU Lesser General Public License, Version 3 only.
 See LICENSE.txt for permissions on usage, modification and distribution
 """
 from __future__ import print_function
+import os.path
+import pkgutil
 import sys
-import os, os.path
+import textwrap
 
 import pytest
 import pylint.lint
 
-HEREPATH = os.path.dirname(os.path.realpath(__file__))
+INSTALLED_NOTE = textwrap.dedent("""\
+    NOTE: fsource is already installed, but we will use the packages from
+          the current directory.  If this is not what you want, run `py.test`
+          instead of this binary (`bin/runtests`).
+
+    """)
 
 if __name__ == '__main__':
+    if pkgutil.find_loader("fsource"):
+        sys.stderr.write(INSTALLED_NOTE)
+    HEREPATH = os.path.dirname(os.path.realpath(__file__))
     srcdir = os.path.join(HEREPATH, os.pardir, "src")
     testsdir = os.path.join(HEREPATH, os.pardir, "tests")
     sys.path.append(srcdir)
