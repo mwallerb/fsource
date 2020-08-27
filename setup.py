@@ -11,28 +11,37 @@ import os.path
 import re
 from setuptools import setup, find_packages
 
-def readfile(*parts):
-    """Return contents of file with path relative to script directory"""
-    herepath = os.path.abspath(os.path.dirname(__file__))
-    fullpath = os.path.join(herepath, *parts)
-    with io.open(fullpath, 'r') as f:
-        return f.read()
 
-def extract_version(*parts):
+_HEREPATH = os.path.abspath(os.path.dirname(__file__))
+_VERSION_RE = re.compile(r"(?m)^__version__\s*=\s*['\"]([^'\"]*)['\"]")
+_DOCLINK_RE = re.compile(r"(?m)^\s*\[\s*([^\]\n\r]+)\s*\]:\s*(doc/[./\w]+)\s*$")
+_PYXFILE_RE = re.compile(r"(?i)\.pyx$")
+
+
+def fullpath(path):
+    """Return the full path to a file"""
+    if path[0] == '/':
+        raise ValueError("Do not supply absolute paths")
+    return os.path.join(_HEREPATH, *path.split("/"))
+
+
+def readfile(path):
+    """Return contents of file with path relative to script directory"""
+    return io.open(fullpath(path), 'r').read()
+
+
+def extract_version(path):
     """Extract value of __version__ variable by parsing python script"""
-    initfile = readfile(*parts)
-    version_re = re.compile(r"(?m)^__version__\s*=\s*['\"]([^'\"]*)['\"]")
-    match = version_re.search(initfile)
-    return match.group(1)
+    return _VERSION_RE.search(readfile(path)).group(1)
+
 
 def rebase_links(text, base_url):
     """Rebase links to doc/ directory to ensure they work online."""
-    doclink_re = re.compile(
-                        r"(?m)^\s*\[\s*([^\]\n\r]+)\s*\]:\s*(doc/[./\w]+)\s*$")
-    result, nsub = doclink_re.subn(r"[\1]: %s/\2" % base_url, text)
+    result, nsub = _DOCLINK_RE.subn(r"[\1]: %s/\2" % base_url, text)
     return result
 
-VERSION = extract_version('src', 'fsource', '__init__.py')
+
+VERSION = extract_version('src/fsource/__init__.py')
 REPO_URL = "https://github.com/mwallerb/fsource"
 DOCTREE_URL = "%s/tree/v%s" % (REPO_URL, VERSION)
 LONG_DESCRIPTION = rebase_links(readfile('README.md'), DOCTREE_URL)

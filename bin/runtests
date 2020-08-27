@@ -13,7 +13,6 @@ import sys
 import textwrap
 
 import pytest
-import pylint.lint
 
 INSTALLED_NOTE = textwrap.dedent("""\
     NOTE: fsource is already installed, but we will use the packages from
@@ -28,9 +27,7 @@ if __name__ == '__main__':
     HEREPATH = os.path.dirname(os.path.realpath(__file__))
     srcdir = os.path.join(HEREPATH, os.pardir, "src")
     testsdir = os.path.join(HEREPATH, os.pardir, "tests")
-    sys.path.append(srcdir)
+    sys.path.insert(0, srcdir)
     rc = pytest.main([testsdir])
     if rc != 0:
         sys.exit(1)
-    print("Running pylint ...")
-    pylint.lint.Run(['-E', os.path.join(srcdir, "fsource")])
