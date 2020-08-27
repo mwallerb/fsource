@@ -1,5 +1,6 @@
 import inspect
 import os.path
+import sys
 import warnings
 
 import pytest
@@ -20,10 +21,13 @@ def pylint_no_exit():
     # which was again replaced by exit in 2.5.1 (nice job of semantic
     # versioning, guys!), with do_exit then being restored and immediately
     # deprecated in favor of exit in 2.5.3.
-    run_signature = inspect.signature(pylint_lint.Run.__init__)
-    if 'exit' in run_signature.parameters:
+    if sys.version_info >= (3,):
+        argspec = inspect.getfullargspec(pylint_lint.Run.__init__)
+    else:
+        argspec = inspect.getargspec(pylint_lint.Run.__init__)
+    if 'exit' in argspec.args:
         return {'exit': False}
-    elif 'do_exit' in run_signature.parameters:
+    elif 'do_exit' in argspec.args:
         return {'do_exit': False}
     else:
         raise RuntimeError("pylint.lint.Run accepts neither exit nor do_exit")
