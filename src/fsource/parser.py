@@ -36,15 +36,7 @@ from . import lexer
 from . import common
 
 
-class NoMatch(Exception):
-    """Current rule does not match, try next one if available.
-
-    This class is used by the recursive descent parser for backtracking: by
-    raising `NoMatch`, you indicate that the current rule did not match, the
-    parser should backtrack and try the next rule if available.
-
-    See also: `rule()`, `TokenStream.backtrack()`
-    """
+NoMatch = common.NoMatch
 
 
 class EndOfBlock(Exception):
