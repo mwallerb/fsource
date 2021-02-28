@@ -1,16 +1,17 @@
 from . import common
 
 NoMatch = common.NoMatch
+ParsingError = common.ParsingError
 
 
 class ExprParser:
     @classmethod
     def create(cls, sub_expr, *pattern_groups):
         if sub_expr is None:
-            sub_expr = ExprParser([], [])
-        full_expr = ExprParser([], [])
+            sub_expr = cls([], [])
+        full_expr = cls([], [])
         for pattern_group in pattern_groups:
-            self_expr = ExprParser.inherit(sub_expr)
+            self_expr = cls.inherit(sub_expr)
             for pattern in pattern_group:
                 handler = pattern.make_handler(full_expr, self_expr, sub_expr)
                 pattern.register(self_expr, handler)
@@ -53,7 +54,7 @@ class ExprParser:
         target[cat].register(token, handler)
 
     def __call__(self, tokens):
-        _, _, cat, token = tokens.peek()
+        lineno, colno, cat, token = tokens.peek()
         try:
             handler = self._head[cat](token)
         except:
@@ -63,14 +64,15 @@ class ExprParser:
 
             # cycle through appropriate infixes
             while True:
-                _, _, cat, token = tokens.peek()
+                lineno, colno, cat, token = tokens.peek()
                 try:
                     handler = self._tail[cat](token)
                 except:
                     return result
                 result = handler(tokens, result)
         except NoMatch:
-            raise ParserError(tokens, "Invalid expression")
+            raise ParsingError(tokens.fname, lineno, colno, colno, tokens.line,
+                               "Invalid expression")
 
 
 class Pattern:
