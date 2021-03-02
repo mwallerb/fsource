@@ -367,7 +367,7 @@ class ExprParser:
     respective dispatch table (`head` or `tail`) to decide which handler to
     call.  The handler then handles the token and any arguments.
 
-    [1]: https://en.wikipedia.org/wiki/Recursive_descent_parser
+    [1]: https://doi.org/10.1145/512927.512931
     """
     __slots__ = 'head', 'tail'
 
