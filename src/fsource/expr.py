@@ -1,14 +1,38 @@
 from .common import NoMatch, ParsingError
+from .parser import expect
 
 
 class ExprGrammar:
+    """Expression grammar suitable for top-down operator precendence parsing.
+
+    An expression grammar is characterized by a set of precedence levels,
+    which we index from highest (0) to lowest.  At each precendence level,
+    there is a list of operations, which is either a single symbol, and
+    operator in conjunction with one or more subexpressions of higher
+    precendence, or a enclosed expression or arbitrary precedence.  Such
+    a grammar can be efficiently parsed by an `ExprParser`.
+    """
     def __init__(self, *rulesets, max_cat=None):
+        """Create a new expression grammar for some rulesets.
+
+        Each item in `ruleset` corresponds to one precendence level, beginning
+        with the highest precendence.  Each item in `ruleset` must itself be
+        a list of rules corresponding to the valid operations at that level.
+
+        As an example, assuming that tokens category 1 are either `+`, `-`, `*`
+        or `/` and tokens category 2 are integer literal, the following is a
+        grammar for simple arithmetic:
+
+            grammar = ExprGrammar(
+                [ Literal(2, 'int') ],
+                [ Infix(1, '*', 'left', 'mul'), Infix(1, '/', 'left', 'div') ],
+                [ Infix(1, '+', 'left', 'add'), Infix(1, '-', 'left', 'sub') ]
+                )
+        """
         # First, figure out how many category code there are.
-        supp_cat = max(pred.cat for rule in rulesets for pred in rule.predicates)
         if max_cat is None:
-            max_cat = supp_cat
-        elif max_cat < supp_cat:
-            raise ValueError("Too few categories specified")
+            max_cat = max(pred.cat for ruleset in rulesets
+                          for rule in ruleset for pred in rule.predicates)
         ncat = max_cat + 1
 
         # There is a chicken-and-egg problem here:  parser at all levels are
@@ -16,7 +40,6 @@ class ExprGrammar:
         # yet the dispatch table in the expression parsers contain pointers to
         # those handlers.  We solve this by creating "empty" parsers.
         parsers = tuple(ExprParser(None, None) for _ in rulesets)
-        dispatch_tables = []
 
         # Next we iterate through the rulesets, where each ruleset corresponds
         # to a single precedence level and thus has its own parser.  Each
@@ -24,7 +47,10 @@ class ExprGrammar:
         # level lower (sub_expr) and highest level (full_expr).
         full_expr = parsers[-1]
         sub_expr = None
-        sub_table = {'head': [None] * ncat, 'tail': [None] * ncat}
+        sub_table = {
+            'head': [_NeverDispatcher()] * ncat,
+            'tail': [_NeverDispatcher()] * ncat,
+            }
         for self_expr, ruleset in zip(parsers, rulesets):
             self_table = {
                 'head': [disp.clone() for disp in sub_table['head']],
@@ -41,23 +67,18 @@ class ExprGrammar:
                         self_table[pred.place][pred.cat] = disp
                         disp.add(pred, handler)
 
-            # Fill the expression parsers with the compiled dispatch tables
-            # and store the tables for future grammar extensions
+            # Fill the expression parsers with the compiled dispatch table
             self_expr.head = [disp.compile() for disp in self_table['head']]
             self_expr.tail = [disp.compile() for disp in self_table['tail']]
-            dispatch_tables.append(self_table)
 
-            # Ascend by one precendence level
+            # Ascend by one precedence level
             sub_expr = self_expr
             sub_table = self_table
 
-        self._parsers = parsers
-        self._dispatch_tables = dispatch_tables
+        self.rulesets = tuple(rulesets)
+        self.parser = parsers[-1]
+        self.dispatch_table = self_table
 
-    @property
-    def parser(self):
-        return self._parsers[-1]
-        
         
 class Rule:
     """Production rule for part of an expression.
@@ -88,7 +109,7 @@ class Rule:
         raise NotImplementedError()
 
 
-class InfixOperator(Rule):
+class Infix(Rule):
     """Rule for infix operation `lhs (op) rhs`"""
     def __init__(self, cat, token, assoc, tag):
         self.cat = cat
@@ -98,16 +119,56 @@ class InfixOperator(Rule):
 
     @property
     def predicates(self):
-       return LiteralPredicate('tail', self.cat, self.token),
+        return LiteralPredicate('tail', self.cat, self.token),
 
-    def make_handler(self, full_expr, self_expr, sub_expr):
+    def handler(self, full_expr, self_expr, sub_expr):
         tag = self.tag
         rhs_expr = sub_expr if self.assoc == 'left' else self_expr
         def handle_infix_op(tokens, lhs):
             tokens.advance()
             rhs = rhs_expr(tokens)
-            return tokens.produce(tag, lhs, rhs)
+            return tag, lhs, rhs
         return handle_infix_op
+
+
+class Prefix(Rule):
+    """Rule for prefix operation `(op) rhs`"""
+    def __init__(self, cat, token, tag):
+        self.cat = cat
+        self.token = token
+        self.tag = tag
+
+    @property
+    def predicates(self):
+        return LiteralPredicate('head', self.cat, self.token),
+
+    def handler(self, full_expr, self_expr, sub_expr):
+        tag = self.tag
+        def handle_infix_op(tokens, lhs):
+            tokens.advance()
+            rhs = self_expr(tokens)
+            return tag, rhs
+        return handle_infix_op
+
+
+class Parenthesized(Rule):
+    def __init__(self, cat, begin_token, end_token):
+        self.cat = cat
+        self.begin_token = begin_token
+        self.end_token = end_token
+
+    @property
+    def predicates(self):
+        return LiteralPredicate('head', self.cat, self.begin_token),
+
+    def handler(self, full_expr, self_expr, sub_expr):
+        end_token = self.end_token
+        def handle_parenthesized(tokens, lhs=None):
+            tokens.advance()
+            inner = full_expr(tokens)
+            expect(tokens, end_token)
+            return inner
+        return handle_parenthesized
 
 
 class Literal(Rule):
@@ -120,11 +181,10 @@ class Literal(Rule):
     def predicates(self):
        return CategoryPredicate('head', self.cat),
 
-    def make_handler(self, full_expr, self_expr, sub_expr):
+    def handler(self, full_expr, self_expr, sub_expr):
         tag = self.tag
         def handle_literal(tokens):
-            return tokens.produce(tag, next(tokens)[3])
-
+            return tag, next(tokens)[3]
         return handle_literal
 
 
