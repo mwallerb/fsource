@@ -1,102 +1,108 @@
-from . import common
-
-NoMatch = common.NoMatch
-ParsingError = common.ParsingError
+from .common import NoMatch, ParsingError
 
 
-class ExprParser:
-    @classmethod
-    def create(cls, sub_expr, *pattern_groups):
-        if sub_expr is None:
-            sub_expr = cls([], [])
-        full_expr = cls([], [])
-        for pattern_group in pattern_groups:
-            self_expr = cls.inherit(sub_expr)
-            for pattern in pattern_group:
-                handler = pattern.make_handler(full_expr, self_expr, sub_expr)
-                pattern.register(self_expr, handler)
+class ExprGrammar:
+    def __init__(self, *rulesets, max_cat=None):
+        # First, figure out how many category code there are.
+        supp_cat = max(pred.cat for rule in rulesets for pred in rule.predicates)
+        if max_cat is None:
+            max_cat = supp_cat
+        elif max_cat < supp_cat:
+            raise ValueError("Too few categories specified")
+        ncat = max_cat + 1
+
+        # There is a chicken-and-egg problem here:  parser at all levels are
+        # needed to be called by the handlers (e.g. for bracketed expressions),
+        # yet the dispatch table in the expression parsers contain pointers to
+        # those handlers.  We solve this by creating "empty" parsers.
+        parsers = tuple(ExprParser(None, None) for _ in rulesets)
+        dispatch_tables = []
+
+        # Next we iterate through the rulesets, where each ruleset corresponds
+        # to a single precedence level and thus has its own parser.  Each
+        # handler must have access to the parser at the current level, one
+        # level lower (sub_expr) and highest level (full_expr).
+        full_expr = parsers[-1]
+        sub_expr = None
+        sub_table = {'head': [None] * ncat, 'tail': [None] * ncat}
+        for self_expr, ruleset in zip(parsers, rulesets):
+            self_table = {
+                'head': [disp.clone() for disp in sub_table['head']],
+                'tail': [disp.clone() for disp in sub_table['tail']]
+                } 
+            for rule in ruleset:
+                handler = rule.handler(full_expr, self_expr, sub_expr)
+                for pred in rule.predicates:
+                    disp = self_table[pred.place][pred.cat]
+                    try:
+                        disp.add(pred, handler)
+                    except _NeverDispatcher.CannotAdd:
+                        disp = pred.dispatcher()
+                        self_table[pred.place][pred.cat] = disp
+                        disp.add(pred, handler)
+
+            # Fill the expression parsers with the compiled dispatch tables
+            # and store the tables for future grammar extensions
+            self_expr.head = [disp.compile() for disp in self_table['head']]
+            self_expr.tail = [disp.compile() for disp in self_table['tail']]
+            dispatch_tables.append(self_table)
+
+            # Ascend by one precendence level
             sub_expr = self_expr
+            sub_table = self_table
 
-        full_expr.reseat(self_expr)
-        return full_expr
+        self._parsers = parsers
+        self._dispatch_tables = dispatch_tables
 
-    @classmethod
-    def inherit(cls, inner):
-        return cls([None if d is None else d.copy() for d in inner._head],
-                   [None if d is None else d.copy() for d in inner._tail])
+    @property
+    def parser(self):
+        return self._parsers[-1]
+        
+        
+class Rule:
+    """Production rule for part of an expression.
 
-    def __init__(self, head, tail):
-        self._head = head
-        self._tail = tail
-
-    def reseat(self, other):
-        self._head = other._head
-        self._tail = other._tail
-
-    def register(self, bind, cat, cat_dispatch, token, handler):
-        if cat >= len(self._head):
-            padding = [None] * (cat + 1 - len(self._head))
-            self._head += padding
-            self._tail += padding
-
-        if bind == 'head':
-            target = self._head
-        elif bind == 'tail':
-            target = self._tail
-        else:
-            raise ValueError("Invalid bind target")
-
-        DispatchType = DISPATCH_REGISTRY[cat_dispatch]
-        if target[cat] is None:
-            target[cat] = DispatchType()
-        elif not isinstance(target[cat], DispatchType):
-            raise ValueError("Inconsistent dispatch type")
-        target[cat].register(token, handler)
-
-    def __call__(self, tokens):
-        lineno, colno, cat, token = tokens.peek()
-        try:
-            handler = self._head[cat](token)
-        except:
-            raise NoMatch()
-        try:
-            result = handler(tokens)
-
-            # cycle through appropriate infixes
-            while True:
-                lineno, colno, cat, token = tokens.peek()
-                try:
-                    handler = self._tail[cat](token)
-                except:
-                    return result
-                result = handler(tokens, result)
-        except NoMatch:
-            raise ParsingError(tokens.fname, lineno, colno, colno, tokens.line,
-                               "Invalid expression")
-
-
-class Pattern:
-    def register(self, parser, handler):
+    Unlike in recursive descent parser, top-down operator precedence rules have
+    two parts: a set of `predciates`, which describes the matching conditions,
+    and a handler, which is triggered once a predicate matches.    
+    """
+    @property
+    def predicates(self):
+        """Sequence of `Predicate` instances, any one of which may match"""
         raise NotImplementedError()
 
-    def make_handler(self, full_expr, self_expr, sub_expr):
+    def handler(self, full_expr, self_expr, sub_expr):
+        """Return a handler function.
+        
+        Handler functions are a core part of a top-down expression parser.
+        Their signature typically is:
+
+            def handler_function(tokens, lhs=None):
+                return (...)
+
+        `tokens` is the token stream parsed, with the cursor at the token on
+        which one of the predicates matched.  If we are in the middle of a
+        subexpression (`place == "tail"`), then `lhs` is the result of the
+        previous handler, otherwise (`place == "head"`), `lhs` is absent.
+        """
         raise NotImplementedError()
 
 
-class InfixOperator(Pattern):
+class InfixOperator(Rule):
+    """Rule for infix operation `lhs (op) rhs`"""
     def __init__(self, cat, token, assoc, tag):
         self.cat = cat
         self.token = token
         self.assoc = assoc
         self.tag = tag
 
-    def register(self, parser, handler):
-        parser.register('tail', self.cat, 'literal', self.token, handler)
+    @property
+    def predicates(self):
+       return LiteralPredicate('tail', self.cat, self.token),
 
     def make_handler(self, full_expr, self_expr, sub_expr):
         tag = self.tag
         rhs_expr = sub_expr if self.assoc == 'left' else self_expr
-
         def handle_infix_op(tokens, lhs):
             tokens.advance()
             rhs = rhs_expr(tokens)
@@ -104,17 +110,15 @@ class InfixOperator(Pattern):
         return handle_infix_op
 
 
-class Literal(Pattern):
+class Literal(Rule):
+    """Rule for a literal (number, identifier, etc.)"""
     def __init__(self, cat, tag):
         self.cat = cat
-        self.tokens = None
-        self.token_sel = 'none'
-        self.bind = 'head'
-
         self.tag = tag
 
-    def register(self, parser, handler):
-        parser.register('head', self.cat, 'none', None, handler)
+    @property
+    def predicates(self):
+       return CategoryPredicate('head', self.cat),
 
     def make_handler(self, full_expr, self_expr, sub_expr):
         tag = self.tag
@@ -124,52 +128,214 @@ class Literal(Pattern):
         return handle_literal
 
 
-class SelfDispatch:
-    def __init__(self, handler=None):
-        self._handler = handler
+class Predicate:
+    """Matching part of a production rule.
+    
+    A predicate is a matching rule for tokens, consisting of three parts:
 
-    def copy(self):
-        return SelfDispatch(self._handler)
+      1. `place`: place in the subexpression, either at the `head` (first
+         token) or `tail` (subsequent token).
+      2. `cat`: category code of the tokens
+      3. `dispatcher`: for a given place and category, predicate for the
+         token text themselves
+    """
+    def __init__(self, place, cat):
+        if place not in {'head', 'tail'}:
+            raise ValueError("place must be either 'head' or 'tail'")
+        if cat != int(cat) or cat <= 0:
+            raise ValueError("cat must be a positive integer")
+        self.place = place
+        self.cat = cat
 
-    def register(self, token, handler):
-        if token is not None:
-            raise ValueError("token must be None")
-        self._handler = handler
+    def dispatcher(self):
+        return self.Dispatcher()
 
-    def __call__(self, token):
-        return self._handler
+    class Dispatcher:
+        def __init__(self):
+            raise NotImplementedError()
 
+        def clone(self):
+            raise NotImplementedError()
 
-class LiteralDispatch:
-    def __init__(self, tokens={}):
-        self._tokens = dict(tokens)
+        def add(self, predicate, handler):
+            raise NotImplementedError()
 
-    def copy(self):
-        return LiteralDispatch(self._tokens)
-
-    def register(self, token, handler):
-        self._tokens[token] = handler
-
-    def __call__(self, token):
-        return self._tokens[token]
-
-
-class CaseInsensitiveDispatch:
-    def __init__(self, tokens={}):
-        self._tokens = dict(tokens)
-
-    def copy(self):
-        return CaseInsensitiveDispatch(self._tokens)
-
-    def register(self, token, handler):
-        self._tokens[token.lower()] = handler
-
-    def __call__(self, token):
-        return self._tokens[token.lower()]
+        def compile(self):
+            raise NotImplementedError()
 
 
-DISPATCH_REGISTRY = {
-    'none': SelfDispatch,
-    'literal': LiteralDispatch,
-    'nocase': CaseInsensitiveDispatch,
-    }
+class _NeverDispatcher:
+    class CannotAdd(Exception): pass
+
+    def clone(self):
+        return self
+
+    def add(self, predicate, handler):
+        raise _NeverDispatcher.CannotAdd()
+
+    def compile(self):
+        def unknown_cat_code(tokens):
+            raise NoMatch()
+        return unknown_cat_code
+
+
+class CategoryPredicate(Predicate):
+    """A predicate that matches a full category code.
+    
+    This is useful for, e.g., integer literals, where the rule does not depend
+    on the token text itself, but only on its category.
+    """
+    class Dispatcher:
+        def __init__(self):
+            self.handler = None
+
+        def clone(self):
+            result = self.__class__()
+            result.handler = self.handler
+            return result
+
+        def add(self, predicate, handler):
+            if not isinstance(predicate, CategoryPredicate):
+                raise ValueError("Incompatible dispatch")
+            if self.handler is not None:
+                raise ValueError("only one dispatch allowed per cat")
+            self.handler = handler
+
+        def compile(self):
+            handler = self.handler
+            if handler is None:
+                raise ValueError("handler is not yet set")
+            return lambda _: handler
+
+
+class LiteralPredicate(Predicate):
+    """Predicate which matches a category and token text.
+
+    This is useful for, e.g., symbolic operators and textual operators in
+    case-sensitive languages.
+    """
+    def __init__(self, place, cat, token):
+        super().__init__(place, cat)
+        self.token = token
+    
+    class Dispatcher:
+        def __init__(self):
+            self.tokens = {}
+            self._copy_on_write = False
+
+        def clone(self):
+            result = self.__class__()
+            result.tokens = self.tokens
+            result._copy_on_write = True
+            return result
+
+        def add(self, predicate, handler):
+            if not isinstance(predicate, LiteralPredicate):
+                raise ValueError("incompatible dispatch")
+
+            token = predicate.token
+            if token in self.tokens:
+                raise ValueError("already in there")
+            if self._copy_on_write:
+                self.tokens = dict(self.tokens)
+                self._copy_on_write = False
+            self.tokens[token] = handler
+
+        def compile(self):
+            tokens_get = self.tokens.__getitem__
+            def literal_dispatch(token):
+                try:
+                    return tokens_get(token)
+                except KeyError:
+                    raise NoMatch()
+            return literal_dispatch
+
+
+class CaseInsensitivePredicate(Predicate):
+    """Predicate which matches a category and token text (case insensitive).
+
+    This is useful for textual operators in case-insensitive languages.
+    """
+    def __init__(self, place, cat, token):
+        super().__init__(place, cat)
+        self.token = token.lower()
+
+    class Dispatcher:
+        def __init__(self):
+            self.tokens = {}
+            self._copy_on_write = False
+
+        def clone(self):
+            result = self.__class__()
+            result.tokens = self.tokens
+            result._copy_on_write = True
+            return result
+
+        def add(self, predicate, handler):
+            if not isinstance(predicate, CaseInsensitivePredicate):
+                raise ValueError("incompatible dispatch")
+
+            token = predicate.token
+            if token in self.tokens:
+                raise ValueError("already in there")
+            if self._copy_on_write:
+                self.tokens = dict(self.tokens)
+                self._copy_on_write = False
+            self.tokens[token] = handler
+
+        def compile(self):
+            tokens_get = self.tokens.__getitem__
+            def case_insensitive_dispatch(token):
+                try:
+                    return tokens_get(token.lower())
+                except KeyError:
+                    raise NoMatch()
+            return case_insensitive_dispatch
+
+
+class ExprParser:
+    """Top-down operator precedence parser.
+
+    This is the actual workhorse of the parsing process.  It is a top-down
+    operator precendence parser [1], which exploits the special "nested"
+    structure of expressions to do away with the need for backtracking in
+    recursive descent parsers.  It thus guarantees linear runtime.
+
+    Like the LL/LR family of parsers, the parser is a finite state transducer:
+    it is in the "head" state at the start of the expression and in the "tail"
+    state otherwise.  In each state, it peeks at the next token and uses the
+    respective dispatch table (`head` or `tail`) to decide which handler to
+    call.  The handler then handles the token and any arguments.
+
+    [1]: https://en.wikipedia.org/wiki/Recursive_descent_parser
+    """
+    __slots__ = 'head', 'tail'
+
+    def __init__(self, head, tail):
+        self.head = head
+        self.tail = tail
+
+    def __call__(self, tokens):
+        """Try matching an expression for given `tokens` sequence."""
+        # Parser is in "head" state.  Peek at next token and get associated
+        # handler.  NoMatch exceptions are forwarded, signifying that this
+        # is not an expression.
+        lineno, colno, cat, token = tokens.peek()
+        handler = self.head[cat](token)
+        try:
+            result = handler(tokens)
+
+            # Parser is in "tail" state.  We are now trying to find an
+            # appropriate infix or suffix symbol, and call the associated
+            # handler.  This is repeated to get, e.g., chains of same-priority
+            # operations.
+            while True:
+                lineno, colno, cat, token = tokens.peek()
+                try:
+                    handler = self.tail[cat](token)
+                except NoMatch:
+                    return result
+                result = handler(tokens, result)
+        except NoMatch:
+            raise ParsingError(tokens.fname, lineno, colno, colno, tokens.line,
+                               "Invalid expression")
