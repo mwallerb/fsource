@@ -11,8 +11,8 @@ from fsource import lexer
 from fsource import parser
 
 
-def get_toks(regex, text):
-    tokens = *lexer.tokenize_regex(regex, text), (None, len(text), 0, '<$>')
+def get_toks(lexer, text):
+    tokens = *lexer.line_tokens(text), (None, len(text), 0, '<$>')
     return parser.TokenStream(tokens)
 
 
@@ -32,11 +32,11 @@ def simple_grammar():
 
 
 def simple_lexer_re():
-    return re.compile(r"""(?x)\s*(?:
-                  ([-+*/^()])    # CAT 1
-                | ([\d]+)        # CAT 2
-                )
-                """)
+    return lexer.RegexLexer.create(
+        ("OP",  r"[-+*/^()]"),
+        ("INT", r"[\d]+"),
+        whitespace="[ \t]*"
+        )
 
 
 def test_simple_grammar():
