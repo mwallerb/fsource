@@ -79,7 +79,7 @@ class ExprGrammar:
         self.parser = parsers[-1]
         self.dispatch_table = self_table
 
-        
+
 class Rule:
     """Production rule for part of an expression.
 
@@ -94,7 +94,7 @@ class Rule:
 
     def handler(self, full_expr, self_expr, sub_expr):
         """Return a handler function.
-        
+
         Handler functions are a core part of a top-down expression parser.
         Their signature typically is:
 
@@ -190,7 +190,7 @@ class Literal(Rule):
 
 class Predicate:
     """Matching part of a production rule.
-    
+
     A predicate is a matching rule for tokens, consisting of three parts:
 
       1. `place`: place in the subexpression, either at the `head` (first
@@ -241,7 +241,7 @@ class _NeverDispatcher:
 
 class CategoryPredicate(Predicate):
     """A predicate that matches a full category code.
-    
+
     This is useful for, e.g., integer literals, where the rule does not depend
     on the token text itself, but only on its category.
     """
@@ -277,7 +277,7 @@ class LiteralPredicate(Predicate):
     def __init__(self, place, cat, token):
         super().__init__(place, cat)
         self.token = token
-    
+
     class Dispatcher:
         def __init__(self):
             self.tokens = {}
