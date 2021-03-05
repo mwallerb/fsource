@@ -34,6 +34,7 @@ import re
 from . import __version_tuple__
 from . import lexer
 from . import common
+from . import expr as _expr
 
 
 NoMatch = common.NoMatch
@@ -358,24 +359,6 @@ def implied_do(tokens):
     expect(tokens, ')')
     return tokens.produce('impl_do', do_ctrl_result, *args)
 
-def inplace_array(open_delim, close_delim):
-    @rule
-    def inplace_array_rule(tokens):
-        seq = []
-        expect(tokens, open_delim)
-        with LockedIn(tokens, "invalid inplace array"):
-            if marker(tokens, close_delim):
-                return tokens.produce('array')
-            while True:
-                try:
-                    seq.append(implied_do(tokens))
-                except NoMatch:
-                    seq.append(expr(tokens))
-                if marker(tokens, close_delim):
-                    return tokens.produce('array', *seq)
-                expect(tokens, ',')
-
-    return inplace_array_rule
 
 def _slice_tail(tokens, slice_begin):
     with LockedIn(tokens, "invalid slice object"):
@@ -408,177 +391,184 @@ def argument(tokens):
 
 subscript_sequence = comma_sequence(argument, 'sub_list', allow_empty=True)
 
-def prefix_op_handler(subglue, action):
-    def prefix_op_handle(tokens):
-        tokens.advance()
-        operand = expr(tokens, subglue)
-        return tokens.produce(action, operand)
 
-    return prefix_op_handle
+class LogicalPrefix(_expr.Prefix):
+    def __init__(self, name, symbol, tag):
+        self.name = name
+        self.symbol = symbol
+        self.tag = tag
 
-def custom_unary_handler(subglue):
-    def custom_unary_handle(tokens):
-        operator = custom_op(tokens)
-        operand = expr(tokens, subglue)
-        return tokens.produce('unary', operator, operand)
-
-    return custom_unary_handle
-
-def infix_op_handler(subglue, action):
-    def infix_op_handle(tokens, lhs):
-        tokens.advance()
-        rhs = expr(tokens, subglue)
-        return tokens.produce(action, lhs, rhs)
-
-    return infix_op_handle
-
-def custom_binary_handler(subglue):
-    def custom_binary_handle(tokens, lhs):
-        operator = custom_op(tokens)
-        rhs = expr(tokens, subglue)
-        return tokens.produce('binary', operator, lhs, rhs)
-
-    return custom_binary_handle
-
-def literal_handler(action):
-    # We don't need to check for the token type here, since we have already
-    # done so at the dispatch phase for expr()
-    def literal_handle(tokens):
-        return tokens.produce(action, next(tokens)[3])
-    return literal_handle
-
-def parens_expr_handler(tokens):
-    tokens.advance()
-    inner_expr = expr(tokens)
-    token = next(tokens)[3]
-    if token == ')':
-        return inner_expr
-    elif token == ',':
-        imag_part = expr(tokens)
-        expect(tokens, ')')
-        return tokens.produce('complex', inner_expr, imag_part)
-    else:
-        raise ParserError(tokens, "expecting end parenthesis")
-
-def call_handler(tokens, lhs):
-    tokens.advance()
-    seq = subscript_sequence(tokens)
-    expect(tokens, ')')
-    return tokens.produce('call', lhs, *seq[1:])
-
-def resolve_handler(tokens, lhs):
-    tokens.advance()
-    rhs = id_ref(tokens)
-    return tokens.produce('resolve', lhs, rhs)
+    @property
+    def predicates(self):
+        return [
+            _expr.LiteralPredicate('head', lexer.CAT_SYMBOLIC_OP, self.symbol),
+            _expr.CaseInsensitivePredicate('head', lexer.CAT_BUILTIN_DOT, self.name),
+            ]
 
 
-_PREFIX_OP_HANDLERS = {
-    "not":    prefix_op_handler( 50, 'not_'),
-    "+":      prefix_op_handler(110, 'pos'),
-    "-":      prefix_op_handler(110, 'neg'),
-    "(":      parens_expr_handler,
-    "(/":     inplace_array('(/', '/)'),
-    "[":      inplace_array('[', ']')
-    }
+class Compare(_expr.Infix):
+    def __init__(self, name, symbol, tag):
+        self.name = name
+        self.symbol = symbol
+        self.assoc = 'left'
+        self.tag = tag
 
-_INFIX_OP_HANDLERS = {
-    "eqv":    ( 20, infix_op_handler( 20, 'eqv')),
-    "neqv":   ( 20, infix_op_handler( 20, 'neqv')),
-    "or":     ( 30, infix_op_handler( 30, 'or_')),
-    "and":    ( 40, infix_op_handler( 40, 'and_')),
-    "eq":     ( 60, infix_op_handler( 61, 'eq')),
-    "ne":     ( 60, infix_op_handler( 61, 'ne')),
-    "le":     ( 60, infix_op_handler( 61, 'le')),
-    "lt":     ( 60, infix_op_handler( 61, 'lt')),
-    "ge":     ( 60, infix_op_handler( 61, 'ge')),
-    "gt":     ( 60, infix_op_handler( 61, 'gt')),
-    "//":     ( 70, infix_op_handler( 71, 'concat')),
-    "+":      ( 80, infix_op_handler( 81, 'plus')),
-    "-":      ( 80, infix_op_handler( 81, 'minus')),
-    "*":      ( 90, infix_op_handler( 91, 'mul')),
-    "/":      ( 90, infix_op_handler( 91, 'div')),
-    "**":     (100, infix_op_handler(100, 'pow')),
-    "_":      (130, infix_op_handler(131, 'kind')),
-    "%":      (140, resolve_handler),
-    "(":      (140, call_handler),
-    }
-_INFIX_OP_HANDLERS.update({
-    "==":    _INFIX_OP_HANDLERS["eq"],
-    "/=":    _INFIX_OP_HANDLERS["ne"],
-    "<=":    _INFIX_OP_HANDLERS["le"],
-    ">=":    _INFIX_OP_HANDLERS["ge"],
-    "<":     _INFIX_OP_HANDLERS["lt"],
-    ">":     _INFIX_OP_HANDLERS["gt"]
-    })
+    @property
+    def predicates(self):
+        return [
+            _expr.LiteralPredicate('tail', lexer.CAT_SYMBOLIC_OP, self.symbol),
+            _expr.CaseInsensitivePredicate('tail', lexer.CAT_BUILTIN_DOT, self.name),
+            ]
 
 
-_PREFIX_CAT_HANDLERS = {
-    lexer.CAT_STRING:     literal_handler('string'),
-    lexer.CAT_FLOAT:      literal_handler('float'),
-    lexer.CAT_INT:        literal_handler('int'),
-    lexer.CAT_RADIX:      literal_handler('radix'),
-    lexer.CAT_BOOLEAN:    literal_handler('bool'),
-    lexer.CAT_CUSTOM_DOT: custom_unary_handler(120),
-    lexer.CAT_WORD:       literal_handler('ref'),
-    }
-_INFIX_CAT_HANDLERS = {
-    lexer.CAT_CUSTOM_DOT: (10, custom_binary_handler(11))
-    }
+class CustomPrefix(_expr.Rule):
+    @property
+    def predicates(self):
+        return [_expr.CategoryPredicate('head', lexer.CAT_CUSTOM_DOT)]
+
+    def handler(self, full_expr, self_expr, sub_expr):
+        def custom_unary_handle(tokens):
+            operator = custom_op(tokens)
+            operand = self_expr(tokens)
+            return 'unary', operator, operand
+        return custom_unary_handle
 
 
-def expr_handler(cat_handlers, op_handlers):
-    def get_handler(cat, token):
-        if cat == lexer.CAT_SYMBOLIC_OP:
-            return op_handlers[token]
-        elif cat == lexer.CAT_BUILTIN_DOT:
-            return op_handlers[token.lower()]
-        else:
-            return cat_handlers[cat]
-    return get_handler
+class CustomInfix(_expr.Rule):
+    @property
+    def predicates(self):
+        return [_expr.CategoryPredicate('tail', lexer.CAT_CUSTOM_DOT)]
 
-expr_prefix_handler = expr_handler(_PREFIX_CAT_HANDLERS, _PREFIX_OP_HANDLERS)
+    def handler(self, full_expr, self_expr, sub_expr):
+        def custom_binary_handle(tokens, lhs):
+            operator = custom_op(tokens)
+            rhs = sub_expr(tokens)
+            return tokens.produce('binary', operator, lhs, rhs)
+        return custom_binary_handle
 
-expr_infix_handler = expr_handler(_INFIX_CAT_HANDLERS, _INFIX_OP_HANDLERS)
 
-def expr(tokens, min_glue=0):
-    # Get prefix
-    try:
-        handler = expr_prefix_handler(*tokens.peek()[2:])
-    except KeyError:
-        raise NoMatch()
-    try:
-        result = handler(tokens)
+class ParenthesisOrComplex(_expr.Rule):
+    @property
+    def predicates(self):
+        return [_expr.LiteralPredicate('head', lexer.CAT_SYMBOLIC_OP, '(')]
 
-        # Cycle through appropriate infixes:
-        while True:
-            try:
-                glue, handler = expr_infix_handler(*tokens.peek()[2:])
-            except KeyError:
-                return result
-            if glue < min_glue:
-                return result
-            result = handler(tokens, result)
-    except NoMatch:
-        raise ParserError(tokens, "Invalid expression")
+    def handler(self, full_expr, self_expr, sub_expr):
+        def parens_expr_handler(tokens):
+            tokens.advance()
+            inner_expr = full_expr(tokens)
+            token = next(tokens)[3]
+            if token == ')':
+                return inner_expr
+            elif token == ',':
+                imag_part = full_expr(tokens)
+                expect(tokens, ')')
+                return 'complex', inner_expr, imag_part
+            else:
+                raise ParserError(tokens, "expecting end parenthesis")
+        return parens_expr_handler
 
+
+class Call(_expr.Rule):
+    @property
+    def predicates(self):
+        return [_expr.LiteralPredicate('tail', lexer.CAT_SYMBOLIC_OP, '(')]
+
+    def handler(self, full_expr, self_expr, sub_expr):
+        def call_handler(tokens, lhs):
+            tokens.advance()
+            seq = subscript_sequence(tokens)
+            expect(tokens, ')')
+            return tokens.produce('call', lhs, *seq[1:])
+        return call_handler
+
+
+class InplaceArray(_expr.Rule):
+    MATCH = {'(/': '/)', '[': ']'}
+
+    @property
+    def predicates(self):
+        return [_expr.LiteralPredicate('head', lexer.CAT_SYMBOLIC_OP, open)
+                for open in self.MATCH]
+
+    def handler(self, full_expr, self_expr, sub_expr):
+        def inplace_array_rule(tokens):
+            seq = []
+            open_delim = next(tokens)[3]
+            close_delim = self.MATCH[open_delim]
+            with LockedIn(tokens, "invalid inplace array"):
+                if marker(tokens, close_delim):
+                    return tokens.produce('array')
+                while True:
+                    try:
+                        seq.append(implied_do(tokens))
+                    except NoMatch:
+                        seq.append(expr(tokens))
+                    if marker(tokens, close_delim):
+                        return tokens.produce('array', *seq)
+                    expect(tokens, ',')
+        return inplace_array_rule
+
+
+EXPR_GRAMMAR = _expr.ExprGrammar(
+    [
+        _expr.Literal(lexer.CAT_STRING,  'string'),
+        _expr.Literal(lexer.CAT_FLOAT,   'float'),
+        _expr.Literal(lexer.CAT_INT,     'int'),
+        _expr.Literal(lexer.CAT_RADIX,   'radix'),
+        _expr.Literal(lexer.CAT_BOOLEAN, 'bool'),
+        _expr.Literal(lexer.CAT_WORD,    'ref'),
+    ], [
+        _expr.Infix(lexer.CAT_SYMBOLIC_OP, '_', 'left', 'kind'),
+    ], [
+        _expr.Infix(lexer.CAT_SYMBOLIC_OP, '%', 'left', 'resolve'),
+        Call(),
+        ParenthesisOrComplex(),
+        InplaceArray(),
+    ], [
+        CustomPrefix(),
+    ], [
+        _expr.Prefix(lexer.CAT_SYMBOLIC_OP, '+', 'pos'),
+        _expr.Prefix(lexer.CAT_SYMBOLIC_OP, '-', 'neg'),
+    ], [
+        _expr.Infix(lexer.CAT_SYMBOLIC_OP, '**', 'right', 'pow'),
+    ], [
+        _expr.Infix(lexer.CAT_SYMBOLIC_OP, '*', 'left', 'mul'),
+        _expr.Infix(lexer.CAT_SYMBOLIC_OP, '/', 'left', 'div'),
+    ], [
+        _expr.Infix(lexer.CAT_SYMBOLIC_OP, '+', 'left', 'add'),
+        _expr.Infix(lexer.CAT_SYMBOLIC_OP, '-', 'left', 'sub'),
+    ], [
+        _expr.Infix(lexer.CAT_SYMBOLIC_OP, '//', 'left', 'concat'),
+    ], [
+        Compare('eq', '==', 'eq'),
+        Compare('ne', '/=', 'ne'),
+        Compare('le', '<=', 'le'),
+        Compare('ge', '>=', 'ge'),
+        Compare('lt', '<',  'lt'),
+        Compare('gt', '>',  'gt'),
+    ], [
+        _expr.Prefix(lexer.CAT_BUILTIN_DOT, 'not', 'not_', ignore_case=True),
+    ], [
+        _expr.Infix(lexer.CAT_BUILTIN_DOT, 'and', 'right', 'and_', ignore_case=True),
+    ], [
+        _expr.Infix(lexer.CAT_BUILTIN_DOT, 'or', 'right', 'or_', ignore_case=True),
+    ], [
+        CustomInfix()
+    ], max_cat=lexer.CAT_MAX)
+
+expr = EXPR_GRAMMAR.parser
 _optional_expr = optional(expr)
 
 
-def lvalue(tokens):
-    # lvalue is subject to stricter scrutiny, than an expression, since it
-    # is used in the assignment statement.
-    result = id_ref(tokens)
-    try:
-        while True:
-            token = tokens.peek()[3]
-            if token == '(':
-                result = call_handler(tokens, result)
-            elif token == '%':
-                result = resolve_handler(tokens, result)
-            else:
-                return result
-    except NoMatch:
-        raise ParserError(tokens, "Invalid lvalue")
+LVALUE_GRAMMAR = _expr.ExprGrammar([
+        _expr.Literal(lexer.CAT_WORD, 'ref'),
+    ], [
+        _expr.Infix(lexer.CAT_SYMBOLIC_OP, '%', 'left', 'resolve'),
+        Call(),
+    ], max_cat=lexer.CAT_MAX)
+
+lvalue = LVALUE_GRAMMAR.parser
+
 
 # -----------
 

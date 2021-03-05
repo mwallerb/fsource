@@ -1,5 +1,4 @@
 from .common import NoMatch, ParsingError
-from .parser import expect
 
 
 class ExprGrammar:
@@ -68,16 +67,21 @@ class ExprGrammar:
                         disp.add(pred, handler)
 
             # Fill the expression parsers with the compiled dispatch table
-            self_expr.head = [disp.compile() for disp in self_table['head']]
-            self_expr.tail = [disp.compile() for disp in self_table['tail']]
+            self_expr.head = tuple(disp.compile() for disp in self_table['head'])
+            self_expr.tail = tuple(disp.compile() for disp in self_table['tail'])
 
             # Ascend by one precedence level
             sub_expr = self_expr
             sub_table = self_table
 
         self.rulesets = tuple(rulesets)
-        self.parser = parsers[-1]
+        self.levels = parsers
         self.dispatch_table = self_table
+
+    @property
+    def parser(self):
+        """Expression parser for this grammar."""
+        return self.levels[-1]
 
 
 class Rule:
@@ -111,15 +115,17 @@ class Rule:
 
 class Infix(Rule):
     """Rule for infix operation `lhs (op) rhs`"""
-    def __init__(self, cat, token, assoc, tag):
+    def __init__(self, cat, token, assoc, tag, ignore_case=False):
         self.cat = cat
         self.token = token
         self.assoc = assoc
         self.tag = tag
+        self.ignore_case = ignore_case
 
     @property
     def predicates(self):
-        return LiteralPredicate('tail', self.cat, self.token),
+        P = CaseInsensitivePredicate if self.ignore_case else LiteralPredicate
+        return P('tail', self.cat, self.token),
 
     def handler(self, full_expr, self_expr, sub_expr):
         tag = self.tag
@@ -133,18 +139,20 @@ class Infix(Rule):
 
 class Prefix(Rule):
     """Rule for prefix operation `(op) rhs`"""
-    def __init__(self, cat, token, tag):
+    def __init__(self, cat, token, tag, ignore_case=False):
         self.cat = cat
         self.token = token
         self.tag = tag
+        self.ignore_case = ignore_case
 
     @property
     def predicates(self):
-        return LiteralPredicate('head', self.cat, self.token),
+        P = CaseInsensitivePredicate if self.ignore_case else LiteralPredicate
+        return P('head', self.cat, self.token),
 
     def handler(self, full_expr, self_expr, sub_expr):
         tag = self.tag
-        def handle_infix_op(tokens, lhs):
+        def handle_infix_op(tokens):
             tokens.advance()
             rhs = self_expr(tokens)
             return tag, rhs
@@ -166,7 +174,8 @@ class Parenthesized(Rule):
         def handle_parenthesized(tokens, lhs=None):
             tokens.advance()
             inner = full_expr(tokens)
-            expect(tokens, end_token)
+            if next(tokens)[3] != end_token:
+                raise NoMatch()
             return inner
         return handle_parenthesized
 
@@ -256,7 +265,7 @@ class CategoryPredicate(Predicate):
 
         def add(self, predicate, handler):
             if not isinstance(predicate, CategoryPredicate):
-                raise ValueError("Incompatible dispatch")
+                raise ValueError("Incompatible dispatch to category")
             if self.handler is not None:
                 raise ValueError("only one dispatch allowed per cat")
             self.handler = handler
@@ -291,7 +300,7 @@ class LiteralPredicate(Predicate):
 
         def add(self, predicate, handler):
             if not isinstance(predicate, LiteralPredicate):
-                raise ValueError("incompatible dispatch")
+                raise ValueError("incompatible dispatch to literal")
 
             token = predicate.token
             if token in self.tokens:
@@ -333,7 +342,9 @@ class CaseInsensitivePredicate(Predicate):
 
         def add(self, predicate, handler):
             if not isinstance(predicate, CaseInsensitivePredicate):
-                raise ValueError("incompatible dispatch")
+                print (self.__class__, predicate.__class__,
+                       predicate.__dict__, self.tokens)
+                raise ValueError("incompatible dispatch to case-insensitive")
 
             token = predicate.token
             if token in self.tokens:
@@ -372,6 +383,11 @@ class ExprParser:
     __slots__ = 'head', 'tail'
 
     def __init__(self, head, tail):
+        """Construct an expression parser from dispatch tables.
+
+        This function is only for advanced users; use `ExprGrammar.parser()`
+        for a more friendly way to construct these parsers.
+        """
         self.head = head
         self.tail = tail
 
@@ -397,5 +413,5 @@ class ExprParser:
                     return result
                 result = handler(tokens, result)
         except NoMatch:
-            raise ParsingError(tokens.fname, lineno, colno, colno, tokens.line,
-                               "Invalid expression")
+            raise ParsingError(tokens.fname, lineno, colno, colno,
+                               tokens.current_line(), "Invalid expression")

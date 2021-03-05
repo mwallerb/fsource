@@ -191,6 +191,7 @@ CAT_STRING = 9
 CAT_RADIX = 10
 CAT_FORMAT = 11
 CAT_PREPROC = 12
+CAT_MAX = 12
 
 CAT_NAMES = ('eof', 'word', 'symop', 'eos', 'int', 'float',
              'bool', 'dotop', 'custom_dotop', 'string', 'radix',
