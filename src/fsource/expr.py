@@ -107,7 +107,7 @@ class Rule:
 
     Unlike in recursive descent parser, top-down operator precedence rules have
     two parts: a set of `predciates`, which describes the matching conditions,
-    and a handler, which is triggered once a predicate matches.    
+    and a handler, which is triggered once a predicate matches.
     """
     @property
     def predicates(self):
@@ -275,10 +275,12 @@ class CategoryPredicate(Predicate):
     class Dispatcher:
         def __init__(self):
             self.handler = None
+            self._compiled = None
 
         def clone(self):
             result = self.__class__()
             result.handler = self.handler
+            result._compiled = self._compiled
             return result
 
         def add(self, predicate, handler):
@@ -292,7 +294,9 @@ class CategoryPredicate(Predicate):
             handler = self.handler
             if handler is None:
                 raise ValueError("handler is not yet set")
-            return lambda _: handler
+            if self._compiled is None:
+                self._compiled = lambda _: handler
+            return self._compiled
 
 
 class LiteralPredicate(Predicate):
@@ -308,12 +312,12 @@ class LiteralPredicate(Predicate):
     class Dispatcher:
         def __init__(self):
             self.tokens = {}
-            self._copy_on_write = False
+            self._compiled = None
 
         def clone(self):
             result = self.__class__()
-            result.tokens = self.tokens
-            result._copy_on_write = True
+            result.tokens = dict(self.tokens)
+            result._compiled = self._compiled
             return result
 
         def add(self, predicate, handler):
@@ -323,10 +327,8 @@ class LiteralPredicate(Predicate):
             token = predicate.token
             if token in self.tokens:
                 raise ValueError("already in there")
-            if self._copy_on_write:
-                self.tokens = dict(self.tokens)
-                self._copy_on_write = False
             self.tokens[token] = handler
+            self._compiled = None      # invalidate cache
 
         def compile(self):
             tokens_get = self.tokens.__getitem__
@@ -335,7 +337,9 @@ class LiteralPredicate(Predicate):
                     return tokens_get(token)
                 except KeyError:
                     raise NoMatch()
-            return literal_dispatch
+            if self._compiled is None:
+                self._compiled = literal_dispatch
+            return self._compiled
 
 
 class CaseInsensitivePredicate(Predicate):
@@ -350,12 +354,12 @@ class CaseInsensitivePredicate(Predicate):
     class Dispatcher:
         def __init__(self):
             self.tokens = {}
-            self._copy_on_write = False
+            self._compiled = None
 
         def clone(self):
             result = self.__class__()
             result.tokens = self.tokens
-            result._copy_on_write = True
+            result._compiled = self._compiled
             return result
 
         def add(self, predicate, handler):
@@ -365,10 +369,8 @@ class CaseInsensitivePredicate(Predicate):
             token = predicate.token
             if token in self.tokens:
                 raise ValueError("already in there")
-            if self._copy_on_write:
-                self.tokens = dict(self.tokens)
-                self._copy_on_write = False
             self.tokens[token] = handler
+            self._compiled = None
 
         def compile(self):
             tokens_get = self.tokens.__getitem__
@@ -377,7 +379,9 @@ class CaseInsensitivePredicate(Predicate):
                     return tokens_get(token.lower())
                 except KeyError:
                     raise NoMatch()
-            return case_insensitive_dispatch
+            if self._compiled is None:
+                self._compiled = case_insensitive_dispatch
+            return self._compiled
 
 
 class ExprParser:
