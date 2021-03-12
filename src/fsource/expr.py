@@ -45,30 +45,48 @@ class ExprGrammar:
         # handler must have access to the parser at the current level, one
         # level lower (sub_expr) and highest level (full_expr).
         full_expr = parsers[-1]
-        sub_expr = None
         sub_table = {
             'head': [_NeverDispatcher()] * ncat,
             'tail': [_NeverDispatcher()] * ncat,
             }
+        sub_expr = ExprParser(
+            tuple(disp.compile() for disp in sub_table['head']),
+            tuple(disp.compile() for disp in sub_table['tail'])
+            )
         for self_expr, ruleset in zip(parsers, rulesets):
-            self_table = {
-                'head': [disp.clone() for disp in sub_table['head']],
-                'tail': [disp.clone() for disp in sub_table['tail']]
-                } 
+            self_table = {}
             for rule in ruleset:
                 handler = rule.handler(full_expr, self_expr, sub_expr)
                 for pred in rule.predicates:
-                    disp = self_table[pred.place][pred.cat]
+                    try:
+                        place_table = self_table[pred.place]
+                    except KeyError:
+                        place_table = [disp.clone() for disp
+                                       in sub_table[pred.place]]
+                        self_table[pred.place] = place_table
+
+                    disp = place_table[pred.cat]
                     try:
                         disp.add(pred, handler)
                     except _NeverDispatcher.CannotAdd:
                         disp = pred.dispatcher()
-                        self_table[pred.place][pred.cat] = disp
+                        place_table[pred.cat] = disp
                         disp.add(pred, handler)
 
-            # Fill the expression parsers with the compiled dispatch table
-            self_expr.head = tuple(disp.compile() for disp in self_table['head'])
-            self_expr.tail = tuple(disp.compile() for disp in self_table['tail'])
+            # Fill the expression parsers with the compiled dispatch table.
+            # Here, we reuse the compiled tables from the lower levels to
+            # reduce memory use and thus lower cache pressure.
+            def compiled_table(place):
+                try:
+                    place_table = self_table[place]
+                except KeyError:
+                    self_table[place] = sub_table[place]
+                    return getattr(sub_expr, place)
+                else:
+                    return tuple(disp.compile() for disp in place_table)
+
+            self_expr.head = compiled_table('head')
+            self_expr.tail = compiled_table('tail')
 
             # Ascend by one precedence level
             sub_expr = self_expr
@@ -342,8 +360,6 @@ class CaseInsensitivePredicate(Predicate):
 
         def add(self, predicate, handler):
             if not isinstance(predicate, CaseInsensitivePredicate):
-                print (self.__class__, predicate.__class__,
-                       predicate.__dict__, self.tokens)
                 raise ValueError("incompatible dispatch to case-insensitive")
 
             token = predicate.token
