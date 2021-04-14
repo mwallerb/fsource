@@ -45,25 +45,17 @@ class ExprGrammar:
         # handler must have access to the parser at the current level, one
         # level lower (sub_expr) and highest level (full_expr).
         full_expr = parsers[-1]
-        sub_table = {
-            'head': [_NeverDispatcher()] * ncat,
-            'tail': [_NeverDispatcher()] * ncat,
-            }
-        sub_expr = ExprParser(
-            tuple(disp.compile() for disp in sub_table['head']),
-            tuple(disp.compile() for disp in sub_table['tail'])
-            )
+        sub_expr = ExprParser(head=[_NeverDispatcher()] * ncat,
+                              tail=[_NeverDispatcher()] * ncat)
         for self_expr, ruleset in zip(parsers, rulesets):
-            self_table = {}
             for rule in ruleset:
                 handler = rule.handler(full_expr, self_expr, sub_expr)
                 for pred in rule.predicates:
-                    try:
-                        place_table = self_table[pred.place]
-                    except KeyError:
+                    place_table = getattr(self_expr, pred.place)
+                    if place_table is None:
                         place_table = [disp.clone() for disp
-                                       in sub_table[pred.place]]
-                        self_table[pred.place] = place_table
+                                       in getattr(sub_expr, pred.place)]
+                        setattr(self_expr, pred.place, place_table)
 
                     disp = place_table[pred.cat]
                     try:
@@ -76,25 +68,16 @@ class ExprGrammar:
             # Fill the expression parsers with the compiled dispatch table.
             # Here, we reuse the compiled tables from the lower levels to
             # reduce memory use and thus lower cache pressure.
-            def compiled_table(place):
-                try:
-                    place_table = self_table[place]
-                except KeyError:
-                    self_table[place] = sub_table[place]
-                    return getattr(sub_expr, place)
-                else:
-                    return tuple(disp.compile() for disp in place_table)
-
-            self_expr.head = compiled_table('head')
-            self_expr.tail = compiled_table('tail')
+            if self_expr.head is None:
+                self_expr.head = sub_expr.head
+            if self_expr.tail is None:
+                self_expr.tail = sub_expr.tail
 
             # Ascend by one precedence level
             sub_expr = self_expr
-            sub_table = self_table
 
         self.rulesets = tuple(rulesets)
         self.levels = parsers
-        self.dispatch_table = self_table
 
     @property
     def parser(self):
@@ -247,7 +230,7 @@ class Predicate:
         def add(self, predicate, handler):
             raise NotImplementedError()
 
-        def compile(self):
+        def __call__(self, token):
             raise NotImplementedError()
 
 
@@ -260,10 +243,8 @@ class _NeverDispatcher:
     def add(self, predicate, handler):
         raise _NeverDispatcher.CannotAdd()
 
-    def compile(self):
-        def unknown_cat_code(tokens):
-            raise NoMatch()
-        return unknown_cat_code
+    def __call__(self, token):
+        raise NoMatch()
 
 
 class CategoryPredicate(Predicate):
@@ -273,14 +254,14 @@ class CategoryPredicate(Predicate):
     on the token text itself, but only on its category.
     """
     class Dispatcher:
+        __slots__ = "handler"
+
         def __init__(self):
             self.handler = None
-            self._compiled = None
 
         def clone(self):
             result = self.__class__()
             result.handler = self.handler
-            result._compiled = self._compiled
             return result
 
         def add(self, predicate, handler):
@@ -290,13 +271,8 @@ class CategoryPredicate(Predicate):
                 raise ValueError("only one dispatch allowed per cat")
             self.handler = handler
 
-        def compile(self):
-            handler = self.handler
-            if handler is None:
-                raise ValueError("handler is not yet set")
-            if self._compiled is None:
-                self._compiled = lambda _: handler
-            return self._compiled
+        def __call__(self, _token):
+            return self.handler
 
 
 class LiteralPredicate(Predicate):
@@ -310,14 +286,14 @@ class LiteralPredicate(Predicate):
         self.token = token
 
     class Dispatcher:
+        __slots__ = "tokens"
+
         def __init__(self):
             self.tokens = {}
-            self._compiled = None
 
         def clone(self):
             result = self.__class__()
             result.tokens = dict(self.tokens)
-            result._compiled = self._compiled
             return result
 
         def add(self, predicate, handler):
@@ -328,18 +304,12 @@ class LiteralPredicate(Predicate):
             if token in self.tokens:
                 raise ValueError("already in there")
             self.tokens[token] = handler
-            self._compiled = None      # invalidate cache
 
-        def compile(self):
-            tokens_get = self.tokens.__getitem__
-            def literal_dispatch(token):
-                try:
-                    return tokens_get(token)
-                except KeyError:
-                    raise NoMatch()
-            if self._compiled is None:
-                self._compiled = literal_dispatch
-            return self._compiled
+        def __call__(self, token):
+            try:
+                return self.tokens[token]
+            except KeyError:
+                raise NoMatch()
 
 
 class CaseInsensitivePredicate(Predicate):
@@ -352,36 +322,30 @@ class CaseInsensitivePredicate(Predicate):
         self.token = token.lower()
 
     class Dispatcher:
+        __slots__ = "tokens"
+
         def __init__(self):
             self.tokens = {}
-            self._compiled = None
 
         def clone(self):
             result = self.__class__()
-            result.tokens = self.tokens
-            result._compiled = self._compiled
+            result.tokens = dict(self.tokens)
             return result
 
         def add(self, predicate, handler):
             if not isinstance(predicate, CaseInsensitivePredicate):
-                raise ValueError("incompatible dispatch to case-insensitive")
+                raise ValueError("incompatible dispatch to case-ins.")
 
-            token = predicate.token
+            token = predicate.token.lower()
             if token in self.tokens:
                 raise ValueError("already in there")
             self.tokens[token] = handler
-            self._compiled = None
 
-        def compile(self):
-            tokens_get = self.tokens.__getitem__
-            def case_insensitive_dispatch(token):
-                try:
-                    return tokens_get(token.lower())
-                except KeyError:
-                    raise NoMatch()
-            if self._compiled is None:
-                self._compiled = case_insensitive_dispatch
-            return self._compiled
+        def __call__(self, token):
+            try:
+                return self.tokens[token.lower()]
+            except KeyError:
+                raise NoMatch()
 
 
 class ExprParser:
