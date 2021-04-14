@@ -65,9 +65,9 @@ class ExprGrammar:
                         place_table[pred.cat] = disp
                         disp.add(pred, handler)
 
-            # Fill the expression parsers with the compiled dispatch table.
-            # Here, we reuse the compiled tables from the lower levels to
-            # reduce memory use and thus lower cache pressure.
+            # Fill the expression parsers with the dispatchers.  Here, we reuse
+            # the dispatchers from the lower levels to reduce memory use and
+            # thus lower cache pressure.
             if self_expr.head is None:
                 self_expr.head = sub_expr.head
             if self_expr.tail is None:
