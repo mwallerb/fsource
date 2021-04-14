@@ -302,15 +302,13 @@ class LiteralPredicate(Predicate):
         super().__init__(place, cat)
         self.token = token
 
-    class Dispatcher:
-        __slots__ = "tokens"
-
+    class Dispatcher(dict):
         def __init__(self):
-            self.tokens = {}
+            super().__init__()
 
         def clone(self):
             result = self.__class__()
-            result.tokens = dict(self.tokens)
+            result.update(self)
             return result
 
         def add(self, predicate, handler):
@@ -318,13 +316,13 @@ class LiteralPredicate(Predicate):
                 raise ValueError("incompatible dispatch to literal")
 
             token = predicate.token
-            if token in self.tokens:
+            if token in self:
                 raise ValueError("already in there")
-            self.tokens[token] = handler
+            self[token] = handler
 
         def __call__(self, token):
             try:
-                return self.tokens[token]
+                return self[token]
             except KeyError:
                 raise NoMatch()
 
@@ -338,31 +336,30 @@ class CaseInsensitivePredicate(Predicate):
         super().__init__(place, cat)
         self.token = token.lower()
 
-    class Dispatcher:
-        __slots__ = "tokens"
-
+    class Dispatcher(dict):
         def __init__(self):
-            self.tokens = {}
+            super().__init__()
 
         def clone(self):
             result = self.__class__()
-            result.tokens = dict(self.tokens)
+            result.update(self)
             return result
 
         def add(self, predicate, handler):
             if not isinstance(predicate, CaseInsensitivePredicate):
-                raise ValueError("incompatible dispatch to case-ins.")
+                raise ValueError("incompatible dispatch to literal")
 
             token = predicate.token.lower()
-            if token in self.tokens:
+            if token in self:
                 raise ValueError("already in there")
-            self.tokens[token] = handler
+            self[token] = handler
 
         def __call__(self, token):
             try:
-                return self.tokens[token.lower()]
+                return self[token.lower()]
             except KeyError:
                 raise NoMatch()
+
 
 
 class ExprParser:
