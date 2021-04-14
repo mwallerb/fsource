@@ -45,19 +45,27 @@ class ExprGrammar:
         # handler must have access to the parser at the current level, one
         # level lower (sub_expr) and highest level (full_expr).
         full_expr = parsers[-1]
-        sub_expr = ExprParser(head=[_NeverDispatcher()] * ncat,
-                              tail=[_NeverDispatcher()] * ncat)
+        sub_expr = ExprParser(head=(_NeverDispatcher(),) * ncat,
+                              tail=(_NeverDispatcher(),) * ncat)
         for self_expr, ruleset in zip(parsers, rulesets):
             for rule in ruleset:
                 handler = rule.handler(full_expr, self_expr, sub_expr)
                 for pred in rule.predicates:
+                    # First caching level: only make a new category table if
+                    # necessary (otherwise leave at None)
                     place_table = getattr(self_expr, pred.place)
                     if place_table is None:
-                        place_table = [disp.clone() for disp
-                                       in getattr(sub_expr, pred.place)]
+                        place_table = [None] * ncat
                         setattr(self_expr, pred.place, place_table)
 
+                    # Second caching level: only make new dispatcher if
+                    # necessary (otherwise leave entry at None)
                     disp = place_table[pred.cat]
+                    if disp is None:
+                        sub_table = getattr(sub_expr, pred.place)
+                        disp = sub_table[pred.cat].clone()
+                        place_table[pred.cat] = disp
+
                     try:
                         disp.add(pred, handler)
                     except _NeverDispatcher.CannotAdd:
@@ -70,8 +78,17 @@ class ExprGrammar:
             # thus lower cache pressure.
             if self_expr.head is None:
                 self_expr.head = sub_expr.head
+            else:
+                self_expr.head = tuple(
+                    sub_d if self_d is None else self_d
+                    for (sub_d, self_d) in zip(sub_expr.head, self_expr.head))
+
             if self_expr.tail is None:
                 self_expr.tail = sub_expr.tail
+            else:
+                self_expr.tail = tuple(
+                    sub_d if self_d is None else self_d
+                    for (sub_d, self_d) in zip(sub_expr.tail, self_expr.tail))
 
             # Ascend by one precedence level
             sub_expr = self_expr
