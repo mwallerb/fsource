@@ -46,26 +46,73 @@ else:
 
 _maketrans = _str_maketrans.maketrans
 
+
 class LexerError(common.ParsingError):
     @property
     def error_type(self): return "lexer error"
 
 
-def tokenize_regex(regex, text, lineno=None):
-    """Tokenizes text using the groups in the regex specified
 
-    Expects a `regex`, where different capturing groups correspond to different
-    categories of tokens.  Iterates through all matches of the regex on `text`,
-    returning the highest matching category with the associated token (group
-    text).
+class RegexLexer:
+    """Lexical analysis using regular expressions.
+
+    Lexical analysis splits a text into a sequence of non-overlapping lexical
+    units called tokens.  Each token is characterized by a token category code
+    (an integer starting from 1) and the token text, i.e., the substring
+    corresponding to that token.  Whitespace between tokens is silently
+    discarded.  Token category 0 can be used to mark the end of file.
+
+    For each category, one specifies a name and regular expression.  The
+    lexer than moves through the text, attempting to match the regular
+    expressions for each category, starting from 1.  After matching, it
+    restarts the match after the token found.
     """
-    try:
-        for match in regex.finditer(text):
-            cat = match.lastindex
-            yield lineno, match.start(cat), cat, match.group(cat)
-    except IndexError:
-        raise LexerError(None, lineno, match.start(), match.end(), text,
-                         "invalid token")
+    @classmethod
+    def create(cls, *categories, whitespace=r'', re_opts=re.X):
+        cat_names, cat_regex = zip(*categories)
+        group_re = "|".join("(%s)" % cat for cat in cat_regex)
+        full_re = "(?:%s)(?:%s|[^\t ]+)" % (whitespace, group_re)
+        full_re = re.compile(full_re, re_opts)
+        return cls(full_re, cat_names)
+
+    def __init__(self, full_regex, cat_names):
+        cat_names = tuple(cat_names)
+        if full_regex.groups != len(cat_names):
+            raise ValueError("Number of capturing groups is inconsistent "
+                             "with number of categories.")
+
+        self.cat_name = 'END_OF_FILE', cat_names
+        self.cat_code = {name: code for (code, name)
+                         in enumerate(cat_names, start=1)}
+        self._full_regex = full_regex
+        self._finditer = full_regex.finditer
+
+    def line_tokens(self, line, lineno=None):
+        """Tokenizes text using the groups in the regex specified
+
+        Iterates through all matches of the regex on `text`, returning the
+        highest matching category with the associated token (group text).
+        """
+        try:
+            for match in self._finditer(line):
+                cat = match.lastindex
+                yield lineno, match.start(cat), cat, match.group(cat)
+        except IndexError:
+            raise LexerError(None, lineno, match.start(), match.end(), line,
+                             "invalid token")
+
+    def transform(self, text, actions):
+        """Splits text into tokens and transforms them"""
+        try:
+            for match in self._finditer(text):
+                cat = match.lastindex
+                yield actions[cat](match.group(cat))
+        except IndexError:
+            if len(actions) <= cat:
+                raise ValueError("No action registered for category %d" % cat)
+            raise LexerError(None, None, match.start(), match.end(), text,
+                             "invalid token")
+
 
 
 def get_lexer_regex():
@@ -101,8 +148,7 @@ def get_lexer_regex():
                          | A      \d*
                          | [XP]
                          )(?=\s*[:/,)])"""
-
-    fortran_token = r"""(?ix)
+    fortran_token = re.compile(r"""(?ix)
           {skipws}(?:
             ({word})                            #  1 word
           | ({operator})                        #  2 symbolic operator
@@ -125,8 +171,11 @@ def get_lexer_regex():
                 real=real, int=integer, binary=binary, octal=octal,
                 hex=hexadec, operator=operator, builtin_dot=builtin_dot,
                 dotop=dotop, word=word, format=formattok
-                )
-    return re.compile(fortran_token)
+                ))
+    cat_names = ('word', 'symop', 'eos', 'int', 'float',
+                 'bool', 'dotop', 'custom_dotop', 'string', 'radix',
+                 'format')
+    return RegexLexer(fortran_token, cat_names)
 
 
 CAT_DOLLAR = 0
@@ -142,36 +191,28 @@ CAT_STRING = 9
 CAT_RADIX = 10
 CAT_FORMAT = 11
 CAT_PREPROC = 12
+CAT_MAX = 12
 
 CAT_NAMES = ('eof', 'word', 'symop', 'eos', 'int', 'float',
              'bool', 'dotop', 'custom_dotop', 'string', 'radix',
              'format', 'preproc')
 
 
-def _string_lexer_regex(quote):
-    pattern = r"""(?x) ({quote}{quote}) | ([^{quote}]+)""".format(quote=quote)
-    return re.compile(pattern)
-
-
-def _string_lexer_actions():
-    return (None,
-            lambda tok: tok[0],
-            lambda tok: tok,
-            )
-
-
-STRING_LEXER_REGEX = {
-    "'": _string_lexer_regex("'"),
-    '"': _string_lexer_regex('"'),
+STRING_LEXER = {
+    "'": RegexLexer.create(("NORMAL", "[^']+|^'|'$"), ("ESCAPED",  "''")),
+    '"': RegexLexer.create(("NORMAL", '[^"]+|^"|"$'), ("ESCAPED",  '""'))
     }
-STRING_LEXER_ACTIONS = _string_lexer_actions()
+STRING_ACTIONS = (
+    None,
+    lambda tok: tok,
+    lambda tok: tok[1],
+    )
 
 
 def parse_string(tok):
     """Translates a Fortran string literal to a Python string"""
-    actions = STRING_LEXER_ACTIONS
-    return "".join(actions[cat](token) for (_, _, cat, token)
-                   in tokenize_regex(STRING_LEXER_REGEX[tok[0]], tok[1:-1]))
+    lexer = STRING_LEXER[tok[0]]
+    return lexer.transform(STRING_ACTIONS)
 
 
 CHANGE_D_TO_E = _maketrans('dD', 'eE')
@@ -217,7 +258,7 @@ def lex_buffer(mybuffer, form=None):
             yield lineno, 0, CAT_PREPROC, line
         else:
             try:
-                for token_tuple in tokenize_regex(lexer_regex, line, lineno):
+                for token_tuple in lexer_regex.line_tokens(line, lineno):
                     yield token_tuple
             except LexerError as e:
                 e.fname = fname
@@ -230,5 +271,5 @@ def lex_buffer(mybuffer, form=None):
 
 def lex_snippet(fstring):
     """Perform lexical analysis of parts of a line"""
-    return tuple(tokenize_regex(get_lexer_regex(), fstring)) \
-           + ((None, len(fstring), CAT_DOLLAR, ''),)
+    return tuple(get_lexer_regex().line_tokens(fstring)) \
+                 + ((None, len(fstring), CAT_DOLLAR, ''),)
