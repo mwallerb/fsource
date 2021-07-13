@@ -146,8 +146,9 @@ def get_lexer_regex():
                          | G      \d+ (?: \.\d+  (?: E\d+)?)?
                          | L      \d+
                          | A      \d*
-                         | [XP]
-                         )(?=\s*[:/,)])"""
+                         | X
+                         )(?=\s*[:/,)])
+                    |(?:-?\d+P)(?=\s*,?[\d:DEFG])"""
     fortran_token = re.compile(r"""(?ix)
           {skipws}(?:
             ({word})                            #  1 word
