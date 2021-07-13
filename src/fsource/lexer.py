@@ -87,19 +87,60 @@ class RegexLexer:
         self._full_regex = full_regex
         self._finditer = full_regex.finditer
 
-    def line_tokens(self, line, lineno=None):
+    def line_tokens(self, line, lineno=None, allow_hollerith=False):
         """Tokenizes text using the groups in the regex specified
 
         Iterates through all matches of the regex on `text`, returning the
         highest matching category with the associated token (group text).
+
+        If allow_hollerith is True, legacy Hollerith strings (12HHello World!)
+        will be tokenized as nosrmal strings (code 9). Otherwise they will
+        result in a LexerError (original F77 behavior)
         """
-        try:
-            for match in self._finditer(line):
-                cat = match.lastindex
-                yield lineno, match.start(cat), cat, match.group(cat)
-        except IndexError:
-            raise LexerError(None, lineno, match.start(), match.end(), line,
-                             "invalid token")
+        unscanned_line = line
+        scanmore = True
+        c2 = 0
+        while scanmore:
+            # Assume this for-loop will consume all of unscanned_line
+            scanmore = False
+            try:
+                for match in self._finditer(unscanned_line):
+                    cat = match.lastindex
+                    yield lineno, match.start(cat), cat, match.group(cat)
+                    c2 = match.end(cat)
+            except IndexError:
+                if allow_hollerith:
+                    # Match failed; try to match a Hollerith string
+                    # Note: Hollerith strings cannot be recognized by a simple
+                    # or single regex
+                    mhl = re.match(r"(\d+)H", line[c2:])
+                    if mhl:
+                        hstr_len = int(mhl.group(1))
+                        hstr_start = mhl.end(0)
+                        hs1 = c2 + hstr_start
+                        hs2 = hs1 + hstr_len
+
+                        # If the unscanned line has enough charactors to
+                        # populate the Hollerith string, return it and continue
+                        # parsing. Raise LexerError if there are too few characters
+                        # TODO: Confirm > is correct (vs >=)
+                        if len(unscanned_line) > hs2:
+                            # Strings are code 9; probably should parameterize this...
+                            # Q: Should string extend from c2:hs2 vs hs1:hs2?
+                            # (include nH prefix?) Assuming not.
+                            yield lineno, hs1, 9, unscanned_line[hs1:hs2]
+
+                            # Grab remainder of line to continue scanning
+                            unscanned_line = unscanned_line[hs2:]
+
+                            # Continue scanning unless the Hollerith string consumed the entire
+                            # remainder of the line (nothing left to scan)
+                            scanmore = (len(unscanned_line) > 0)
+                            # Continue the while loop
+                            continue
+
+                raise LexerError(None, lineno, match.start(), match.end(), line,
+                                    "invalid token")
 
     def transform(self, text, actions):
         """Splits text into tokens and transforms them"""
@@ -239,7 +280,7 @@ def parse_radix(tok):
     return int(tok[2:-1], base)
 
 
-def lex_buffer(mybuffer, form=None):
+def lex_buffer(mybuffer, form=None, allow_hollerith=False):
     """Perform lexical analysis for an opened free-form Fortran file."""
     # check for buffer
     if isinstance(mybuffer, str):
@@ -258,7 +299,8 @@ def lex_buffer(mybuffer, form=None):
             yield lineno, 0, CAT_PREPROC, line
         else:
             try:
-                for token_tuple in lexer_regex.line_tokens(line, lineno):
+                for token_tuple in lexer_regex.line_tokens(line, lineno, \
+                    allow_hollerith=allow_hollerith):
                     yield token_tuple
             except LexerError as e:
                 e.fname = fname
@@ -269,7 +311,8 @@ def lex_buffer(mybuffer, form=None):
     yield lineno+1, 0, CAT_DOLLAR, '<$>'
 
 
-def lex_snippet(fstring):
+def lex_snippet(fstring, allow_hollerith=False):
     """Perform lexical analysis of parts of a line"""
-    return tuple(get_lexer_regex().line_tokens(fstring)) \
+    return tuple(get_lexer_regex().line_tokens(fstring, \
+                 allow_hollerith=allow_hollerith))      \
                  + ((None, len(fstring), CAT_DOLLAR, ''),)
