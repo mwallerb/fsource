@@ -148,7 +148,8 @@ def get_lexer_regex():
                          | A      \d*
                          | X
                          )(?=\s*[:/,)])
-                    |(?:-?\d+P)(?=\s*,?[\d:DEFG])"""
+                  | (?:\d+P)      (?=\s*,?)"""  # Matches scale factor P
+                                                # followed by optional comma
     fortran_token = re.compile(r"""(?ix)
           {skipws}(?:
             ({word})                            #  1 word
