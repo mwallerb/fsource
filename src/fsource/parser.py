@@ -2061,19 +2061,6 @@ def program_unit(tokens):
 program_unit_sequence = block(program_unit, 'program_unit_list')
 
 
-@rule
-def _whitespace(tokens):
-    stmts = []
-    while True:
-        cat = tokens.peek()[2]
-        if cat == lexer.CAT_EOS:
-            tokens.advance()
-        elif cat == lexer.CAT_PREPROC:
-            stmts.append(preproc_stmt(tokens))
-        else:
-            return
-
-
 def compilation_unit(tokens):
     with LockedIn(tokens, "expecting module or (sub-)program"):
         units = program_unit_sequence(tokens)
