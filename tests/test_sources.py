@@ -40,3 +40,6 @@ def test_simple():
 
 def test_shareddo():
     parsefile("shareddo.f")
+
+def test_unprefixed():
+    parsefile("unprefixed.f90")
