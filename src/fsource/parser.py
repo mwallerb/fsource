@@ -873,6 +873,7 @@ type_attrs = attribute_sequence(type_attr, 'type_attrs')
 def preproc_stmt(tokens):
     return ('preproc_stmt', expect_cat(tokens, lexer.CAT_PREPROC))
 
+
 def block(inner_rule, production_tag='block'):
     def block_rule(tokens):
         stmts = []
@@ -1991,19 +1992,25 @@ def module_decl(tokens):
 
 end_program_stmt = end_stmt('program', require_type=False)
 
+
+@rule
+def program_body(tokens, name):
+    decls = declaration_part(tokens)
+    execution_part(tokens)
+    cont = optional_contained_part(tokens)
+    end_program_stmt(tokens)
+    return tokens.produce('program_decl', name, decls, cont)
+
+
 @rule
 def program_decl(tokens):
     expect(tokens, 'program')
     with LockedIn(tokens, "invalid program declaration"):
         name = identifier(tokens)
         eos(tokens)
-
     with LockedIn(tokens, "malformed statement inside program"):
-        decls = declaration_part(tokens)
-        execution_part(tokens)
-        cont = optional_contained_part(tokens)
-        end_program_stmt(tokens)
-        return tokens.produce('program_decl', name, decls, cont)
+        return program_body(tokens, name)
+
 
 block_data = composite('block', 'data')
 
@@ -2057,6 +2064,27 @@ program_unit_sequence = block(program_unit, 'program_unit_list')
 def compilation_unit(tokens):
     with LockedIn(tokens, "expecting module or (sub-)program"):
         units = program_unit_sequence(tokens)
+
+    # A fortran file need not have a 'program' statement if it only
+    # contains a single program as program unit.
+    if len(units) == 1:
+        try:
+            units = [program_body(tokens, None)]
+        except NoMatch:
+            pass
+        else:
+            # Clean up whitespace after the program
+            while True:
+                cat = tokens.peek()[2]
+                if cat == lexer.CAT_EOS:
+                    tokens.advance()
+                elif cat == lexer.CAT_PREPROC:
+                    units.append(preproc_stmt(tokens))
+                else:
+                    break
+            units = tokens.produce('program_unit_list', *units)
+
+    with LockedIn(tokens, "invalid subprogram"):
         expect_cat(tokens, lexer.CAT_DOLLAR)
 
     version = tokens.produce('ast_version', *map(str, __version_tuple__))
