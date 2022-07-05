@@ -415,10 +415,11 @@ class Compare(_expr.Infix):
 
     @property
     def predicates(self):
-        return [
-            _expr.LiteralPredicate('tail', lexer.CAT_SYMBOLIC_OP, self.symbol),
-            _expr.CaseInsensitivePredicate('tail', lexer.CAT_BUILTIN_DOT, self.name),
-            ]
+        yield _expr.CaseInsensitivePredicate('tail', lexer.CAT_BUILTIN_DOT,
+                                             self.name)
+        if self.symbol:
+            yield _expr.LiteralPredicate('tail', lexer.CAT_SYMBOLIC_OP,
+                                         self.symbol)
 
 
 class CustomPrefix(_expr.Rule):
@@ -546,6 +547,8 @@ EXPR_GRAMMAR = _expr.ExprGrammar(
         Compare('ge', '>=', 'ge'),
         Compare('lt', '<',  'lt'),
         Compare('gt', '>',  'gt'),
+        Compare('eqv', None, 'eqv'),
+        Compare('neqv', None, 'neqv')
     ], [
         _expr.Prefix(lexer.CAT_BUILTIN_DOT, 'not', 'not_', ignore_case=True),
     ], [
