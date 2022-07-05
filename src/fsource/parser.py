@@ -1925,6 +1925,7 @@ STMT_HANDLERS = {
     'print':      ignore_stmt,
     'return':     ignore_stmt,
     'stop':       ignore_stmt,
+    'error':      ignore_stmt,
     'read':       ignore_stmt,
     'rewind':     ignore_stmt,
     'write':      ignore_stmt,
