@@ -575,6 +575,12 @@ lvalue = LVALUE_GRAMMAR.parser
 
 # -----------
 
+@optional
+@rule
+def kind_equals(tokens):
+    expect(tokens, 'kind')
+    expect(tokens, '=')
+
 @rule
 def kind_selector(tokens):
     if marker(tokens, '*'):
@@ -583,8 +589,7 @@ def kind_selector(tokens):
     else:
         expect(tokens, '(')
         with LockedIn(tokens, "invalid kind selector"):
-            if marker(tokens, 'kind'):
-                expect(tokens, '=')
+            kind_equals(tokens)
             kind_ = expr(tokens)
             expect(tokens, ')')
     return tokens.produce('kind_sel', kind_)
