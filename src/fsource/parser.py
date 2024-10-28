@@ -998,9 +998,11 @@ optional_private_stmt = optional(private_stmt)
 
 def optional_procedures_block(tokens):
     if marker(tokens, 'contains'):
-        private = optional_private_stmt(tokens)
-        conts = type_contains_block(tokens)
-        return tokens.produce('type_bound_procedures', private, *conts[1:])
+        with LockedIn(tokens, "invalid contains block"):
+            eos(tokens)
+            private = optional_private_stmt(tokens)
+            conts = type_contains_block(tokens)
+            return tokens.produce('type_bound_procedures', private, *conts[1:])
     else:
         return None
 
@@ -1579,7 +1581,8 @@ def derived_type_decl_or_entity(tokens):
     try:
         return entity_decl(tokens)
     except NoMatch:
-        return type_decl(tokens)
+        pass
+    return type_decl(tokens)
 
 # TODO: some imbue statements are missing here.
 _DECLARATION_HANDLERS = {
